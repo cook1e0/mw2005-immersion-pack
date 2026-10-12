@@ -1,0 +1,54 @@
+// Shared declarations for the NFSMW VR mod.
+#pragma once
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <stdint.h>
+
+// ---------------------------------------------------------------------------
+// Logging (nfsmw_vr.log next to speed.exe)
+// ---------------------------------------------------------------------------
+void LogInit();
+void Log(const char* fmt, ...);
+
+// ---------------------------------------------------------------------------
+// Configuration (nfsmw_vr.ini next to speed.exe)
+// ---------------------------------------------------------------------------
+struct Config {
+    bool  enabled = true;          // master switch; false = plain passthrough d3d9
+    bool  forceWindowed = true;    // keep the desktop usable while in the headset
+    bool  disableVSync = true;     // the headset paces frames, not the monitor
+    float worldScale = 1.0f;       // multiplies head translation (game units are metres)
+    float levelRoll = 1.0f;        // 0..1: how much of the car's roll to remove from the camera
+    float levelPitch = 0.0f;       // 0..1: how much of the car's pitch to remove (1 = always look at the horizon)
+    char  resolution[32] = "auto"; // "auto" = headset per-eye size, "game" = in-game setting, or "WIDTHxHEIGHT"
+    float resolutionScale = 1.0f;  // multiplies the "auto" resolution
+    float fovScale = 1.0f;         // >1 renders a slightly wider FOV than the HMD (more reprojection margin)
+    float screenDistance = 2.5f;   // menu/movie virtual screen distance (m)
+    float screenWidth = 3.0f;      // menu/movie virtual screen width (m)
+    float hudDistance = 1.2f;      // in-game HUD/frontend panel distance (m)
+    float hudWidth = 1.4f;         // in-game HUD/frontend panel width (m)
+    float hudHeight = -0.05f;      // vertical offset of the HUD panel (m)
+    bool  fakeHmd = false;         // debug: run the stereo path with a fake head when no runtime is present
+    float fakeYaw = 0, fakePitch = 0; // debug: fake head orientation in degrees (+yaw = left, +pitch = up)
+    float fakeIpd = 0.064f;        // debug: fake eye separation (m)
+    int   dumpFrames = 1;          // debug: consecutive frames written per dump key press
+    int   keyRecenter = VK_F8;
+    int   keyDump = 0;               // debug: dump eye/HUD images to BMP (0 = disabled)
+    int   keyToggle = 0;             // debug: toggle stereo rendering (0 = disabled)
+    int   keyLevel = VK_F7;
+    int   keySpectator = VK_F6;
+    char  spectatorMode[16] = "smooth"; // desktop window: smooth (stabilised headset view), sbs (both eyes), eye (raw)
+    int   spectatorEye = 0;          // eye used by "smooth" (0 = left, 1 = right)
+    float spectatorFov = 0.0f;       // horizontal FOV of the smooth/sbs views (degrees); 0 = match the headset
+    float spectatorAspect = 0.0f;    // width/height of one view; 0 = match the headset (e.g. 1.7778 for 16:9)
+    float spectatorSmoothing = 0.2f; // head-motion smoothing time constant (s); 0 = raw head
+    bool  spectatorFollowHead = true; // false = locked straight ahead (classic hood-cam footage)
+    int   spectatorWidth = 1600;     // window client width in smooth/sbs modes (px)
+};
+extern Config g_cfg;
+void LoadConfig();
+
+// Directory containing speed.exe (with trailing backslash).
+const char* GameDir();

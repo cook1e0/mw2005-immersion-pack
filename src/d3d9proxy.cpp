@@ -1,0 +1,558 @@
+// d3d9.dll proxy.
+//
+// * Upgrades the game's IDirect3D9 / device to the Ex versions so render targets
+//   can be shared with the D3D11 device that feeds OpenXR (no CPU copies).
+// * D3D9Ex has no MANAGED pool, so managed resources are moved to DEFAULT
+//   (textures become DYNAMIC to stay lockable).
+// * Hooks Present to hand finished eye images to OpenXR.
+#include "common.h"
+#include "d3d9hook.h"
+#include "game.h"
+#include "xr.h"
+#include "spectator.h"
+
+#include <d3d9.h>
+#include "d3d9device_gen.h"
+#include <stdio.h>
+#include <algorithm>
+
+// ---------------------------------------------------------------------------
+// Real d3d9.dll
+// ---------------------------------------------------------------------------
+static HMODULE s_real;
+template <typename T> static T Real(const char* name) {
+    if (!s_real) {
+        char path[MAX_PATH];
+        GetSystemDirectoryA(path, MAX_PATH);
+        strcat_s(path, "\\d3d9.dll");
+        s_real = LoadLibraryA(path);
+    }
+    return s_real ? (T)GetProcAddress(s_real, name) : nullptr;
+}
+
+// ---------------------------------------------------------------------------
+// Vtable patching
+// ---------------------------------------------------------------------------
+template <typename T> static void PatchVtable(void* obj, int index, T hook, T* original) {
+    void** vt = *(void***)obj;
+    if (vt[index] == (void*)hook) return;
+    *original = (T)vt[index];
+    DWORD old;
+    VirtualProtect(&vt[index], sizeof(void*), PAGE_EXECUTE_READWRITE, &old);
+    vt[index] = (void*)hook;
+    VirtualProtect(&vt[index], sizeof(void*), old, &old);
+}
+
+// IDirect3D9 vtable slot (patched once, right before the game creates its device)
+enum { kD3D_CreateDevice = 16 };
+typedef HRESULT(WINAPI* CreateDevice_t)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*, IDirect3DDevice9**);
+static CreateDevice_t oCreateDevice;
+
+// ---------------------------------------------------------------------------
+// Device state
+// ---------------------------------------------------------------------------
+static IDirect3DDevice9Ex* s_dev;
+static bool s_xr;
+static IDirect3DTexture9* s_eyeTex[3];    // left, right, HUD (shared with D3D11)
+static IDirect3DSurface9* s_eyeSurf[3];
+static IDirect3DSurface9* s_hudRT;        // HUD is drawn here (matches the back buffer's MSAA)
+static IDirect3DSurface9* s_backBuffer;   // held while the HUD phase is active
+static bool s_hudPhase, s_hudValid;
+static int s_eyeW, s_eyeH;
+static bool s_eyeOk;
+static IDirect3DQuery9* s_fence;
+static int s_dumpRequested; // frames left to dump
+static int s_dumpIndex;
+
+static void ReleaseEyeTargets() {
+    for (int i = 0; i < 3; i++) {
+        if (s_eyeSurf[i]) s_eyeSurf[i]->Release();
+        if (s_eyeTex[i]) s_eyeTex[i]->Release();
+        s_eyeSurf[i] = nullptr;
+        s_eyeTex[i] = nullptr;
+    }
+    if (s_hudRT) s_hudRT->Release();
+    s_hudRT = nullptr;
+    s_eyeW = s_eyeH = 0;
+    s_eyeOk = false;
+}
+
+static bool EnsureEyeTargets(int w, int h, D3DMULTISAMPLE_TYPE ms, DWORD msQuality) {
+    if (s_eyeTex[0] && w == s_eyeW && h == s_eyeH) return s_eyeOk;
+    ReleaseEyeTargets();
+    HANDLE handles[3] = {};
+    for (int i = 0; i < 3; i++) {
+        HRESULT hr = s_dev->CreateTexture(w, h, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                          &s_eyeTex[i], &handles[i]);
+        if (FAILED(hr)) {
+            Log("d3d9: creating shared eye texture %dx%d failed 0x%08lx", w, h, hr);
+            return false;
+        }
+        s_eyeTex[i]->GetSurfaceLevel(0, &s_eyeSurf[i]);
+    }
+    if (FAILED(s_dev->CreateRenderTarget(w, h, D3DFMT_A8R8G8B8, ms, msQuality, FALSE, &s_hudRT, nullptr)))
+        Log("d3d9: creating HUD render target failed - HUD will stay in the right eye");
+    s_eyeW = w;
+    s_eyeH = h;
+    s_eyeOk = Xr_SetSharedTextures(handles[0], handles[1], handles[2], w, h);
+    Log("d3d9: eye targets %dx%d (%s)", w, h, s_eyeOk ? "shared with XR" : "XR attach failed");
+    return s_eyeOk;
+}
+
+void D3D_CaptureEye(int eye) {
+    if (!s_dev) return;
+    IDirect3DSurface9* bb = nullptr;
+    if (FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb))) return;
+    D3DSURFACE_DESC d;
+    bb->GetDesc(&d);
+    if (EnsureEyeTargets(d.Width, d.Height, d.MultiSampleType, d.MultiSampleQuality)) {
+        HRESULT hr = s_dev->StretchRect(bb, nullptr, s_eyeSurf[eye], nullptr, D3DTEXF_NONE);
+        static bool warned;
+        if (FAILED(hr) && !warned) {
+            warned = true;
+            Log("d3d9: StretchRect back buffer -> eye failed 0x%08lx (format %d, msaa %d)", hr, d.Format, d.MultiSampleType);
+        }
+    }
+    bb->Release();
+}
+
+static IDirect3DSurface9* s_frameRT;
+static IDirect3DSurface9* s_frameDS;
+
+void D3D_BeginEyes() {
+    if (!s_dev) return;
+    if (s_frameRT) s_frameRT->Release();
+    if (s_frameDS) s_frameDS->Release();
+    s_frameRT = s_frameDS = nullptr;
+    s_dev->GetRenderTarget(0, &s_frameRT);
+    s_dev->GetDepthStencilSurface(&s_frameDS);
+}
+
+void D3D_ResetForNextEye() {
+    if (!s_dev || !s_frameRT) return;
+    IDirect3DSurface9 *rt = nullptr, *ds = nullptr;
+    D3DVIEWPORT9 vp;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->GetDepthStencilSurface(&ds);
+    s_dev->GetViewport(&vp);
+    s_dev->SetRenderTarget(0, s_frameRT);
+    s_dev->SetDepthStencilSurface(s_frameDS);
+    // Same as the game's Clear after Present (eDisplayFrame @ 0x6E763B).
+    DWORD flags = D3DCLEAR_TARGET;
+    if (s_frameDS) {
+        D3DSURFACE_DESC d;
+        s_frameDS->GetDesc(&d);
+        flags |= D3DCLEAR_ZBUFFER;
+        if (d.Format == D3DFMT_D24S8 || d.Format == D3DFMT_D24X4S4 || d.Format == D3DFMT_D15S1 || d.Format == D3DFMT_D24FS8)
+            flags |= D3DCLEAR_STENCIL;
+    }
+    s_dev->Clear(0, nullptr, flags, 0, 1.0f, 0);
+    s_dev->SetRenderTarget(0, rt);
+    s_dev->SetDepthStencilSurface(ds);
+    s_dev->SetViewport(&vp);
+    if (rt) rt->Release();
+    if (ds) ds->Release();
+}
+
+// After the last eye's scene render: keep the scene, then point everything the game
+// draws next (HUD, frontend) at a transparent render target.
+void D3D_BeginHudPhase() {
+    D3D_CaptureEye(1);
+    if (!s_dev || !s_hudRT || s_hudPhase) return;
+    if (FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &s_backBuffer))) return;
+    D3DVIEWPORT9 vp;
+    s_dev->GetViewport(&vp);
+    IDirect3DSurface9* cur = nullptr;
+    s_dev->GetRenderTarget(0, &cur);
+    s_dev->SetRenderTarget(0, s_hudRT);
+    s_dev->Clear(0, nullptr, D3DCLEAR_TARGET, D3DCOLOR_ARGB(0, 0, 0, 0), 1.0f, 0);
+    s_dev->SetRenderTarget(0, cur == s_backBuffer ? s_hudRT : cur);
+    if (cur) cur->Release();
+    s_dev->SetViewport(&vp);
+    s_hudPhase = true;
+}
+
+static void EndHudPhase() {
+    if (s_frameRT) s_frameRT->Release();
+    if (s_frameDS) s_frameDS->Release();
+    s_frameRT = s_frameDS = nullptr;
+    if (!s_hudPhase) return;
+    s_hudPhase = false;
+    IDirect3DSurface9* cur = nullptr;
+    s_dev->GetRenderTarget(0, &cur);
+    if (cur == s_hudRT) s_dev->SetRenderTarget(0, s_backBuffer);
+    if (cur) cur->Release();
+    s_hudValid = s_eyeSurf[2] && SUCCEEDED(s_dev->StretchRect(s_hudRT, nullptr, s_eyeSurf[2], nullptr, D3DTEXF_NONE));
+    if (s_hudValid && Spectator_Mode() == SpectatorMode::Eye) Spectator_BlendFullscreen(s_dev, s_eyeTex[2], s_eyeW, s_eyeH);
+    s_backBuffer->Release();
+    s_backBuffer = nullptr;
+}
+
+// D3D9Ex has no keyed mutex, so wait for the GPU before D3D11 reads the shared textures.
+static void WaitForGpu() {
+    if (!s_fence && FAILED(s_dev->CreateQuery(D3DQUERYTYPE_EVENT, &s_fence))) return;
+    s_fence->Issue(D3DISSUE_END);
+    while (s_fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) YieldProcessor();
+}
+
+static void DumpEyes() {
+    for (int i = 0; i < 3; i++) {
+        if (!s_eyeSurf[i]) continue;
+        IDirect3DSurface9* sys = nullptr;
+        if (FAILED(s_dev->CreateOffscreenPlainSurface(s_eyeW, s_eyeH, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sys, nullptr))) continue;
+        D3DLOCKED_RECT lr;
+        if (SUCCEEDED(s_dev->GetRenderTargetData(s_eyeSurf[i], sys)) && SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+            char path[MAX_PATH];
+            snprintf(path, sizeof(path), "%svr_dump_%03d_%s.bmp", GameDir(), s_dumpIndex, i == 0 ? "left" : i == 1 ? "right" : "hud");
+            FILE* f = fopen(path, "wb");
+            if (f) {
+                BITMAPFILEHEADER fh = {};
+                BITMAPINFOHEADER ih = {};
+                ih.biSize = sizeof(ih);
+                ih.biWidth = s_eyeW;
+                ih.biHeight = -s_eyeH; // top-down
+                ih.biPlanes = 1;
+                ih.biBitCount = 32;
+                fh.bfType = 0x4D42;
+                fh.bfOffBits = sizeof(fh) + sizeof(ih);
+                fh.bfSize = fh.bfOffBits + s_eyeW * s_eyeH * 4;
+                fwrite(&fh, sizeof(fh), 1, f);
+                fwrite(&ih, sizeof(ih), 1, f);
+                for (int y = 0; y < s_eyeH; y++) fwrite((char*)lr.pBits + y * lr.Pitch, 4, s_eyeW, f);
+                fclose(f);
+                Log("d3d9: wrote %s", path);
+            }
+            sys->UnlockRect();
+        }
+        sys->Release();
+    }
+    s_dumpIndex++;
+}
+
+static bool KeyPressed(int vk) {
+    if (vk <= 0 || vk > 255) return false;
+    static bool down[256];
+    bool now = (GetAsyncKeyState(vk) & 0x8001) != 0; // bit 0 catches taps between frames
+    bool pressed = now && !down[vk & 0xff];
+    down[vk & 0xff] = now;
+    return pressed;
+}
+
+static void AdjustPresentParams(D3DPRESENT_PARAMETERS* pp) {
+    if (g_cfg.forceWindowed) {
+        pp->Windowed = TRUE;
+        pp->FullScreen_RefreshRateInHz = 0;
+    }
+    if (g_cfg.disableVSync) pp->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+    Log("d3d9: present params %ux%u fmt=%d windowed=%d msaa=%d interval=0x%x", pp->BackBufferWidth, pp->BackBufferHeight,
+        pp->BackBufferFormat, pp->Windowed, pp->MultiSampleType, pp->PresentationInterval);
+}
+
+static HWND s_wnd;
+static UINT s_bbW, s_bbH;
+static void FitWindow(HWND wnd, UINT w, UINT h);
+
+static void OnPresent() {
+    if (KeyPressed(g_cfg.keySpectator)) {
+        Spectator_CycleMode();
+        FitWindow(s_wnd, s_bbW, s_bbH);
+    }
+    if (KeyPressed(g_cfg.keyRecenter)) Xr_Recenter();
+    if (KeyPressed(g_cfg.keyToggle)) Game_ToggleStereo();
+    if (KeyPressed(g_cfg.keyLevel)) Game_ToggleLevel();
+    if (KeyPressed(g_cfg.keyDump)) s_dumpRequested = g_cfg.dumpFrames > 0 ? g_cfg.dumpFrames : 1;
+
+    if (s_xr) {
+        bool stereo = Game_StereoThisFrame(), captured = false;
+        if (stereo) {
+            captured = true;
+            EndHudPhase();
+            WaitForGpu();
+            float tx, ty;
+            Game_RenderedFov(&tx, &ty);
+            Xr_EndFrame(LayerMode::Stereo, tx, ty, s_hudValid);
+        } else if (Xr_BeginFrame()) {
+            // Menus, movies, loading screens: show the flat frame on a virtual screen.
+            D3D_CaptureEye(0);
+            captured = true;
+            WaitForGpu();
+            Xr_EndFrame(LayerMode::Screen, 0, 0, false);
+        } else {
+            Xr_EndFrame(LayerMode::None, 0, 0, false);
+        }
+        if (captured && s_eyeOk && Spectator_Mode() != SpectatorMode::Eye) {
+            SpectatorFrame sf = {};
+            sf.eye[0] = s_eyeTex[0];
+            sf.eye[1] = s_eyeTex[1];
+            sf.hud = stereo && s_hudValid ? s_eyeTex[2] : nullptr;
+            sf.stereo = stereo;
+            Game_RenderedFov(&sf.eyeTanX, &sf.eyeTanY);
+            const EyeView& e0 = Xr_Eye(0);
+            const EyeView& e1 = Xr_Eye(1);
+            sf.eyeRot[0] = e0.relOrientation;
+            sf.eyeRot[1] = e1.relOrientation;
+            sf.headPos = (e0.relPosition + e1.relPosition) * 0.5f;
+            sf.hmdTanX = std::max(std::max(e0.tanLeft, e0.tanRight), std::max(e1.tanLeft, e1.tanRight));
+            sf.hmdTanY = std::max(std::max(e0.tanUp, e0.tanDown), std::max(e1.tanUp, e1.tanDown));
+            sf.bbWidth = s_eyeW;
+            sf.bbHeight = s_eyeH;
+            Spectator_Draw(s_dev, sf);
+            if (Spectator_ConsumeResize()) FitWindow(s_wnd, s_bbW, s_bbH);
+        }
+        if (s_dumpRequested > 0) {
+            s_dumpRequested--;
+            DumpEyes();
+        }
+        Game_EndOfFrame();
+    }
+}
+
+static void ConvertPool(D3DPOOL& pool, DWORD& usage, bool texture) {
+    if (pool != D3DPOOL_MANAGED) return;
+    pool = D3DPOOL_DEFAULT;
+    if (texture) usage |= D3DUSAGE_DYNAMIC;
+}
+
+// ---------------------------------------------------------------------------
+// Device wrapper. d3d9 rewrites its per-device vtable (e.g. around Reset), so
+// in-place vtable patches don't stick; the game gets this forwarding object instead.
+// ---------------------------------------------------------------------------
+class DeviceWrap : public DeviceWrapBase {
+    ULONG refs = 1;
+
+public:
+    using DeviceWrapBase::DeviceWrapBase;
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** out) override {
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDirect3DDevice9)) {
+            *out = this;
+            AddRef();
+            return S_OK;
+        }
+        return real->QueryInterface(riid, out);
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++refs; }
+    ULONG STDMETHODCALLTYPE Release() override {
+        ULONG r = --refs;
+        if (r == 0) {
+            Log("d3d9: device released");
+            ReleaseEyeTargets();
+            if (s_fence) s_fence->Release();
+            s_fence = nullptr;
+            real->Release();
+            s_dev = nullptr;
+            delete this;
+        }
+        return r;
+    }
+
+    HRESULT STDMETHODCALLTYPE Reset(D3DPRESENT_PARAMETERS* pp) override {
+        EndHudPhase();
+        ReleaseEyeTargets();
+        AdjustPresentParams(pp);
+        HRESULT hr = real->Reset(pp);
+        Log("d3d9: Reset -> 0x%08lx", hr);
+        if (SUCCEEDED(hr)) FitWindow(pp->hDeviceWindow ? pp->hDeviceWindow : s_wnd, pp->BackBufferWidth, pp->BackBufferHeight);
+        return hr;
+    }
+
+    HRESULT STDMETHODCALLTYPE SetRenderTarget(DWORD index, IDirect3DSurface9* surf) override {
+        if (s_hudPhase && index == 0 && surf == s_backBuffer) surf = s_hudRT;
+        return real->SetRenderTarget(index, surf);
+    }
+
+    HRESULT STDMETHODCALLTYPE Present(CONST RECT* src, CONST RECT* dst, HWND wnd, CONST RGNDATA* dirty) override {
+        OnPresent();
+        return real->Present(src, dst, wnd, dirty);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateTexture(UINT w, UINT h, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
+                                            IDirect3DTexture9** tex, HANDLE* shared) override {
+        D3DPOOL p = pool;
+        DWORD u = usage;
+        ConvertPool(p, u, true);
+        HRESULT hr = real->CreateTexture(w, h, levels, u, fmt, p, tex, shared);
+        if (FAILED(hr) && p != pool) {
+            Log("d3d9: dynamic texture %ux%u fmt=%d failed 0x%08lx, retrying static", w, h, fmt, hr);
+            hr = real->CreateTexture(w, h, levels, usage, fmt, p, tex, shared);
+        }
+        return hr;
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateVolumeTexture(UINT w, UINT h, UINT d, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
+                                                  IDirect3DVolumeTexture9** tex, HANDLE* shared) override {
+        ConvertPool(pool, usage, true);
+        return real->CreateVolumeTexture(w, h, d, levels, usage, fmt, pool, tex, shared);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateCubeTexture(UINT edge, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
+                                                IDirect3DCubeTexture9** tex, HANDLE* shared) override {
+        ConvertPool(pool, usage, true);
+        return real->CreateCubeTexture(edge, levels, usage, fmt, pool, tex, shared);
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateVertexBuffer(UINT len, DWORD usage, DWORD fvf, D3DPOOL pool, IDirect3DVertexBuffer9** vb,
+                                                 HANDLE* shared) override {
+        D3DPOOL p = pool;
+        ConvertPool(p, usage, false);
+        HRESULT hr = real->CreateVertexBuffer(len, usage, fvf, p, vb, shared);
+        if (FAILED(hr)) Log("d3d9: CreateVertexBuffer(%u, usage 0x%lx, pool %d->%d) failed 0x%08lx", len, usage, pool, p, hr);
+        return hr;
+    }
+
+    HRESULT STDMETHODCALLTYPE CreateIndexBuffer(UINT len, DWORD usage, D3DFORMAT fmt, D3DPOOL pool, IDirect3DIndexBuffer9** ib,
+                                                HANDLE* shared) override {
+        D3DPOOL p = pool;
+        ConvertPool(p, usage, false);
+        HRESULT hr = real->CreateIndexBuffer(len, usage, fmt, p, ib, shared);
+        if (FAILED(hr)) Log("d3d9: CreateIndexBuffer(%u, usage 0x%lx, pool %d->%d) failed 0x%08lx", len, usage, pool, p, hr);
+        return hr;
+    }
+};
+
+// Starts OpenXR once, before the game picks its resolution (the headset's
+// recommended per-eye size feeds the resolution hook in game.cpp).
+bool D3D_EnsureXr() {
+    static bool attempted;
+    if (attempted || !g_cfg.enabled) return s_xr;
+    attempted = true;
+    LUID luid = {};
+    auto create9ex = Real<HRESULT(WINAPI*)(UINT, IDirect3D9Ex**)>("Direct3DCreate9Ex");
+    IDirect3D9Ex* ex = nullptr;
+    if (create9ex && SUCCEEDED(create9ex(D3D_SDK_VERSION, &ex))) {
+        ex->GetAdapterLUID(D3DADAPTER_DEFAULT, &luid);
+        ex->Release();
+    }
+    s_xr = Xr_Init(luid);
+    Log("d3d9: VR %s", s_xr ? "active" : "unavailable - running flat");
+    return s_xr;
+}
+
+// Sizes the game window for the spectator view: its aspect (16:9 / 32:9 / back
+// buffer), limited to SpectatorWidth and the monitor. Present scales the back buffer
+// to the client area.
+static void FitWindow(HWND wnd, UINT w, UINT h) {
+    if (!wnd || !g_cfg.forceWindowed || !w || !h) return;
+    s_wnd = wnd;
+    s_bbW = w;
+    s_bbH = h;
+    MONITORINFO mi = {sizeof(mi)};
+    if (!GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi)) return;
+    float maxW = (mi.rcWork.right - mi.rcWork.left) * 0.9f, maxH = (mi.rcWork.bottom - mi.rcWork.top) * 0.9f;
+    float aspect = s_xr ? Spectator_WindowAspect((int)w, (int)h) : (float)w / h;
+    float cw = s_xr && Spectator_Mode() != SpectatorMode::Eye ? (float)g_cfg.spectatorWidth : (float)w;
+    cw = std::min(cw, std::min(maxW, maxH * aspect));
+    float ch = cw / aspect;
+    RECT r = {0, 0, (LONG)cw, (LONG)ch};
+    AdjustWindowRectEx(&r, (DWORD)GetWindowLongA(wnd, GWL_STYLE), FALSE, (DWORD)GetWindowLongA(wnd, GWL_EXSTYLE));
+    SetWindowPos(wnd, nullptr, mi.rcWork.left, mi.rcWork.top, r.right - r.left, r.bottom - r.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+    Log("d3d9: window client %.0fx%.0f", cw, ch);
+}
+
+static HRESULT WINAPI hkCreateDevice(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND focus, DWORD flags,
+                                     D3DPRESENT_PARAMETERS* pp, IDirect3DDevice9** out) {
+    IDirect3D9Ex* ex = (IDirect3D9Ex*)d3d;
+    AdjustPresentParams(pp);
+    D3DDISPLAYMODEEX mode = {sizeof(mode)};
+    if (!pp->Windowed) {
+        mode.Width = pp->BackBufferWidth;
+        mode.Height = pp->BackBufferHeight;
+        mode.RefreshRate = pp->FullScreen_RefreshRateInHz;
+        mode.Format = pp->BackBufferFormat;
+        mode.ScanLineOrdering = D3DSCANLINEORDERING_PROGRESSIVE;
+    }
+    IDirect3DDevice9Ex* dev = nullptr;
+    HRESULT hr = ex->CreateDeviceEx(adapter, type, focus, flags, pp, pp->Windowed ? nullptr : &mode, &dev);
+    Log("d3d9: CreateDeviceEx(adapter %u, flags 0x%lx) -> 0x%08lx", adapter, flags, hr);
+    if (FAILED(hr)) return hr;
+
+    s_dev = dev;
+    *out = new DeviceWrap(dev);
+    D3D_EnsureXr();
+    FitWindow(pp->hDeviceWindow ? pp->hDeviceWindow : focus, pp->BackBufferWidth, pp->BackBufferHeight);
+    return hr;
+}
+
+// ---------------------------------------------------------------------------
+// Exports
+// ---------------------------------------------------------------------------
+extern "C" {
+
+IDirect3D9* WINAPI Proxy_Direct3DCreate9(UINT sdk) {
+    auto create9 = Real<IDirect3D9*(WINAPI*)(UINT)>("Direct3DCreate9");
+    if (!g_cfg.enabled) return create9 ? create9(sdk) : nullptr;
+    auto create9ex = Real<HRESULT(WINAPI*)(UINT, IDirect3D9Ex**)>("Direct3DCreate9Ex");
+    IDirect3D9Ex* ex = nullptr;
+    if (!create9ex || FAILED(create9ex(sdk, &ex))) {
+        Log("d3d9: Direct3DCreate9Ex unavailable, VR disabled");
+        return create9 ? create9(sdk) : nullptr;
+    }
+    PatchVtable(ex, kD3D_CreateDevice, (CreateDevice_t)hkCreateDevice, &oCreateDevice);
+    D3D_EnsureXr();
+    return ex;
+}
+
+HRESULT WINAPI Proxy_Direct3DCreate9Ex(UINT sdk, IDirect3D9Ex** out) {
+    return Real<HRESULT(WINAPI*)(UINT, IDirect3D9Ex**)>("Direct3DCreate9Ex")(sdk, out);
+}
+
+int WINAPI Proxy_D3DPERF_BeginEvent(D3DCOLOR c, LPCWSTR n) {
+    auto f = Real<int(WINAPI*)(D3DCOLOR, LPCWSTR)>("D3DPERF_BeginEvent");
+    return f ? f(c, n) : 0;
+}
+int WINAPI Proxy_D3DPERF_EndEvent() {
+    auto f = Real<int(WINAPI*)()>("D3DPERF_EndEvent");
+    return f ? f() : 0;
+}
+void WINAPI Proxy_D3DPERF_SetMarker(D3DCOLOR c, LPCWSTR n) {
+    auto f = Real<void(WINAPI*)(D3DCOLOR, LPCWSTR)>("D3DPERF_SetMarker");
+    if (f) f(c, n);
+}
+void WINAPI Proxy_D3DPERF_SetRegion(D3DCOLOR c, LPCWSTR n) {
+    auto f = Real<void(WINAPI*)(D3DCOLOR, LPCWSTR)>("D3DPERF_SetRegion");
+    if (f) f(c, n);
+}
+BOOL WINAPI Proxy_D3DPERF_QueryRepeatFrame() {
+    auto f = Real<BOOL(WINAPI*)()>("D3DPERF_QueryRepeatFrame");
+    return f ? f() : FALSE;
+}
+void WINAPI Proxy_D3DPERF_SetOptions(DWORD o) {
+    auto f = Real<void(WINAPI*)(DWORD)>("D3DPERF_SetOptions");
+    if (f) f(o);
+}
+DWORD WINAPI Proxy_D3DPERF_GetStatus() {
+    auto f = Real<DWORD(WINAPI*)()>("D3DPERF_GetStatus");
+    return f ? f() : 0;
+}
+
+} // extern "C"
+
+static LONG CALLBACK CrashLogger(EXCEPTION_POINTERS* ep) {
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (code != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
+    CONTEXT* c = ep->ContextRecord;
+    Log("CRASH at %08lx: eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx esp=%08lx ebp=%08lx", c->Eip, c->Eax,
+        c->Ebx, c->Ecx, c->Edx, c->Esi, c->Edi, c->Esp, c->Ebp);
+    DWORD* sp = (DWORD*)c->Esp;
+    Log("  stack: %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx %08lx", sp[0], sp[1], sp[2], sp[3], sp[4],
+        sp[5], sp[6], sp[7], sp[8], sp[9], sp[10], sp[11]);
+    void* game = *(void**)0x982bdc;
+    if (game) {
+        void** vt = *(void***)game;
+        Log("  game device %p vt=%p, real device %p", game, vt, s_dev);
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
+BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
+    if (reason == DLL_PROCESS_ATTACH) {
+        DisableThreadLibraryCalls(inst);
+        LogInit();
+        Log("NFSMW VR mod loaded");
+        AddVectoredExceptionHandler(0, CrashLogger);
+        LoadConfig();
+        if (g_cfg.enabled) Game_InstallHooks();
+    }
+    return TRUE;
+}

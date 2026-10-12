@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+dist/
+
+# Reverse-engineering workspace (game disassembly, third-party symbol maps) - not redistributable
+re/
+
+# Local captures
+shots/
+*.bmp
+*.log
