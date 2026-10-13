@@ -10,7 +10,9 @@ different proxy DLL, so they can be installed together or on their own.
 | Force feedback | [`ffb/`](ffb/) | `dinput8.dll` | Steering forces from the game's own tyre model |
 | H-shifter + clutch | [`hshifter/`](hshifter/) | `dsound.dll` | H-pattern shifting, analog clutch, engine heat / over-rev / blow-ups, in-game tuning menu |
 
-Each folder's README covers installing, settings and how the mod works.
+To install, download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
+and copy the files of the mods you want next to `speed.exe`; no building needed. Each folder's
+README covers settings and how the mod works.
 
 ## Highlights
 

@@ -23,11 +23,9 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 
 ## Install
 
-```sh
-./build.sh install        # MSYS2 mingw32; copies dsound.dll, hshiftertool.exe, nfsmw_hshifter.ini
-```
-
-Then, with your pedals and shifter connected, run in the game folder:
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll`, `nfsmw_hshifter.ini`
+and `hshiftertool.exe` next to `speed.exe`. Then, with your pedals and shifter connected, run in
+the game folder:
 
 ```
 hshiftertool setup
@@ -91,6 +89,11 @@ code doesn't match.
 
 Based on the dbalatoni13/nfsmw decompilation (credits to Brawltendo for `EngineRacer`). Its sources
 and the game's disassembly aren't included here; keep local copies in `re/` (git-ignored).
+
+## Building
+
+MSYS2 with the mingw32 toolchain: `./build.sh` builds into `build/`, `./build.sh install` also
+copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 
 ## Limitations
 

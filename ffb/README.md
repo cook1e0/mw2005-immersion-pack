@@ -5,13 +5,13 @@ game's own tyre model instead of its weak built-in effects.
 
 ## Install
 
-```sh
-./build.sh install        # builds with MSYS2 mingw32 and copies into C:\Games\NFSMW
-```
-
-Copies `dinput8.dll` and `nfsmw_ffb.ini` next to `speed.exe`. It can also be renamed to
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dinput8.dll` and `nfsmw_ffb.ini` next
+to `speed.exe` (`ffbtool.exe` is optional, see below). `dinput8.dll` can also be renamed to
 `nfsmw_ffb.asi` for an ASI loader; it then redirects the game's `DirectInput8Create` import itself.
 Remove `dinput8.dll` to uninstall.
+
+To build it yourself: MSYS2 with the mingw32 toolchain, `./build.sh` (`./build.sh install` copies
+into `C:\Games\NFSMW`, or `$NFSMW_DIR`).
 
 In game, pick your wheel as the controller as usual. The in-game "rumble/force feedback" option
 does not matter.
