@@ -58,4 +58,4 @@ Requires Visual Studio 2017 Build Tools (x86) and Windows SDK 10.0.17763. Run `b
 
 ## License
 
-MIT, see [LICENSE](LICENSE). OpenXR headers are Apache-2.0.
+MIT, see [LICENSE](../LICENSE). OpenXR headers are Apache-2.0.

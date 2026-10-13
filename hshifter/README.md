@@ -89,8 +89,8 @@ code doesn't match.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a
   proxy in the game folder) polled at ~500 Hz on its own thread.
 
-`re/` holds the decompilation sources this is based on (dbalatoni13/nfsmw, credits to Brawltendo
-for `EngineRacer`) and the annotated disassembly of `OnTaskSimulate`.
+Based on the dbalatoni13/nfsmw decompilation (credits to Brawltendo for `EngineRacer`). Its sources
+and the game's disassembly aren't included here; keep local copies in `re/` (git-ignored).
 
 ## Limitations
 
