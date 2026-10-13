@@ -7,7 +7,7 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair, s_menu, s_nav[4];
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair, s_hit, s_menu, s_nav[4];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -31,6 +31,13 @@ static bool GameHasFocus() {
     return pid == GetCurrentProcessId();
 }
 
+// Binding capture, shared with the game thread under s_lock.
+enum { CAP_IDLE, CAP_REQUESTED, CAP_ARMED, CAP_DONE };
+static int s_capState = CAP_IDLE;
+static std::string s_capResult;
+static int s_capRest = -1;
+static bool s_reparse = false;
+
 static void ParseAll() {
     std::string err;
     auto parse = [&](const char* what, const std::string& text, std::vector<Binding>& out) {
@@ -49,6 +56,7 @@ static void ParseAll() {
     parse("Toggle", g_cfg.toggle, s_toggle);
     parse("DebugBlow", g_cfg.debugBlow, s_blow);
     parse("DebugRepair", g_cfg.debugRepair, s_repair);
+    parse("DebugDamage", g_cfg.debugDamage, s_hit);
     parse("Menu", g_cfg.menu, s_menu);
     parse("MenuUp", g_cfg.menuUp, s_nav[0]);
     parse("MenuDown", g_cfg.menuDown, s_nav[1]);
@@ -70,8 +78,10 @@ static void ParseAll() {
 }
 
 // Assigns JoyN slots to attached devices: by name substring if configured, else enumeration order.
-static void OpenDevices(HWND hwnd) {
+static void OpenDevices(HWND hwnd, bool all = false) {
     std::vector<JoyDevice> attached = DI_Enumerate();
+    if (all)
+        for (size_t j = 0; j < attached.size() && j < (size_t)kMaxJoys; j++) s_joyWanted[j] = true;
     std::vector<bool> used(attached.size(), false);
     for (int j = 0; j < kMaxJoys; j++)
         if (s_joy[j].dev)
@@ -147,6 +157,88 @@ struct Repeater {
     }
 };
 
+// Capture: remembers what is held when armed, then takes the first new press or big axis move.
+struct Capture {
+    bool keyHeld[256];
+    JoyState base[kMaxJoys];
+    bool baseOk[kMaxJoys];
+    double armAt;
+
+    void Arm(double now) {
+        for (int vk = 0; vk < 256; vk++) keyHeld[vk] = (GetAsyncKeyState(vk) & 0x8000) != 0;
+        for (int j = 0; j < kMaxJoys; j++) {
+            baseOk[j] = s_joy[j].dev && s_joy[j].ok;
+            if (baseOk[j]) base[j] = s_joy[j].state;
+        }
+        armAt = now;
+    }
+
+    // Returns true with the binding text when something new was pressed.
+    bool Poll(bool focus, std::string& out, int& rest) {
+        rest = -1;
+        for (int vk = 8; vk < 256; vk++) {
+            if (vk == VK_SHIFT || vk == VK_CONTROL || vk == VK_MENU) continue;   // the L/R codes are reported too
+            bool down = focus && (GetAsyncKeyState(vk) & 0x8000);
+            if (!down) keyHeld[vk] = false;
+            else if (!keyHeld[vk]) {
+                Binding b;
+                b.kind = BK_KEY;
+                b.index = vk;
+                out = BindingName(b);
+                return true;
+            }
+        }
+        for (int j = 0; j < kMaxJoys; j++) {
+            const JoyDevice& d = s_joy[j];
+            if (!d.dev || !d.ok) continue;
+            if (!baseOk[j]) {
+                base[j] = d.state;
+                baseOk[j] = true;
+                continue;
+            }
+            JoyState& b0 = base[j];
+            Binding b;
+            b.joy = j;
+            for (int i = 0; i < 128; i++) {
+                bool down = (d.state.btn[i] & 0x80) != 0;
+                if (!down) b0.btn[i] = 0;
+                else if (!(b0.btn[i] & 0x80)) {
+                    b.kind = BK_BUTTON;
+                    b.index = i;
+                    out = BindingName(b);
+                    return true;
+                }
+            }
+            for (int p = 0; p < 4; p++) {
+                if (LOWORD(d.state.pov[p]) == 0xFFFF) {
+                    b0.pov[p] = d.state.pov[p];
+                    continue;
+                }
+                for (int dir = 0; dir < 4; dir++)
+                    if (PovMatches(d.state.pov[p], dir) && !PovMatches(b0.pov[p], dir)) {
+                        b.kind = BK_POV;
+                        b.index = p;
+                        b.povDir = dir;
+                        out = BindingName(b);
+                        return true;
+                    }
+            }
+            for (int a = 0; a < 8; a++) {
+                if (!d.hasAxis[a]) continue;
+                LONG delta = d.state.axis[a] - b0.axis[a];
+                if (labs(delta) < 20000) continue;
+                b.kind = BK_AXIS;
+                b.index = a;
+                b.invert = delta < 0;
+                out = BindingName(b);
+                rest = (int)b0.axis[a];
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
 static DWORD WINAPI InputThread(LPVOID) {
     if (!DI_Init()) {
         Log("input: DirectInput unavailable, mod inactive");
@@ -159,11 +251,12 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false, prevMenu = false;
+    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false, prevHit = false, prevMenu = false;
     Repeater nav[4];
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
     float logPedal = -1;
+    static Capture cap;
     timeBeginPeriod(1);
 
     for (;;) {
@@ -188,6 +281,35 @@ static DWORD WINAPI InputThread(LPVOID) {
             OpenDevices(hwnd);
         }
         bool focus = GameHasFocus();
+
+        EnterCriticalSection(&s_lock);
+        if (s_reparse) {
+            s_reparse = false;
+            ParseAll();
+            lastScan = 0;   // open newly wanted devices below
+        }
+        int capState = s_capState;
+        LeaveCriticalSection(&s_lock);
+        if (capState == CAP_REQUESTED) {
+            OpenDevices(hwnd, true);
+            cap.Arm(now);
+            EnterCriticalSection(&s_lock);
+            if (s_capState == CAP_REQUESTED) s_capState = CAP_ARMED;
+            LeaveCriticalSection(&s_lock);
+        } else if (capState == CAP_ARMED && now - cap.armAt > 0.25) {
+            std::string text;
+            int rest;
+            if (cap.Poll(focus, text, rest)) {
+                EnterCriticalSection(&s_lock);
+                if (s_capState == CAP_ARMED) {
+                    s_capState = CAP_DONE;
+                    s_capResult = text;
+                    s_capRest = rest;
+                }
+                LeaveCriticalSection(&s_lock);
+                Log("input: captured %s", text.c_str());
+            }
+        }
 
         // Clutch: deepest of all bound pedals / buttons.
         float pedal = 0.0f;
@@ -245,6 +367,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         bool toggleDown = AnyDown(s_toggle, focus);
         bool blowDown = AnyDown(s_blow, focus);
         bool repairDown = AnyDown(s_repair, focus);
+        bool hitDown = AnyDown(s_hit, focus);
         bool menuDown = AnyDown(s_menu, focus);
         uint32_t navPresses[4];
         for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
@@ -257,12 +380,14 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (toggleDown && !prevToggle) s_snap.toggles++;
         if (blowDown && !prevBlow) s_snap.blows++;
         if (repairDown && !prevRepair) s_snap.repairs++;
+        if (hitDown && !prevHit) s_snap.hits++;
         if (menuDown && !prevMenu) s_snap.menu++;
         for (int i = 0; i < 4; i++) s_snap.menuNav[i] += navPresses[i];
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
         prevBlow = blowDown;
         prevRepair = repairDown;
+        prevHit = hitDown;
         prevMenu = menuDown;
 
         if (g_cfg.logInputs && now - lastLog > 0.1 && (stick != logGear || fabsf(pedal - logPedal) > 0.05f)) {
@@ -273,6 +398,42 @@ static DWORD WINAPI InputThread(LPVOID) {
         }
         Sleep(2);
     }
+}
+
+void Input_BeginCapture() {
+    Input_Start();
+    EnterCriticalSection(&s_lock);
+    s_capState = CAP_REQUESTED;
+    s_capResult.clear();
+    LeaveCriticalSection(&s_lock);
+}
+
+void Input_CancelCapture() {
+    if (!s_started) return;
+    EnterCriticalSection(&s_lock);
+    s_capState = CAP_IDLE;
+    LeaveCriticalSection(&s_lock);
+}
+
+bool Input_Captured(std::string* binding, int* axisRest) {
+    if (!s_started) return false;
+    EnterCriticalSection(&s_lock);
+    bool done = s_capState == CAP_DONE;
+    if (done) {
+        *binding = s_capResult;
+        *axisRest = s_capRest;
+        s_capState = CAP_IDLE;
+    }
+    LeaveCriticalSection(&s_lock);
+    return done;
+}
+
+void Input_SetBinding(std::string& field, const std::string& value) {
+    Input_Start();
+    EnterCriticalSection(&s_lock);
+    field = value;
+    s_reparse = true;
+    LeaveCriticalSection(&s_lock);
 }
 
 void Input_Start() {

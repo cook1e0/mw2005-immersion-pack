@@ -20,10 +20,18 @@
 // limiter can be lifted (UseRevLimiter), the last two through EngineRacer's vtable. A blown
 // engine uses the game's own IEngineDamage::Blow, which cuts the throttle and fires EEngineBlown
 // (in a race the racer is knocked out). Drag races keep the game's own model.
+//
+// Car damage: the player's DamageRacer has the game's damage total (DamageVehicle::mDamageTotal,
+// IDamageable::GetHealth = 1 - total), but racers have no hit points, so it stays at 0. Every
+// impact goes through DamageVehicle::OnImpact (a vtable slot), where the speed change it causes
+// (impact force / mass) is turned into damage and written to that total. Props (smackables:
+// cones, barrels, signs) do no damage. The game resets the total with the engine (ResetDamage:
+// safehouse, race restart). At 100% the car is destroyed like a blown engine.
 #include "game.h"
 #include "common.h"
 #include "input.h"
 #include "ui.h"
+#include "hud.h"
 #include <math.h>
 
 namespace {
@@ -53,6 +61,10 @@ constexpr uintptr_t kIDamageableHandle = 0x405000;  // IDamageable::_IHandle; vt
 constexpr uintptr_t kDestroy = 0x69C540;            // void DamageVehicle::Destroy() (IDamageable this)
 constexpr uintptr_t kResetDamageRacer = 0x69C930;   // void DamageRacer::ResetDamage()
 constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
+constexpr uintptr_t kSlotOnImpact = 0x8AD378;     // DamageRacer vtable: DamageVehicle::OnImpact
+constexpr uintptr_t kOnImpact = 0x69C030;
+constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
+constexpr uintptr_t kRaceStatus = 0x91E000;         // GRaceStatus* GRaceStatus::fObj; +0x1960 mPlayMode (0 = roaming)
 constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
 constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
 
@@ -73,6 +85,11 @@ constexpr int kER_Vehicle = 0x48;                   // IVehicle: vtbl+0x20 IsSta
 constexpr int kER_EngineDamage = 0x78;              // IEngineDamage sub-object (+0x12C mBlown)
 constexpr int kER_RPM = 0x180;
 constexpr int kER_Blown = 0x1A4;
+
+// DamageVehicle (the object, OnImpact's this)
+constexpr int kDV_RigidBody = 0x90;                 // IRigidBody*: vtbl+0x18 GetMass
+constexpr int kDI_DamageTotal = 0x3C;               // mDamageTotal, from the IDamageable sub-object
+constexpr int kSimableSmackable = 2;                // ISimable vtbl+4 GetSimableType: SIMABLE_SMACKABLE
 // Attrib engine layout (kER_EngineLayout): +0x54 MAX_RPM, +0x58 RED_LINE
 
 enum GearID { G_REVERSE = 0, G_NEUTRAL = 1, G_FIRST = 2 };
@@ -99,11 +116,16 @@ typedef void(__thiscall* Void_t)(void* obj);
 typedef float(__thiscall* EngineTorque_t)(void* engine, float rpm);
 typedef void(__thiscall* BlockInput_t)(void* input, bool block);
 typedef void(__cdecl* RenderHud_t)(int);
+typedef float(__thiscall* Float_t)(void* obj);
+typedef int(__thiscall* Int_t)(void* obj);
+typedef void(__thiscall* OnImpact_t)(void* dv, const float* arm, const float* normal, float force, float speed,
+                                     const void* surface, void* other);
 
 DoShifting_t s_origDoShifting = (DoShifting_t)kDoShifting;
 DoAutoReverse_t s_origDoAutoReverse = (DoAutoReverse_t)kDoAutoReverse;
 IsAutomaticShift_t s_origIsAutomaticShift;
 EngineSimulate_t s_origEngineSimulate;
+Bool_t s_origCanDoGameBreaker;
 float s_baseStiffness = 20.0f;
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
@@ -130,7 +152,7 @@ struct {
     bool forcing = false;       // clutch state is currently ours
     bool hEnabled = true;       // toggled in game
     uint32_t toggles = 0;
-    uint32_t blows = 0, repairs = 0;
+    uint32_t blows = 0, repairs = 0, hits = 0;
     float heat = 0.0f;          // 0..1, the player engine blows at 1
     int heatStep = 0;           // last logged quarter of heat
     bool blown = false;         // last seen blown state (log changes)
@@ -138,11 +160,16 @@ struct {
     double simSeen = -1e9;      // last OnTaskSimulate of the player's engine
     bool menuOpen = false;      // tuning menu wants the car's controls blocked
     bool menuBlocked = false;   // ... and we blocked them
+    int damageStep = 0;         // last logged tenth of damage
+    bool totaled = false;       // the player's car is destroyed (health 0)
+    bool totaledBlocked = false;// ... in free roam, and we blocked its controls
+    double totaledMsg = 0;      // when the free roam "totaled" message was last shown
 } s;
 
 bool Fresh() { return Now() - s.seen < 0.5; }
 bool IsBlown(uint8_t* eng);
 void BlowEngine(uint8_t* eng);
+void AddDamage(uint8_t* eng, float add, float impact);
 
 uint8_t* PlayerEngine(void* ip) {
     uint8_t* vehicle = Field<uint8_t*>((uint8_t*)ip, kIP_Vehicle);
@@ -359,6 +386,37 @@ void UpdateMenuBlock(uint8_t* eng) {
     }
 }
 
+bool InRace() {
+    uint8_t* race = *(uint8_t**)kRaceStatus;
+    return race && Field<int>(race, 0x1960) != 0;
+}
+
+// A destroyed car ends a race with the game's "Totaled" screen. Free roam has no such screen, so
+// the car is made undrivable (engine marked blown, controls blocked) and a HUD message says how
+// to get going again, until the game repairs it (safehouse).
+void UpdateTotaled(uint8_t* eng) {
+    void* damage = PlayerDamageable(eng);
+    bool totaled = damage && ((Float_t)Vtbl(damage)[5])(damage) <= 0.0f;   // GetHealth
+    if (totaled != s.totaled) {
+        s.totaled = totaled;
+        s.totaledMsg = 0;
+        Log("car %s", totaled ? (InRace() ? "totaled (race)" : "totaled (free roam)") : "no longer totaled");
+        if (!totaled && s.totaledBlocked) {
+            BlockPlayerInput(eng, false);
+            s.totaledBlocked = false;
+        }
+    }
+    if (!totaled || InRace()) return;
+    if (!s.totaledBlocked) {
+        Field<bool>(eng, kER_Blown) = true;
+        if (!PlayerInputBlocked(eng)) {
+            BlockPlayerInput(eng, true);
+            s.totaledBlocked = true;
+        }
+    }
+    if (Now() - s.totaledMsg > 6.0 && Hud_Message("TOTALED - JUMP TO SAFE HOUSE")) s.totaledMsg = Now();
+}
+
 // Runs every step for the player's engine, also while blown (input blocked, so no FetchInput).
 void PlayerEngineStep(uint8_t* eng) {
     s.simSeen = Now();
@@ -374,11 +432,16 @@ void PlayerEngineStep(uint8_t* eng) {
         s.heat = 0.0f;
         s.heatStep = 0;
     }
+    if (in.hits != s.hits) {
+        s.hits = in.hits;
+        AddDamage(eng, 0.1f, 0.0f);
+    }
     if (in.blows != s.blows) {
         s.blows = in.blows;
         Log("engine: debug blow");
         BlowEngine(eng);
     }
+    UpdateTotaled(eng);
     bool blown = IsBlown(eng);
     if (blown != s.blown) {
         s.blown = blown;
@@ -434,6 +497,56 @@ void __fastcall Hook_Repair(uint8_t* damage) {
         s.heatStep = 0;
     }
     ((Void_t)kRepair)(damage);
+}
+
+// --- car damage ------------------------------------------------------------------------------
+float PlayerDamage(uint8_t* eng) {
+    void* damage = PlayerDamageable(eng);
+    return damage ? 1.0f - ((Float_t)Vtbl(damage)[5])(damage) : 0.0f;   // GetHealth
+}
+
+// At 100% the car is destroyed (IDamageable::Destroy, as for a blown engine). Destroy only acts
+// below 100% and sets the total to 1 itself.
+void AddDamage(uint8_t* eng, float add, float impact) {
+    uint8_t* iface = (uint8_t*)PlayerDamageable(eng);
+    if (!iface) return;
+    float& total = Field<float>(iface, kDI_DamageTotal);
+    if (total >= 1.0f) return;
+    float now = total + add;
+    int step = (int)(now * 10.0f + 0.001f);
+    if (step != s.damageStep) {
+        Log("damage: %.0f%% (impact %.1f m/s)", now * 100.0f, impact);
+        s.damageStep = step;
+    }
+    if (now < 1.0f) {
+        total = now;
+        return;
+    }
+    total = 0.999f;
+    ((Void_t)kDestroy)(iface);
+    Log("damage: car TOTALED");
+}
+
+void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float* normal, float force, float speed,
+                              const void* surface, void* other) {
+    ((OnImpact_t)kOnImpact)(dv, arm, normal, force, speed, surface, other);
+    if (!g_cfg.damage || !s.engine || Now() - s.simSeen > 0.3) return;
+    uint8_t* iface = (uint8_t*)PlayerDamageable(s.engine);
+    if (!iface || iface < dv || iface >= dv + 0x100) return;   // not the player's car
+    if (IsStaging(s.engine)) return;
+    // Props (cones, barrels, signs, lamp posts) fly off without hurting the car.
+    if (other && ((Int_t)Vtbl(other)[1])(other) == kSimableSmackable) return;
+    void* rb = Field<void*>(dv, kDV_RigidBody);
+    float mass = rb ? ((Float_t)Vtbl(rb)[6])(rb) : 0.0f;
+    if (!(mass > 1.0f)) return;
+    float dv_ms = force / mass;
+    float add = (dv_ms - g_cfg.damageMinImpact) * 0.02f * g_cfg.damageStrength;
+    if (g_cfg.logInputs) Log("damage: impact %.1f m/s (speed %.1f, mass %.0f)%s", dv_ms, speed, mass, add > 0 ? "" : " ignored");
+    if (add > 0.0f) AddDamage(s.engine, add, dv_ms);
+}
+
+bool __fastcall Hook_CanDoGameBreaker(void* player) {
+    return g_cfg.speedbreaker && s_origCanDoGameBreaker(player);
 }
 
 // --- clutch ----------------------------------------------------------------------------------
@@ -542,6 +655,19 @@ EngineStatus Game_Engine() {
     return st;
 }
 
+HudStatus Game_Hud() {
+    HudStatus h;
+    if (!s.engine || Now() - s.simSeen > 0.3) return h;
+    h.valid = true;
+    h.damage = Clamp(PlayerDamage(s.engine), 0.0f, 1.0f);
+    if ((int)(h.damage * 10.0f + 0.001f) < s.damageStep) {
+        Log("damage: repaired to %.0f%%", h.damage * 100.0f);
+        s.damageStep = (int)(h.damage * 10.0f + 0.001f);
+    }
+    h.heat = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine) ? s.heat : 0.0f;
+    return h;
+}
+
 void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
 
 bool Game_Install() {
@@ -595,6 +721,23 @@ bool Game_Install() {
     const uint8_t nop = 0x90;
     Write(kIsAutomaticShift + 5, &nop, 1);
     WriteRel(kEngineSimulate, 0xE9, (void*)&Hook_EngineSimulate);
+    if (ExpectPtr(kSlotOnImpact, kOnImpact)) {
+        void* p = (void*)&Hook_OnImpact;
+        Write(kSlotOnImpact, &p, 4);
+        Log("car damage %s (from %.1f m/s, strength %.2f)", g_cfg.damage ? "on" : "off", g_cfg.damageMinImpact,
+            g_cfg.damageStrength);
+    } else {
+        Log("car damage unavailable");
+        g_cfg.damage = false;
+    }
+    if (Expect(kCanDoGameBreaker, {0xA1, 0x04, 0x8E, 0x98, 0x00, 0x85, 0xC0})) {
+        s_origCanDoGameBreaker = (Bool_t)MakeTrampoline(kCanDoGameBreaker, 5);
+        if (s_origCanDoGameBreaker) {
+            WriteRel(kCanDoGameBreaker, 0xE9, (void*)&Hook_CanDoGameBreaker);
+            Log("speedbreaker %s", g_cfg.speedbreaker ? "on" : "off");
+        }
+    }
+    Hud_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());

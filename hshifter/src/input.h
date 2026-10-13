@@ -10,9 +10,21 @@ struct InputSnapshot {
     uint32_t toggles = 0;       // incremented on every press of the toggle binding
     uint32_t blows = 0;         // ... of [Engine] DebugBlow
     uint32_t repairs = 0;       // ... of [Engine] DebugRepair
+    uint32_t hits = 0;          // ... of [Damage] DebugDamage
     uint32_t menu = 0;          // ... of [UI] Menu
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 };
+
+// In-game binding (tuning menu): after BeginCapture the input thread opens every attached
+// controller and reports the first key, button, hat direction or axis that is pressed or moved
+// (controls already held when capture starts must be released first). Game thread.
+void Input_BeginCapture();
+void Input_CancelCapture();
+// True once something was pressed: binding text ("key:F4", "joy0:b3", "joy1:-rz", ...) and, for an
+// axis, its raw value at rest.
+bool Input_Captured(std::string* binding, int* axisRest);
+// Replaces a binding string in g_cfg and makes the input thread re-read all bindings. Game thread.
+void Input_SetBinding(std::string& field, const std::string& value);
 
 void Input_Start();             // safe to call repeatedly; starts the thread once
 InputSnapshot Input_Get();

@@ -63,14 +63,28 @@ struct Config {
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
     bool  engineWear = true;
     bool  revLimiter = false;       // keep the rev limiter (heat then builds while bouncing off it)
-    float heatUp = 0.20f;           // heat per second at the redline (1 = blown)
-    float heatUpMax = 0.50f;        // ... at max rpm (over-revving without the limiter)
-    float coolDown = 0.10f;         // heat lost per second below the redline
-    float powerLossStart = 0.5f;    // heat where the engine starts losing power
+    float heatUp = 0.05f;           // heat per second at the redline (1 = blown)
+    float heatUpMax = 0.05f;        // ... at max rpm (over-revving without the limiter)
+    float coolDown = 0.01f;         // heat lost per second below the redline
+    float powerLossStart = 0.9f;    // heat where the engine starts losing power
     float powerLoss = 0.5f;         // fraction of torque lost at full heat
     bool  totaled = true;           // a blown engine totals the car (crash camera, "Totaled")
     std::string debugBlow;          // binding that blows the engine (testing)
     std::string debugRepair;        // binding that repairs it (testing)
+    std::string debugDamage;        // binding that adds 10% car damage (testing)
+
+    // [Damage] collision damage for the player's car; 100% totals it like a blown engine
+    bool  damage = true;
+    float damageMinImpact = 4.0f;   // impacts below this speed change (m/s) do no damage
+    float damageStrength = 1.0f;    // damage per m/s above that, in units of 2%
+
+    // [HUD] the speedbreaker meter shows car damage, with engine heat overlaid in red
+    bool  hudMeter = true;
+    bool  speedbreaker = false;     // the game's speedbreaker (its meter is taken over)
+    std::string hudIcon = "COPS_ICON"; // texture replacing the speedbreaker clock
+    float hudHeatFrom = 0.5f;       // heat where the red overlay starts filling
+    float hudWarn = 0.75f;          // heat or damage at which the meter flashes
+    float hudDepth = 1.0f;          // overlay z offset; FEng draws in ascending z, so + is on top
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD

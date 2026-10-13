@@ -6,7 +6,7 @@ export PATH=/c/msys64/mingw32/bin:$PATH
 mkdir -p build
 FLAGS="-std=c++17 -O2 -Wall -Wno-unused-function -m32 -march=i686 -static -static-libgcc -static-libstdc++"
 g++ $FLAGS -shared -o build/dsound.dll \
-    src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/ui.cpp \
+    src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/hud.cpp src/ui.cpp \
     src/dsound.def -ldxguid -lwinmm -lgdi32 -Wl,--enable-stdcall-fixup -Wl,--kill-at -s
 g++ $FLAGS -o build/hshiftertool.exe \
     tools/hshiftertool.cpp src/devices.cpp src/common.cpp -ldxguid -s

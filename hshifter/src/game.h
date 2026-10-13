@@ -15,5 +15,13 @@ struct EngineStatus {
 };
 EngineStatus Game_Engine();
 
+// For the HUD meter: the player car's damage (0..1, 1 = totaled) and engine heat. Game thread only.
+struct HudStatus {
+    bool valid = false;         // the player's car is known
+    float damage = 0.0f;
+    float heat = 0.0f;          // 0 unless engine wear applies
+};
+HudStatus Game_Hud();
+
 // Blocks the car's controls while the tuning menu is open. Game thread only.
 void Game_SetMenuOpen(bool open);
