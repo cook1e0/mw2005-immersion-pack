@@ -540,7 +540,7 @@ void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float*
     float mass = rb ? ((Float_t)Vtbl(rb)[6])(rb) : 0.0f;
     if (!(mass > 1.0f)) return;
     float dv_ms = force / mass;
-    float add = (dv_ms - g_cfg.damageMinImpact) * 0.02f * g_cfg.damageStrength;
+    float add = (dv_ms - g_cfg.damageMinImpact) * 0.01f * g_cfg.damageStrength;
     if (g_cfg.logInputs) Log("damage: impact %.1f m/s (speed %.1f, mass %.0f)%s", dv_ms, speed, mass, add > 0 ? "" : " ignored");
     if (add > 0.0f) AddDamage(s.engine, add, dv_ms);
 }

@@ -75,8 +75,8 @@ struct Config {
 
     // [Damage] collision damage for the player's car; 100% totals it like a blown engine
     bool  damage = true;
-    float damageMinImpact = 4.0f;   // impacts below this speed change (m/s) do no damage
-    float damageStrength = 1.0f;    // damage per m/s above that, in units of 2%
+    float damageMinImpact = 8.0f;   // impacts below this speed change (m/s) do no damage
+    float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
 
     // [HUD] the speedbreaker meter shows car damage, with engine heat overlaid in red
     bool  hudMeter = true;
