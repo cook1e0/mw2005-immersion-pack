@@ -271,6 +271,7 @@ const Item kItems[] = {
     {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
+    {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Force feedback strength", "FFB", "Gain", &s_ffbGain, 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {LINK, "Fine tuning", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},

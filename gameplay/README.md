@@ -27,6 +27,8 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 - **Engine smoke**: a damaged (75%) or hot (50% heat) engine smokes, trailing behind the car.
 - **Popped tires**: spike strips leave the car drivable, with less grip and some drag.
 - **Traffic density**: a multiplier on traffic, from none to 3x.
+- **No SUV cops** (on by default): no SUV police at all; heavy support is skipped and SUV
+  patrols are replaced by other cars from the heat level.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
   drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
   the front torque share and gravity, for all cars or per car. Only your car is affected
