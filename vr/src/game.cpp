@@ -35,6 +35,15 @@ constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
 constexpr uintptr_t kPlayerAspectScale = 0x8AF994; // float 1.15 applied to player views' aspect
 constexpr uintptr_t kCallTotaledCam = 0x631257;  // EShowRaceOverMessage: call CameraAI::MaybeDoTotaledCam(IPlayer*)
 constexpr uintptr_t kTotaledCam = 0x479F20;      // cdecl, 1 arg
+constexpr uintptr_t kJumpCamsOn = 0x469E30;      // cdecl, reads the "Jump Cams" option from the user profile
+// Calls of kJumpCamsOn: CameraAI::MaybeDoPursuitCam (cop cam when a pursuit starts),
+// Director::SelectAction (jump cam while airborne) and the crash cam at 0x479F80.
+constexpr uintptr_t kCallsJumpCamsOn[] = {0x471BFD, 0x479A59, 0x479F9C};
+// ECinematicMoment (pursuit breakers and other scripted moments) plays an ICE camera track:
+constexpr uintptr_t kCallPlayIce = 0x6405A4;     // call ICEManager::SetGenericCameraToPlay(name, track)
+constexpr uintptr_t kPlayIce = 0x46E2D0;         // thiscall, 2 args
+constexpr uintptr_t kCallIceAction = 0x6405B0;   // call CameraAI::SetAction(EVIEW_PLAYER1, "CDActionIce")
+constexpr uintptr_t kSetAction = 0x479EB0;       // cdecl, 2 args
 
 // eView (PC layout)
 constexpr int kViewPlatInfo = 0x00;
@@ -61,6 +70,9 @@ constexpr V3 kWorldUp = {0, 0, 1}; // NFSMW world space is Z-up (verified from l
 typedef void(__fastcall* ViewSetupFn)(void* platInfo, void* edx, void* view, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5);
 typedef void(__cdecl* RenderSceneFn)();
 typedef void(__cdecl* TotaledCamFn)(void* player);
+typedef bool(__cdecl* JumpCamsOnFn)();
+typedef void(__fastcall* PlayIceFn)(void* ice, void* edx, const char* name, const char* track);
+typedef void(__cdecl* SetActionFn)(int view, const char* action);
 
 ViewSetupFn oViewSetup = (ViewSetupFn)kViewSetup;
 RenderSceneFn oRenderScene = (RenderSceneFn)kRenderScene;
@@ -250,6 +262,37 @@ void __cdecl hkTotaledCam(void* player) {
     ((TotaledCamFn)kTotaledCam)(player);
 }
 
+// The other cinematic cameras cut away from the cockpit just the same, so they are off in VR too.
+// Pursuit, jump and crash cams all check the "Jump Cams" option first; it reads as off.
+bool __cdecl hkJumpCamsOn() {
+    if (Xr_Available()) return false;
+    return ((JumpCamsOnFn)kJumpCamsOn)();
+}
+
+// Pursuit breakers etc.: neither the ICE track nor the director's ICE action is started.
+bool s_iceSkipped = false;
+
+void __fastcall hkPlayIce(void* ice, void* edx, const char* name, const char* track) {
+    s_iceSkipped = Xr_Available();
+    if (s_iceSkipped) {
+        Log("game: cinematic camera '%s' skipped (VR)", track ? track : "");
+        return;
+    }
+    ((PlayIceFn)kPlayIce)(ice, edx, name, track);
+}
+
+void __cdecl hkIceAction(int view, const char* action) {
+    if (s_iceSkipped) return;
+    ((SetActionFn)kSetAction)(view, action);
+}
+
+// Retargets the call at `site` to `hook` if it still calls `target`.
+void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
+    const uint8_t* p = (const uint8_t*)site;
+    if (p[0] == 0xE8 && site + 5 + *(const int32_t*)(p + 1) == target) PatchRel32(site, 0xE8, hook);
+    else Log("game: unexpected code at the %s call (0x%X), not patched", what, (unsigned)site);
+}
+
 } // namespace
 
 void Game_InstallHooks() {
@@ -259,6 +302,9 @@ void Game_InstallHooks() {
     static const uint8_t kTotaledCall[5] = {0xE8, 0xC4, 0x8C, 0xE4, 0xFF};
     if (memcmp((void*)kCallTotaledCam, kTotaledCall, 5) == 0) PatchRel32(kCallTotaledCam, 0xE8, (void*)&hkTotaledCam);
     else Log("game: unexpected code at the totaled camera call, not patched");
+    for (uintptr_t site : kCallsJumpCamsOn) PatchCall(site, kJumpCamsOn, (void*)&hkJumpCamsOn, "jump cams option");
+    PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
+    PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     Log("game: hooks installed");
 }
 
