@@ -46,6 +46,12 @@ struct Config {
     float spectatorSmoothing = 0.2f; // head-motion smoothing time constant (s); 0 = raw head
     bool  spectatorFollowHead = true; // false = locked straight ahead (classic hood-cam footage)
     int   spectatorWidth = 1600;     // window client width in smooth/sbs modes (px)
+    bool  seat = true;               // bumper / hood camera: eyes at the driver model's head
+    bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
+    float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
+    int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
+    int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
+    int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;
 };
 extern Config g_cfg;
 void LoadConfig();
