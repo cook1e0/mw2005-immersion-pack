@@ -210,11 +210,12 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // BIND items hold a binding list (std::string in g_cfg). Right adds a binding: the next key,
 // button, hat direction or pedal pressed is appended. Left unbinds the action (the menu's own
 // controls go back to their defaults, so they can't be lost).
-// LINK switches between the main page and the fine tuning page (BF_TUNING items).
+// Pages: the main page lists the categories (LINK items); each PAGE item starts a page and holds
+// the items after it, up to the next PAGE. A LINK opens the page whose title is in its `section`.
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
-enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND };
-enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4, BF_STEER = 8, BF_PEDAL = 16 };
+enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16 };
 
 // Force feedback settings: the FFB mod's (dinput8.dll) [FFB] values, changed live through its
 // NfsmwFfb_Setting export and saved to nfsmw_ffb.ini. Older FFB builds only export the Gain.
@@ -265,45 +266,68 @@ struct Item {
 };
 
 #define BINDING(label, section, key, field, flags) {BIND, label, section, key, &g_cfg.field, 0, 0, 0, 0, nullptr, flags}
+#define PAGE_(title) {PAGE, title, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
+#define HEADER_(label) {HEADER, label, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
+#define LINK_(label, page) {LINK, label, page, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
+#define BACK_ LINK_("< Back", kMainPage)
+
+constexpr const char* kMainPage = "TUNING";
 
 const Item kItems[] = {
-    // Main page: switches and controls.
-    {HEADER, "ENGINE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr, 0},
-    {HEADER, "DAMAGE AND HUD", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
-    {HEADER, "SHIFTER AND PHYSICS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Shifting", "Shifter", "Sequential", &g_cfg.sequential, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Re-select gear after a miss", "Shifter", "ReselectAfterMiss", &g_cfg.reselectAfterMiss, 0, 0, 0, 0, nullptr, 0},
-    {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
-    {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
-    {LINK, "Fine tuning", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
-    {HEADER, "WHEEL AND PEDALS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    PAGE_(kMainPage),
+    LINK_("Controls", "CONTROLS"),
+    LINK_("Force feedback", "FORCE FEEDBACK"),
+    LINK_("Shifter and clutch", "SHIFTER AND CLUTCH"),
+    LINK_("Gear bindings", "GEAR BINDINGS"),
+    LINK_("Engine", "ENGINE"),
+    LINK_("Damage and tires", "DAMAGE AND TIRES"),
+    LINK_("Physics", "PHYSICS"),
+    LINK_("Traffic and HUD", "TRAFFIC AND HUD"),
+    LINK_("Menu and testing", "MENU AND TESTING"),
+
+    PAGE_("CONTROLS"),
+    BACK_,
+    HEADER_("WHEEL AND PEDALS"),
     BINDING("Steering", "Controls", "Steering", steer, BF_STEER),
     BINDING("Accelerate", "Controls", "Accelerate", throttle, BF_PEDAL),
     BINDING("Brake", "Controls", "Brake", brake, BF_PEDAL),
     {NUMBER, "Wheel rotation (set in its driver)", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering lock (full turn in game)", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
-    {NUMBER, "Force feedback strength", "FFB", "Gain", &s_ffb[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ffb[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
-    {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("BUTTONS"),
     BINDING("Handbrake", "Controls", "Handbrake", button[0], 0),
     BINDING("Nitrous", "Controls", "Nitrous", button[1], 0),
     BINDING("Speedbreaker", "Controls", "Speedbreaker", button[2], 0),
     BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
+
+    PAGE_("FORCE FEEDBACK"),
+    BACK_,
+    {NUMBER, "Strength", "FFB", "Gain", &s_ffb[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ffb[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ffb[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+
+    PAGE_("SHIFTER AND CLUTCH"),
+    BACK_,
+    HEADER_("SHIFTING"),
+    {TOGGLE, "Shifting", "Shifter", "Sequential", &g_cfg.sequential, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Clutch travel to shift", "Shifter", "ClutchToShift", &g_cfg.shiftPedal, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Clutchless rev-match", "Shifter", "RevMatchRPM", &g_cfg.revMatchRpm, 0.0f, 3000.0f, 50.0f, 1, "%.0f rpm", 0},
+    {TOGGLE, "Re-select gear after a miss", "Shifter", "ReselectAfterMiss", &g_cfg.reselectAfterMiss, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
+    {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("CLUTCH"),
+    {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
+    {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
+
+    PAGE_("GEAR BINDINGS"),
+    BACK_,
     BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
     BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
     BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
@@ -317,51 +341,66 @@ const Item kItems[] = {
     BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
     BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
     BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
-    BINDING("Pop tires (testing)", "Tires", "DebugPopTires", debugPopTires, 0),
+
+    PAGE_("ENGINE"),
+    BACK_,
+    {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Heating at redline", "Engine", "HeatUp", &g_cfg.heatUp, 0.01f, 2.0f, 0.01f, 1, "%.2f /s", 0},
+    {NUMBER, "Heating at max rpm", "Engine", "HeatUpMaxRPM", &g_cfg.heatUpMax, 0.01f, 5.0f, 0.01f, 1, "%.2f /s", 0},
+    {NUMBER, "Cooling", "Engine", "CoolDown", &g_cfg.coolDown, 0.005f, 1.0f, 0.005f, 1, "%.3f /s", 0},
+    {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat", 0},
+    {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Engine smoke from", "Engine", "SmokeFrom", &g_cfg.heatSmokeFrom, 0.1f, 1.0f, 0.05f, 100, "%.0f%% heat", 0},
+
+    PAGE_("DAMAGE AND TIRES"),
+    BACK_,
+    HEADER_("CAR DAMAGE"),
+    {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", 0},
+    {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", 0},
+    {NUMBER, "Power loss from", "Damage", "PowerLossStart", &g_cfg.damageLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% damage", 0},
+    {NUMBER, "Power lost at full damage", "Damage", "PowerLoss", &g_cfg.damageLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", 0},
+    {NUMBER, "Engine smoke trail", "Damage", "SmokeTrail", &g_cfg.smokeTrail, 0.0f, 1.0f, 0.05f, 100, "%.0f%% of car speed", 0},
+    HEADER_("POPPED TIRES"),
+    {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
+
+    PAGE_("PHYSICS"),
+    BACK_,
+    {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
+    {CAR, "Settings for this car only", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("1 = THE GAME'S OWN"),
+    {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Stability control", "Physics", "Stability", &g_cfg.stability, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Drift assist", "Physics", "DriftAssist", &g_cfg.driftAssist, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.05f, 1, "%.2fx", 0},
+    {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
+    {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
+    {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
+
+    PAGE_("TRAFFIC AND HUD"),
+    BACK_,
+    HEADER_("TRAFFIC"),
+    {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
+    {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("HUD"),
+    {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
+
+    PAGE_("MENU AND TESTING"),
+    BACK_,
+    HEADER_("MENU KEYS"),
     BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
     BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
     BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
     BINDING("Menu left", "UI", "MenuLeft", menuLeft, BF_REQUIRED),
     BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
-
-    // Fine tuning page: the numbers.
-    {LINK, "Back", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {HEADER, "ENGINE WEAR", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Heating at redline", "Engine", "HeatUp", &g_cfg.heatUp, 0.01f, 2.0f, 0.01f, 1, "%.2f /s", BF_TUNING},
-    {NUMBER, "Heating at max rpm", "Engine", "HeatUpMaxRPM", &g_cfg.heatUpMax, 0.01f, 5.0f, 0.01f, 1, "%.2f /s", BF_TUNING},
-    {NUMBER, "Cooling", "Engine", "CoolDown", &g_cfg.coolDown, 0.005f, 1.0f, 0.005f, 1, "%.3f /s", BF_TUNING},
-    {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat", BF_TUNING},
-    {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Engine smoke from", "Engine", "SmokeFrom", &g_cfg.heatSmokeFrom, 0.1f, 1.0f, 0.05f, 100, "%.0f%% heat", BF_TUNING},
-    {HEADER, "CAR DAMAGE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", BF_TUNING},
-    {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", BF_TUNING},
-    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
-    {NUMBER, "Engine smoke trail", "Damage", "SmokeTrail", &g_cfg.smokeTrail, 0.0f, 1.0f, 0.05f, 100, "%.0f%% of car speed", BF_TUNING},
-    {NUMBER, "Power loss from", "Damage", "PowerLossStart", &g_cfg.damageLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
-    {NUMBER, "Power lost at full damage", "Damage", "PowerLoss", &g_cfg.damageLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {HEADER, "POPPED TIRES", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", BF_TUNING},
-    {ACTION, "Pop all four tires (testing)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {HEADER, "PHYSICS (1 = GAME DEFAULT)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {CAR, "Settings for this car only", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Stability control", "Physics", "Stability", &g_cfg.stability, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Drift assist", "Physics", "DriftAssist", &g_cfg.driftAssist, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.05f, 1, "%.2fx", BF_TUNING},
-    {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", BF_TUNING},
-    {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", BF_TUNING},
-    {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {HEADER, "WHEEL AND PEDALS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Soft lock strength (FFB)", "FFB", "SoftLock", &s_ffb[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {HEADER, "SHIFTER AND CLUTCH", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Clutch travel to shift", "Shifter", "ClutchToShift", &g_cfg.shiftPedal, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Clutchless rev-match", "Shifter", "RevMatchRPM", &g_cfg.revMatchRpm, 0.0f, 3000.0f, 50.0f, 1, "%.0f rpm", BF_TUNING},
-    {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", BF_TUNING},
-    {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
-    {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", BF_TUNING},
+    HEADER_("TESTING"),
+    BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
+    {ACTION, "Pop all four tires now", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
 };
 constexpr int kNumItems = sizeof(kItems) / sizeof(kItems[0]);
 constexpr int kMaxRows = 18;        // rows shown at once; the list scrolls
@@ -371,8 +410,9 @@ struct {
     bool dirty = false;
     bool clutchCal = false;         // [Clutch] Released/Pressed changed by binding a pedal
     bool pedalCal = false;          // [Controls] AccelerateRest/BrakeRest changed
-    int page = 0;                   // 0 = main, 1 = fine tuning
+    int page = 0;                   // index of the current page's PAGE item in kItems
     int sel = 1;                    // selected item (index into kItems)
+    int selOnPage[kNumItems] = {};  // last selection on each page (by PAGE index), 0 = none
     int first = 0;                  // first row shown
     bool synced = false;
     uint32_t menu = 0, nav[4] = {};
@@ -405,19 +445,34 @@ std::string SoundName(uint32_t moment) {
 // The items on the current page, in order.
 std::vector<int> PageRows() {
     std::vector<int> rows;
-    for (int i = 0; i < kNumItems; i++)
-        if (((kItems[i].flags & BF_TUNING) != 0) == (s_menu.page == 1)) rows.push_back(i);
+    for (int i = s_menu.page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) rows.push_back(i);
     return rows;
 }
 
-void SetPage(int page) {
-    s_menu.page = page;
+bool Selectable(int i) { return kItems[i].kind != HEADER && kItems[i].kind != PAGE; }
+
+// Opens a page by its title, on the item last selected there (else its first item).
+void SetPage(const char* title) {
+    s_menu.selOnPage[s_menu.page] = s_menu.sel;
+    for (int i = 0; i < kNumItems; i++)
+        if (kItems[i].kind == PAGE && strcmp(kItems[i].label, title) == 0) s_menu.page = i;
     s_menu.first = 0;
+    s_menu.sel = s_menu.selOnPage[s_menu.page];
+    if (s_menu.sel > s_menu.page && Selectable(s_menu.sel)) return;
     for (int i : PageRows())
-        if (kItems[i].kind != HEADER) {
+        if (Selectable(i)) {
             s_menu.sel = i;
             break;
         }
+}
+
+// Back to the main page, on the category we came from.
+void GoBack() {
+    if (s_menu.page == 0) return;
+    const char* from = kItems[s_menu.page].label;
+    SetPage(kMainPage);
+    for (int i : PageRows())
+        if (kItems[i].kind == LINK && strcmp(kItems[i].section, from) == 0) s_menu.sel = i;
 }
 
 std::vector<std::string> SplitBindings(const std::string& list) {
@@ -452,12 +507,43 @@ void Note(const std::string& text) {
     s_menu.noteTime = Now();
 }
 
+// One line on the main page about what a category is set to.
+std::string LinkSummary(const char* page) {
+    char buf[64];
+    std::string p = page;
+    if (p == "CONTROLS") {
+        if (g_cfg.steer.empty()) return "Wheel not bound";
+        snprintf(buf, sizeof(buf), "Wheel, lock %.0f of %.0f deg", g_cfg.steeringLock, g_cfg.wheelRotation);
+        return buf;
+    }
+    if (p == "FORCE FEEDBACK") {
+        if (!FfbSetting(FFB_GAIN)) return "No FFB mod";
+        snprintf(buf, sizeof(buf), "%.0f%%", *FfbSetting(FFB_GAIN) * 100.0f);
+        return buf;
+    }
+    if (p == "SHIFTER AND CLUTCH") return g_cfg.sequential ? "Sequential" : "H-pattern";
+    if (p == "GEAR BINDINGS") {
+        int gears = 0;
+        for (int g = 1; g <= kMaxGears; g++) gears += !g_cfg.gear[g].empty();
+        snprintf(buf, sizeof(buf), "%d gears%s", gears, g_cfg.clutch.empty() ? "" : ", clutch");
+        return buf;
+    }
+    if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
+    if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
+    if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() && Physics_OwnSettings() ? "This car's own" : "On";
+    if (p == "TRAFFIC AND HUD") {
+        snprintf(buf, sizeof(buf), "Traffic %.0f%%", g_cfg.trafficDensity * 100.0f);
+        return buf;
+    }
+    return "";
+}
+
 std::string ValueText(const Item& it, int index) {
     char buf[64];
     if (it.value == &g_cfg.sequential) return g_cfg.sequential ? "Sequential" : "H-pattern";
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
-    if (it.kind == LINK) return s_menu.page == 0 ? ">" : "<";
+    if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
     if (it.kind == ACTION) return "Go";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
     if (it.kind == BIND) {
@@ -575,7 +661,8 @@ void Change(int index, int dir) {
             else if (it.value == &g_cfg.biteEnd) g_cfg.biteStart = std::min(1.0f, g_cfg.biteEnd + 0.05f);
         }
     } else if (it.kind == LINK) {
-        SetPage(1 - s_menu.page);
+        if (it.section == kMainPage || dir < 0) GoBack();
+        else SetPage(it.section);
         return;
     } else if (it.kind == SOUND) {
         // Cycle through the candidates, playing each one.
@@ -586,7 +673,10 @@ void Change(int index, int dir) {
         v = kGrindSounds[(cur + dir + n) % n].moment;
         Game_PlayMoment(v);
     } else if (it.kind == ACTION) {
-        if (dir < 0) return;
+        if (dir < 0) {
+            GoBack();
+            return;
+        }
         Game_PopTires();
         Note("Tires popped (repair: safehouse, race restart or DebugRepair)");
         return;
@@ -606,7 +696,7 @@ void Change(int index, int dir) {
 
 void Save() {
     for (const Item& it : kItems) {
-        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR || it.kind == ACTION) continue;
+        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR || it.kind == ACTION || it.kind == PAGE) continue;
         char buf[32];
         std::string text;
         if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
@@ -663,7 +753,7 @@ void Step(int dir) {
     int pos = (int)(std::find(rows.begin(), rows.end(), s_menu.sel) - rows.begin());
     if (pos >= n) pos = 0;
     do pos = (pos + dir + n) % n;
-    while (kItems[rows[pos]].kind == HEADER);
+    while (!Selectable(rows[pos]));
     s_menu.sel = rows[pos];
 }
 
@@ -725,11 +815,12 @@ void DrawMenu(int W, int H, float k) {
         hint = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " +
                MenuKeyName() + ": close";
     else if (cur.kind == ACTION) hint = "Right: do it    " + MenuKeyName() + ": close";
-    else if (cur.kind == LINK) hint = "Left/Right: " + std::string(s_menu.page == 0 ? "open" : "back") + "    " + MenuKeyName() + ": close";
+    else if (cur.kind == LINK && cur.section != kMainPage) hint = "Right: open    " + MenuKeyName() + ": close";
+    else if (cur.kind == LINK) hint = "Right/Left: back    " + MenuKeyName() + ": close";
     else hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
     bool noted = Now() - s_menu.noteTime < 3.0 && s_menu.capture < 0;
-    std::string titleText = s_menu.page == 0 ? "DRIVETRAIN TUNING" : "FINE TUNING";
-    if (s_menu.page == 1 && *Physics_Car()) {
+    std::string titleText = s_menu.page == 0 ? std::string(kMainPage) : std::string(kMainPage) + "  >  " + kItems[s_menu.page].label;
+    if (strcmp(kItems[s_menu.page].label, "PHYSICS") == 0 && *Physics_Car()) {
         std::string car = Physics_Car();
         for (auto& c : car) c = (char)toupper((unsigned char)c);
         titleText += "  -  " + car;
@@ -742,8 +833,8 @@ void DrawMenu(int W, int H, float k) {
     int rows = std::min(count, kMaxRows);
     int pos = (int)(std::find(page.begin(), page.end(), s_menu.sel) - page.begin());
     if (pos >= count) {
-        SetPage(s_menu.page);
-        pos = (int)(std::find(page.begin(), page.end(), s_menu.sel) - page.begin());
+        for (pos = 0; pos < count - 1 && !Selectable(page[pos]); pos++) {}
+        s_menu.sel = page[pos];
     }
     // Keep the selection in view, with its section header when it fits.
     int want = pos > 0 && kItems[page[pos - 1]].kind == HEADER ? pos - 1 : pos;
@@ -772,7 +863,7 @@ void DrawMenu(int W, int H, float k) {
         D3DCOLOR c = sel ? D3DCOLOR_ARGB(255, 255, 255, 255) : D3DCOLOR_ARGB(255, 210, 210, 210);
         Text(x0 + pad + roundf(10 * k), ty, it.label, c);
         std::string v = ValueText(it, i);
-        if (sel && !capturing) v = "< " + v + " >";
+        if (sel && !capturing && it.kind != LINK && it.kind != ACTION) v = "< " + v + " >";
         D3DCOLOR vc = capturing && Blink(300) ? D3DCOLOR_ARGB(255, 255, 210, 120) : c;
         Text(x0 + w - pad - TextWidth(v.c_str()), ty, v.c_str(), vc);
     }
