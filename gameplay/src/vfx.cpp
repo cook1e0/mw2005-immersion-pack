@@ -1,11 +1,13 @@
-// Engine smoke on the player's damaged car.
+// Engine smoke on the player's damaged or overheated car.
 //
 // CarRenderConn::UpdateEffects runs each car's engine effects: DeathEffect at health 0,
 // DamageEffect (the smoke cop cars trail) at health <= 0.5, EngineBlownEffect for a blown engine.
 // The player's cars have no DamageEffect, so the code that loads that key is patched: for the
-// car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage), the
-// key becomes the cop cars' DamageEffect (also once engine heat reaches [Engine] SmokeFrom) (read from the copmidsize car data, or taken from the
-// first car seen with one). The car's own EngineBlownEffect is only a fallback: it is the drag
+// car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage) or
+// its engine heat reaches [Engine] SmokeFrom, the key becomes the cop cars' DamageEffect (read
+// from the copmidsize car data, or taken from the first car seen with one). The health <= 0.5
+// test after it reads the health from s_smokeHealth instead, which is 0 while that car smokes,
+// so a hot engine smokes on an undamaged car. The car's own EngineBlownEffect is only a fallback: it is the drag
 // race smoke for a car that has stopped, and stays where it started instead of trailing the car.
 //
 // Particles take a fraction (the emitter data's VelocityInherit, 0.5 for the cop smoke) of the
@@ -47,6 +49,8 @@ constexpr int kData_Inherit = 0xEC;                 // layout: VelocityInherit
 
 typedef void(__thiscall* EffectUpdate_t)(void* eff, const void* mtx, uint32_t key, float dt, float intensity, const float* vel);
 
+constexpr uintptr_t kSmokeHealthLoad = 0x756436;    // UpdateEffects: fld [edx+0x90] (health) before the <= 0.5 test
+
 uint32_t s_copKey = 0;
 bool s_playerSmoke;                                 // the DamageEffect update about to run is the player's smoke
 
@@ -68,11 +72,15 @@ uint32_t CopSmokeKey() {
     return s_copKey;
 }
 
+float s_smokeHealth = 1.0f;                         // the health the DamageEffect test sees
+
 }  // namespace
 
 // Called from the patch with the render connection, the service packet and the car's own keys.
 extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key, uint32_t blownKey) {
     bool player = ((IsViewAnchor_t)kIsViewAnchor)(conn);
+    float health = *(float*)(pkt + kPkt_Health);
+    s_smokeHealth = health;
     if (!player) {
         if (key && key != s_copKey) {
             s_copKey = key;
@@ -82,10 +90,10 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
     }
     s_playerSmoke = false;
     if (!g_cfg.damageSmoke) return key;
-    float health = *(float*)(pkt + kPkt_Health);
     bool hot = g_cfg.heatSmokeFrom < 1.0f && Game_Hud().heat >= g_cfg.heatSmokeFrom;
     if (health > 1.0f - g_cfg.smokeFrom && !hot) return 0;
     s_playerSmoke = true;
+    s_smokeHealth = 0.0f;
     uint32_t cop = CopSmokeKey();
     uint32_t k = key ? key : cop ? cop : blownKey;
     static uint32_t logged;
@@ -177,5 +185,18 @@ void Vfx_Install() {
         VirtualProtect((void*)kSmokeUpdateCall, 5, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeUpdateCall, 5);
     }
-    Log("vfx: engine smoke from %.0f%% damage, trail %.2f (%s)", g_cfg.smokeFrom * 100, g_cfg.smokeTrail, g_cfg.damageSmoke ? "on" : "off");
+    static const uint8_t healthLoad[] = {0xD9, 0x82, 0x90, 0x00, 0x00, 0x00};   // fld [edx+0x90]
+    if (memcmp((void*)kSmokeHealthLoad, healthLoad, sizeof(healthLoad)) == 0) {
+        uint8_t fld[6] = {0xD9, 0x05};                                          // fld [s_smokeHealth]
+        float* p = &s_smokeHealth;
+        memcpy(fld + 2, &p, 4);
+        VirtualProtect((void*)kSmokeHealthLoad, sizeof(fld), PAGE_EXECUTE_READWRITE, &old);
+        memcpy((void*)kSmokeHealthLoad, fld, sizeof(fld));
+        VirtualProtect((void*)kSmokeHealthLoad, sizeof(fld), old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeHealthLoad, sizeof(fld));
+    } else {
+        Log("vfx: unexpected code, no heat smoke on an undamaged car");
+    }
+    Log("vfx: engine smoke from %.0f%% damage or %.0f%% heat, trail %.2f (%s)", g_cfg.smokeFrom * 100,
+        g_cfg.heatSmokeFrom * 100, g_cfg.smokeTrail, g_cfg.damageSmoke ? "on" : "off");
 }
