@@ -183,6 +183,7 @@ void LoadConfig() {
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);
     c.gaugeY = Clamp(ReadFloat("UI", "GaugeY", c.gaugeY), 0.0f, 1.0f);
     c.uiScale = Clamp(ReadFloat("UI", "Scale", c.uiScale), 0.5f, 3.0f);
+    c.classicMenu = ReadInt("UI", "ClassicMenu", 0) != 0;
     c.menu = ReadStr("UI", "Menu", c.menu.c_str());
     c.menuUp = ReadStr("UI", "MenuUp", c.menuUp.c_str());
     c.menuDown = ReadStr("UI", "MenuDown", c.menuDown.c_str());

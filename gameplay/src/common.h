@@ -136,6 +136,7 @@ struct Config {
     float gaugeX = 0.85f;           // gauge centre, fraction of the screen
     float gaugeY = 0.64f;
     float uiScale = 1.0f;
+    bool  classicMenu = false;      // the old flat menu instead of the ImGui one
     std::string menu = "key:F4";    // opens / closes the tuning menu
     std::string menuUp = "key:UP,key:NUMPAD8";
     std::string menuDown = "key:DOWN,key:NUMPAD2";

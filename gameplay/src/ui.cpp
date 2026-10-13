@@ -14,6 +14,8 @@
 #include "input.h"
 #include "physics.h"
 #include <d3d9.h>
+#include <float.h>
+#include "imgui.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -401,6 +403,8 @@ const Item kItems[] = {
     HEADER_("TESTING"),
     BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
     {ACTION, "Pop all four tires now", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("LOOK"),
+    {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
 constexpr int kNumItems = sizeof(kItems) / sizeof(kItems[0]);
 constexpr int kMaxRows = 18;        // rows shown at once; the list scrolls
@@ -639,6 +643,23 @@ void Unbind(const Item& it) {
     Log("ui: %s = %s", it.key, field.c_str());
 }
 
+// After a number changed (bindings or mouse): pass FFB values on, keep pairs consistent.
+void AfterNumberChange(const Item& it) {
+    int ffb = FfbIndex(it.value);
+    if (ffb >= 0 && FfbSetting(ffb)) *FfbSetting(ffb) = *(float*)it.value;
+    // The steering lock is part of the wheel's rotation.
+    if (g_cfg.steeringLock > g_cfg.wheelRotation) {
+        if (it.value == &g_cfg.steeringLock) g_cfg.steeringLock = g_cfg.wheelRotation;
+        else g_cfg.wheelRotation = g_cfg.steeringLock;
+    }
+    // Keep the bite point ordered: start (released side) above end.
+    if (g_cfg.biteStart < g_cfg.biteEnd + 0.05f) {
+        if (it.value == &g_cfg.biteStart) g_cfg.biteEnd = std::max(0.0f, g_cfg.biteStart - 0.05f);
+        else if (it.value == &g_cfg.biteEnd) g_cfg.biteStart = std::min(1.0f, g_cfg.biteEnd + 0.05f);
+    }
+    s_menu.dirty = true;
+}
+
 void Change(int index, int dir) {
     const Item& it = kItems[index];
     if (it.kind == TOGGLE) {
@@ -649,17 +670,7 @@ void Change(int index, int dir) {
         if (ffb >= 0 && !FfbSetting(ffb)) return;
         float& v = *(float*)it.value;
         v = Clamp(roundf((v + dir * it.step) / it.step) * it.step, it.lo, it.hi);
-        if (ffb >= 0) *FfbSetting(ffb) = v;
-        // The steering lock is part of the wheel's rotation.
-        if (g_cfg.steeringLock > g_cfg.wheelRotation) {
-            if (it.value == &g_cfg.steeringLock) g_cfg.steeringLock = g_cfg.wheelRotation;
-            else g_cfg.wheelRotation = g_cfg.steeringLock;
-        }
-        // Keep the bite point ordered: start (released side) above end.
-        if (g_cfg.biteStart < g_cfg.biteEnd + 0.05f) {
-            if (it.value == &g_cfg.biteStart) g_cfg.biteEnd = std::max(0.0f, g_cfg.biteStart - 0.05f);
-            else if (it.value == &g_cfg.biteEnd) g_cfg.biteStart = std::min(1.0f, g_cfg.biteEnd + 0.05f);
-        }
+        AfterNumberChange(it);
     } else if (it.kind == LINK) {
         if (it.section == kMainPage || dir < 0) GoBack();
         else SetPage(it.section);
@@ -880,6 +891,633 @@ void DrawMenu(int W, int H, float k) {
     else Text(x0 + pad, y, hint.c_str(), D3DCOLOR_ARGB(255, 150, 150, 160));
 }
 
+// --- ImGui menu ------------------------------------------------------------------------------
+// The same items, pages and navigation as the flat menu (bindings drive s_menu.sel), drawn with
+// Dear ImGui: a category sidebar, the page beside it, and a footer with the selected setting's
+// description. On a flat screen the mouse works too.
+//
+// Rendering is ours, not imgui_impl_dx9: everything is drawn with DrawIndexedPrimitiveUP, and the
+// font atlas is a MANAGED texture (a DYNAMIC one in DEFAULT on D3D9Ex, where MANAGED doesn't exist
+// and nothing is lost), so a device reset never needs our cooperation. Alpha is blended for the
+// VR mod's HUD panel the same way as the flat menu.
+
+// One-line descriptions, shown under the menu for the selected setting.
+const struct {
+    const void* value;
+    const char* text;
+} kHelp[] = {
+    {&g_cfg.steer, "The wheel axis that steers. Right, then turn the wheel."},
+    {&g_cfg.throttle, "Accelerator pedal, button or key. Pedals: press it fully when binding."},
+    {&g_cfg.brake, "Brake pedal, button or key. Pedals: press it fully when binding."},
+    {&g_cfg.wheelRotation, "The wheel's rotation as set in its driver (G HUB, Fanatec, ...), lock to lock."},
+    {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game."},
+    {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
+    {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
+    {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
+    {&s_ffb[FFB_GAIN], "Overall force feedback strength."},
+    {&s_ffb[FFB_CENTER], "Pulls the wheel back to the centre while driving, also when slow or parked."},
+    {&s_ffb[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
+    {&g_cfg.sequential, "H-pattern shifter, or sequential shift up / shift down."},
+    {&g_cfg.requireClutch, "A gear only goes in with the clutch pressed."},
+    {&g_cfg.shiftPedal, "How far the clutch must be pressed to count for a shift."},
+    {&g_cfg.revMatchRpm, "Allow a clutchless shift when the revs match the new gear this closely."},
+    {&g_cfg.reselectAfterMiss, "After a missed shift, take the stick out of the gate and put it back in."},
+    {&g_cfg.latching, "Gear stays selected after its button is released (keyboard, button boxes)."},
+    {&g_cfg.grind, "A missed shift crunches."},
+    {&g_cfg.grindSound, "The crunch sound. Changing it plays it."},
+    {&g_cfg.strength, "Clutch friction compared with the game's own. Lower slips longer."},
+    {&g_cfg.biteStart, "Pedal travel where the clutch starts to grip as you let it out."},
+    {&g_cfg.biteEnd, "Pedal travel where the clutch grips fully."},
+    {&g_cfg.engineWear, "Over-revving heats the engine; it loses power and blows at full heat."},
+    {&g_cfg.revLimiter, "Keep the rev limiter. Sitting on it still heats the engine."},
+    {&g_cfg.heatUp, "Heat per second at the redline. Full heat blows the engine."},
+    {&g_cfg.heatUpMax, "Heat per second at max rpm."},
+    {&g_cfg.coolDown, "Heat lost per second below the redline."},
+    {&g_cfg.powerLossStart, "Heat where the engine starts losing power."},
+    {&g_cfg.powerLoss, "Torque lost at full heat."},
+    {&g_cfg.heatSmokeFrom, "The engine smokes from this much heat."},
+    {&g_cfg.damage, "Crashes damage the car; at 100% it is totaled."},
+    {&g_cfg.damageMinImpact, "Impacts below this speed change do no damage."},
+    {&g_cfg.damageStrength, "Damage per hit."},
+    {&g_cfg.damageLossStart, "Damage where the engine starts losing power."},
+    {&g_cfg.damageLoss, "Torque lost at 100% damage."},
+    {&g_cfg.damageSmoke, "A damaged engine smokes."},
+    {&g_cfg.smokeFrom, "The engine smokes from this much damage."},
+    {&g_cfg.smokeTrail, "How much of the car's speed the smoke keeps, so it trails behind."},
+    {&g_cfg.poppedTires, "Spike strips leave the car drivable, as in NFS Carbon."},
+    {&g_cfg.tireHandicap, "Grip loss and drag of a popped tire."},
+    {&g_cfg.physics, "Off: the game's own physics everywhere."},
+    {&g_cfg.tractionControl, "Cuts power to a spinning wheel. 100% = the game's own."},
+    {&g_cfg.stability, "Rear grip added while the car rotates, and the drift stabiliser."},
+    {&g_cfg.driftAssist, "Rear grip taken away once a slide starts."},
+    {&g_cfg.grip, "Tire grip multiplier."},
+    {&g_cfg.torqueSplit, "Multiplies the share of torque sent to the front wheels."},
+    {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
+    {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
+    {&g_cfg.trafficDensity, "Traffic spawn rate. 0 = no traffic."},
+    {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
+    {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
+    {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},
+    {&g_cfg.clutch, "Clutch pedal, button or key."},
+    {&g_cfg.toggle, "Switches between H-pattern and sequential while driving."},
+    {&g_cfg.menu, "Opens and closes this menu."},
+    {&g_cfg.classicMenu, "The old flat menu (no textures), in case this one gives trouble."},
+};
+
+const char* HelpText(const Item& it) {
+    if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
+    if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
+    if (it.kind == LINK) return it.section == kMainPage ? "Back to the categories." : "";
+    for (auto& h : kHelp)
+        if (h.value == it.value) return h.text;
+    if (it.kind == BIND) return "Right: add a key, button or pedal. Left: unbind.";
+    return "";
+}
+
+// "Default: ..." for settings with a default in Config (or the FFB mod's defaults).
+std::string DefaultText(const Item& it) {
+    static const Config def;
+    if (it.kind != NUMBER && it.kind != TOGGLE) return "";
+    const char* base = (const char*)&g_cfg;
+    const char* p = (const char*)it.value;
+    float ffbDefaults[] = {1.0f, 0.15f, 0.8f};
+    int ffb = FfbIndex(it.value);
+    char buf[64];
+    if (it.kind == TOGGLE) {
+        if (p < base || p >= base + sizeof(Config)) return "";
+        bool v = *(const bool*)((const char*)&def + (p - base));
+        if (it.value == &g_cfg.sequential) return v ? "Default: Sequential" : "Default: H-pattern";
+        return v ? "Default: On" : "Default: Off";
+    }
+    float v;
+    if (ffb >= 0 && ffb < 3) v = ffbDefaults[ffb];
+    else if (p >= base && p < base + sizeof(Config)) v = *(const float*)((const char*)&def + (p - base));
+    else return "";
+    if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Default: Off";
+    snprintf(buf, sizeof(buf), it.fmt, v * it.show);
+    return std::string("Default: ") + buf;
+}
+
+
+struct ImState {
+    bool init = false;
+    int fontPx = 0;
+    ImFont* body = nullptr;
+    ImFont* small = nullptr;
+    ImFont* title = nullptr;
+    IDirect3DTexture9* fontTex = nullptr;
+    IDirect3DDevice9* dev = nullptr;    // the device fontTex belongs to
+    double last = 0;
+    int lastSel = -1, lastPage = -1;
+    POINT mouseAt = {};
+    bool mouseUsed = false;             // the mouse moved while the menu was open: show its cursor
+    bool wasOpen = false;
+    HWND hookedWnd = nullptr;           // game window whose WndProc we chained (mouse wheel)
+    WNDPROC origProc = nullptr;
+    volatile LONG wheel = 0;            // WM_MOUSEWHEEL delta since the last frame
+} s_im;
+
+// The game reads the mouse through DirectInput, so the wheel only shows up as window messages:
+// count them while the menu is open, and pass every message on.
+LRESULT CALLBACK MenuWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_MOUSEWHEEL && s_menu.open) InterlockedExchangeAdd(&s_im.wheel, GET_WHEEL_DELTA_WPARAM(wp));
+    return CallWindowProcA(s_im.origProc, hwnd, msg, wp, lp);
+}
+
+const ImU32 kAccent = IM_COL32(255, 150, 0, 255);
+
+// Font atlas texture: MANAGED survives resets; D3D9Ex has no MANAGED pool but loses nothing.
+bool CreateFontTexture(IDirect3DDevice9* dev) {
+    if (s_im.fontTex) s_im.fontTex->Release();
+    s_im.fontTex = nullptr;
+    unsigned char* alpha;
+    int w, h;
+    ImGui::GetIO().Fonts->GetTexDataAsAlpha8(&alpha, &w, &h);
+    IDirect3DTexture9* tex = nullptr;
+    DWORD lockFlags = 0;
+    if (FAILED(dev->CreateTexture(w, h, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &tex, nullptr))) {
+        if (FAILED(dev->CreateTexture(w, h, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &tex, nullptr))) {
+            Log("ui: font texture %dx%d could not be created", w, h);
+            return false;
+        }
+        lockFlags = D3DLOCK_DISCARD;
+    }
+    D3DLOCKED_RECT lr;
+    if (FAILED(tex->LockRect(0, &lr, nullptr, lockFlags))) {
+        tex->Release();
+        return false;
+    }
+    for (int y = 0; y < h; y++) {
+        uint32_t* row = (uint32_t*)((uint8_t*)lr.pBits + y * lr.Pitch);
+        for (int x = 0; x < w; x++) row[x] = ((uint32_t)alpha[y * w + x] << 24) | 0x00FFFFFF;
+    }
+    tex->UnlockRect(0);
+    s_im.fontTex = tex;
+    s_im.dev = dev;
+    ImGui::GetIO().Fonts->SetTexID((ImTextureID)tex);
+    return true;
+}
+
+void BuildImFonts(IDirect3DDevice9* dev, int px) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.Fonts->Clear();
+    std::string dir;
+    char win[MAX_PATH];
+    GetWindowsDirectoryA(win, MAX_PATH);
+    dir = std::string(win) + "\\Fonts\\";
+    const char* faces[] = {"bahnschrift.ttf", "segoeui.ttf", "arial.ttf"};
+    std::string face;
+    for (const char* f : faces)
+        if (GetFileAttributesA((dir + f).c_str()) != INVALID_FILE_ATTRIBUTES) {
+            face = dir + f;
+            break;
+        }
+    ImFontConfig cfg;
+    cfg.OversampleH = 2;
+    auto add = [&](float size) {
+        ImFont* f = face.empty() ? nullptr : io.Fonts->AddFontFromFileTTF(face.c_str(), size, &cfg, io.Fonts->GetGlyphRangesDefault());
+        if (!f) {
+            ImFontConfig d;
+            d.SizePixels = size;
+            f = io.Fonts->AddFontDefault(&d);
+        }
+        return f;
+    };
+    s_im.body = add((float)px);
+    s_im.small = add(roundf(px * 0.8f));
+    s_im.title = add(roundf(px * 1.45f));
+    io.Fonts->Build();
+    CreateFontTexture(dev);
+    s_im.fontPx = px;
+    Log("ui: ImGui font %s, %d px", face.empty() ? "(built-in)" : face.c_str(), px);
+}
+
+void StyleImGui(float k) {
+    ImGuiStyle& st = ImGui::GetStyle();
+    st = ImGuiStyle();
+    ImGui::StyleColorsDark(&st);
+    st.WindowRounding = 6;
+    st.ChildRounding = 4;
+    st.FrameRounding = 4;
+    st.GrabRounding = 4;
+    st.PopupRounding = 4;
+    st.ScrollbarRounding = 4;
+    st.WindowBorderSize = 0;
+    st.ChildBorderSize = 0;
+    st.FramePadding = ImVec2(8, 4);
+    st.ItemSpacing = ImVec2(8, 4);
+    st.WindowPadding = ImVec2(16, 14);
+    st.ScrollbarSize = 10;
+    st.GrabMinSize = 10;
+    st.ScaleAllSizes(k);
+    ImVec4* c = st.Colors;
+    c[ImGuiCol_WindowBg] = ImVec4(0.05f, 0.05f, 0.06f, 0.90f);
+    c[ImGuiCol_ChildBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+    c[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.09f, 0.97f);
+    c[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.0f);
+    c[ImGuiCol_TextDisabled] = ImVec4(0.52f, 0.52f, 0.56f, 1.0f);
+    c[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.16f, 0.18f, 1.0f);
+    c[ImGuiCol_FrameBgHovered] = ImVec4(0.22f, 0.22f, 0.25f, 1.0f);
+    c[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.26f, 0.29f, 1.0f);
+    c[ImGuiCol_SliderGrab] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+    c[ImGuiCol_SliderGrabActive] = ImVec4(1.0f, 0.70f, 0.25f, 1.0f);
+    c[ImGuiCol_Button] = ImVec4(0.18f, 0.18f, 0.20f, 1.0f);
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.26f, 0.26f, 0.29f, 1.0f);
+    c[ImGuiCol_ButtonActive] = ImVec4(1.0f, 0.59f, 0.0f, 0.8f);
+    c[ImGuiCol_Header] = ImVec4(1.0f, 0.59f, 0.0f, 0.30f);
+    c[ImGuiCol_HeaderHovered] = ImVec4(1.0f, 0.59f, 0.0f, 0.18f);
+    c[ImGuiCol_HeaderActive] = ImVec4(1.0f, 0.59f, 0.0f, 0.45f);
+    c[ImGuiCol_Separator] = ImVec4(0.25f, 0.25f, 0.28f, 1.0f);
+    c[ImGuiCol_ScrollbarBg] = ImVec4(0, 0, 0, 0);
+    c[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.30f, 0.33f, 1.0f);
+    c[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.0f, 0.59f, 0.0f, 0.7f);
+    c[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.0f, 0.59f, 0.0f, 1.0f);
+}
+
+void RenderImGui(IDirect3DDevice9* dev, ImDrawData* dd, int W, int H) {
+    if (!dd || dd->TotalVtxCount == 0) return;
+    IDirect3DStateBlock9* sb = nullptr;
+    if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) return;
+    D3DVIEWPORT9 vp = {0, 0, (DWORD)W, (DWORD)H, 0.0f, 1.0f};
+    dev->SetViewport(&vp);
+    dev->SetVertexShader(nullptr);
+    dev->SetPixelShader(nullptr);
+    dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
+    dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    dev->SetRenderState(D3DRS_SCISSORTESTENABLE, TRUE);
+    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    // Keep the HUD layer's alpha meaningful for the VR panel: alpha = src + dst * (1 - src).
+    dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
+    dev->SetRenderState(D3DRS_BLENDOPALPHA, D3DBLENDOP_ADD);
+    dev->SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+    dev->SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+    dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+    dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+
+    struct V {
+        float x, y, z, rhw;
+        D3DCOLOR c;     // ImGui colours are packed BGRA (IMGUI_USE_BGRA_PACKED_COLOR)
+        float u, v;
+    };
+    static std::vector<V> verts;
+    for (int n = 0; n < dd->CmdListsCount; n++) {
+        const ImDrawList* cl = dd->CmdLists[n];
+        verts.resize(cl->VtxBuffer.Size);
+        for (int i = 0; i < cl->VtxBuffer.Size; i++) {
+            const ImDrawVert& s = cl->VtxBuffer[i];
+            verts[i] = {s.pos.x - 0.5f, s.pos.y - 0.5f, 0.0f, 1.0f, s.col, s.uv.x, s.uv.y};
+        }
+        for (const ImDrawCmd& cmd : cl->CmdBuffer) {
+            if (cmd.UserCallback) continue;
+            RECT r = {(LONG)cmd.ClipRect.x, (LONG)cmd.ClipRect.y, (LONG)cmd.ClipRect.z, (LONG)cmd.ClipRect.w};
+            if (r.right <= r.left || r.bottom <= r.top) continue;
+            dev->SetScissorRect(&r);
+            dev->SetTexture(0, (IDirect3DTexture9*)cmd.GetTexID());
+            dev->DrawIndexedPrimitiveUP(D3DPT_TRIANGLELIST, 0, (UINT)verts.size(), cmd.ElemCount / 3,
+                                        cl->IdxBuffer.Data + cmd.IdxOffset, D3DFMT_INDEX16,
+                                        verts.data() + cmd.VtxOffset, sizeof(V));
+        }
+    }
+    sb->Apply();
+    sb->Release();
+}
+
+// Mouse, on a flat screen: the cursor over the game window, scaled to the render target.
+void FeedMouse(IDirect3DDevice9* dev, int W, int H) {
+    ImGuiIO& io = ImGui::GetIO();
+    D3DDEVICE_CREATION_PARAMETERS cp = {};
+    dev->GetCreationParameters(&cp);
+    HWND hwnd = cp.hFocusWindow;
+    POINT pt;
+    RECT rc;
+    bool focus = hwnd && GetForegroundWindow() == hwnd;
+    if (!focus || !GetCursorPos(&pt) || !GetClientRect(hwnd, &rc) || rc.right <= 0 || rc.bottom <= 0) {
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        io.AddMouseButtonEvent(0, false);
+        return;
+    }
+    if (hwnd != s_im.hookedWnd && IsWindow(hwnd)) {
+        s_im.origProc = (WNDPROC)SetWindowLongPtrA(hwnd, GWLP_WNDPROC, (LONG_PTR)&MenuWndProc);
+        s_im.hookedWnd = hwnd;
+    }
+    LONG wheel = InterlockedExchange(&s_im.wheel, 0);
+    if (wheel) io.AddMouseWheelEvent(0.0f, wheel / (float)WHEEL_DELTA);
+    if (s_im.wasOpen && (pt.x != s_im.mouseAt.x || pt.y != s_im.mouseAt.y)) s_im.mouseUsed = true;
+    s_im.mouseAt = pt;
+    ScreenToClient(hwnd, &pt);
+    io.AddMousePosEvent(pt.x * (float)W / rc.right, pt.y * (float)H / rc.bottom);
+    io.AddMouseButtonEvent(0, (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0);
+    io.AddMouseButtonEvent(1, (GetAsyncKeyState(VK_RBUTTON) & 0x8000) != 0);
+    io.MouseDrawCursor = s_im.mouseUsed;
+}
+
+// An on/off switch. Returns true when clicked.
+bool Switch(const char* id, bool on, float k) {
+    float h = ImGui::GetFrameHeight() * 0.8f, w = h * 1.9f;
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    p.y += (ImGui::GetFrameHeight() - h) / 2;
+    ImGui::SetCursorScreenPos(p);
+    bool clicked = ImGui::InvisibleButton(id, ImVec2(w, h));
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p, ImVec2(p.x + w, p.y + h), on ? kAccent : IM_COL32(70, 70, 76, 255), h / 2);
+    float r = h / 2 - 2.5f * k;
+    ImVec2 c(on ? p.x + w - h / 2 : p.x + h / 2, p.y + h / 2);
+    dl->AddCircleFilled(c, r, IM_COL32(245, 245, 245, 255));
+    return clicked;
+}
+
+// The value side of a setting row, `w` wide. Changes made with the mouse go through the same
+// code as the bindings' Left/Right.
+void ValueWidget(int i, float w, float k) {
+    const Item& it = kItems[i];
+    ImGui::PushID(i);
+    float x0 = ImGui::GetCursorPosX();
+    std::string v = ValueText(it, i);
+    switch (it.kind) {
+        case TOGGLE:
+        case CAR: {
+            bool on = it.kind == TOGGLE ? *(bool*)it.value : (*Physics_Car() && Physics_OwnSettings());
+            if (Switch("sw", on, k)) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            ImGui::SameLine();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextDisabled("%s", v.c_str());
+            break;
+        }
+        case NUMBER: {
+            int ffb = FfbIndex(it.value);
+            if (ffb >= 0 && !FfbSetting(ffb)) {
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("No FFB mod");
+                break;
+            }
+            float& val = *(float*)it.value;
+            float shown = val * it.show;
+            ImGui::SetNextItemWidth(w);
+            std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
+            if (ImGui::SliderFloat("##v", &shown, it.lo * it.show, it.hi * it.show, fmt.c_str(), ImGuiSliderFlags_NoInput)) {
+                val = Clamp(roundf(shown / it.show / it.step) * it.step, it.lo, it.hi);
+                s_menu.sel = i;
+                AfterNumberChange(it);
+            }
+            break;
+        }
+        case BIND: {
+            bool capturing = i == s_menu.capture;
+            float clearW = ImGui::GetFrameHeight();
+            if (capturing) ImGui::PushStyleColor(ImGuiCol_Button, Blink(300) ? ImVec4(1.0f, 0.59f, 0.0f, 0.55f) : ImVec4(0.3f, 0.2f, 0.05f, 1.0f));
+            if (ImGui::Button(v.c_str(), ImVec2(w - clearW - ImGui::GetStyle().ItemSpacing.x, 0)) && !capturing && s_menu.capture < 0) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            if (capturing) ImGui::PopStyleColor();
+            ImGui::SameLine();
+            if (ImGui::Button("x", ImVec2(clearW, 0)) && s_menu.capture < 0) {
+                s_menu.sel = i;
+                Change(i, -1);
+            }
+            break;
+        }
+        case SOUND: {
+            uint32_t cur = *(uint32_t*)it.value;
+            ImGui::SetNextItemWidth(w);
+            if (ImGui::BeginCombo("##s", v.c_str())) {
+                for (auto& snd : kGrindSounds)
+                    if (ImGui::Selectable(snd.name, snd.moment == cur)) {
+                        *(uint32_t*)it.value = snd.moment;
+                        Game_PlayMoment(snd.moment);
+                        s_menu.sel = i;
+                        s_menu.dirty = true;
+                    }
+                ImGui::EndCombo();
+            }
+            break;
+        }
+        case ACTION:
+            if (ImGui::Button("Go", ImVec2(w * 0.4f, 0))) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            break;
+        default:
+            break;
+    }
+    (void)x0;
+    ImGui::PopID();
+}
+
+// The settings of one page (`page` = its PAGE item). `focused`: the page has the selection.
+void DrawPage(int page, bool focused, float k) {
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    float rowH = roundf(ImGui::GetFrameHeight() + 8 * k);
+    float fullW = ImGui::GetContentRegionAvail().x;
+    float valueW = roundf(fullW * 0.46f);
+    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) {
+        const Item& it = kItems[i];
+        ImGui::PushID(i);
+        if (it.kind == HEADER) {
+            ImGui::Dummy(ImVec2(0, 6 * k));
+            ImGui::PushFont(s_im.small);
+            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 150, 0, 230));
+            ImGui::TextUnformatted(it.label);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImVec2 a = ImGui::GetCursorScreenPos();
+            dl->AddLine(ImVec2(a.x, a.y - 1), ImVec2(a.x + fullW, a.y - 1), IM_COL32(255, 150, 0, 70), 1.0f);
+            ImGui::Dummy(ImVec2(0, 2 * k));
+            ImGui::PopID();
+            continue;
+        }
+        ImVec2 p0 = ImGui::GetCursorScreenPos();
+        bool sel = focused && i == s_menu.sel;
+        // Clicking anywhere on the row selects it; the value widget sits on top.
+        ImGui::SetNextItemAllowOverlap();
+        if (ImGui::InvisibleButton("row", ImVec2(fullW, rowH))) s_menu.sel = i;
+        bool hovered = ImGui::IsItemHovered();
+        if (sel) {
+            dl->AddRectFilled(p0, ImVec2(p0.x + fullW, p0.y + rowH), IM_COL32(255, 150, 0, 55), 4 * k);
+            dl->AddRectFilled(p0, ImVec2(p0.x + 3 * k, p0.y + rowH), kAccent, 2 * k);
+            if (s_im.lastSel != s_menu.sel) ImGui::SetScrollHereY(0.5f);
+        } else if (hovered) {
+            dl->AddRectFilled(p0, ImVec2(p0.x + fullW, p0.y + rowH), IM_COL32(255, 255, 255, 12), 4 * k);
+        }
+        float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) / 2;
+        dl->AddText(ImVec2(p0.x + 12 * k, ty), sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
+        ImGui::SetCursorScreenPos(ImVec2(p0.x + fullW - valueW - 6 * k, p0.y + (rowH - ImGui::GetFrameHeight()) / 2));
+        ValueWidget(i, valueW, k);
+        ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
+        ImGui::Dummy(ImVec2(0, 0));
+        ImGui::PopID();
+    }
+}
+
+void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
+    if (!s_im.init) {
+        ImGui::CreateContext();
+        ImGui::GetIO().IniFilename = nullptr;
+        ImGui::GetIO().LogFilename = nullptr;
+        s_im.init = true;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    int px = std::max(10, (int)roundf(19 * k));
+    if (px != s_im.fontPx || dev != s_im.dev || !s_im.fontTex) {
+        BuildImFonts(dev, px);
+        StyleImGui(k);
+    }
+    if (!s_im.fontTex) return;
+    double now = Now();
+    io.DeltaTime = (float)Clamp(now - s_im.last, 0.001, 0.1);
+    s_im.last = now;
+    io.DisplaySize = ImVec2((float)W, (float)H);
+    if (!s_im.wasOpen) s_im.mouseUsed = false;
+    FeedMouse(dev, W, H);
+    s_im.wasOpen = true;
+
+    ImGui::NewFrame();
+    float winW = std::min(W - 40.0f * k, roundf(900 * k)), winH = std::min(H - 24.0f * k, roundf(H * 0.86f));
+    ImGui::SetNextWindowPos(ImVec2(roundf((W - winW) / 2), roundf((H - winH) / 2)));
+    ImGui::SetNextWindowSize(ImVec2(winW, winH));
+    ImGui::Begin("##tuning", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                     ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 wp = ImGui::GetWindowPos();
+    dl->AddRectFilled(wp, ImVec2(wp.x + winW, wp.y + 3 * k), kAccent, 6 * k, ImDrawFlags_RoundCornersTop);
+
+    // Title: TUNING > PAGE (- CAR)
+    bool onMain = s_menu.page == 0;
+    int shownPage = s_menu.page;
+    if (onMain && kItems[s_menu.sel].kind == LINK)
+        for (int i = 0; i < kNumItems; i++)
+            if (kItems[i].kind == PAGE && strcmp(kItems[i].label, kItems[s_menu.sel].section) == 0) shownPage = i;
+    ImGui::PushFont(s_im.title);
+    ImGui::TextColored(ImVec4(1.0f, 0.59f, 0.0f, 1.0f), "TUNING");
+    ImGui::PopFont();
+    ImGui::SameLine();
+    {
+        std::string crumb = shownPage ? std::string(kItems[shownPage].label) : std::string();
+        if (shownPage && strcmp(kItems[shownPage].label, "PHYSICS") == 0 && *Physics_Car()) {
+            std::string car = Physics_Car();
+            for (auto& c : car) c = (char)toupper((unsigned char)c);
+            crumb += "  -  " + car;
+        }
+        float y = ImGui::GetCursorPosY();
+        ImGui::SetCursorPosY(y + (ImGui::GetTextLineHeightWithSpacing() * 1.45f - ImGui::GetTextLineHeightWithSpacing()) * 0.6f);
+        ImGui::TextDisabled("%s", crumb.c_str());
+    }
+    ImGui::Dummy(ImVec2(0, 4 * k));
+
+    float footerH = roundf(ImGui::GetTextLineHeightWithSpacing() * 2 + 14 * k);
+    float bodyH = ImGui::GetContentRegionAvail().y - footerH;
+    float sideW = roundf(winW * 0.30f);
+
+    // Sidebar: the categories.
+    ImGui::BeginChild("##side", ImVec2(sideW, bodyH), ImGuiChildFlags_None, ImGuiWindowFlags_NoNav);
+    {
+        ImDrawList* sd = ImGui::GetWindowDrawList();
+        float w = ImGui::GetContentRegionAvail().x;
+        for (int i = 1; i < kNumItems && kItems[i].kind != PAGE; i++) {
+            const Item& it = kItems[i];
+            if (it.kind != LINK) continue;
+            ImGui::PushID(i);
+            ImVec2 p0 = ImGui::GetCursorScreenPos();
+            float h = roundf(ImGui::GetTextLineHeight() + s_im.small->FontSize + 14 * k);
+            bool current = onMain ? i == s_menu.sel : strcmp(it.section, kItems[s_menu.page].label) == 0;
+            if (ImGui::InvisibleButton("cat", ImVec2(w, h))) {
+                if (!onMain) GoBack();
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            bool hovered = ImGui::IsItemHovered();
+            if (current) {
+                sd->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), onMain ? IM_COL32(255, 150, 0, 70) : IM_COL32(255, 150, 0, 35), 4 * k);
+                sd->AddRectFilled(p0, ImVec2(p0.x + 3 * k, p0.y + h), kAccent, 2 * k);
+                if (onMain && s_im.lastSel != s_menu.sel) ImGui::SetScrollHereY(0.5f);
+            } else if (hovered) {
+                sd->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h), IM_COL32(255, 255, 255, 12), 4 * k);
+            }
+            sd->AddText(ImVec2(p0.x + 12 * k, p0.y + 6 * k), current ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
+            std::string sum = LinkSummary(it.section);
+            sd->AddText(s_im.small, s_im.small->FontSize, ImVec2(p0.x + 12 * k, p0.y + 6 * k + ImGui::GetTextLineHeight()),
+                        IM_COL32(140, 140, 150, 255), sum.c_str());
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine(0, 14 * k);
+
+    // The page.
+    ImGui::BeginChild("##page", ImVec2(0, bodyH), ImGuiChildFlags_None, ImGuiWindowFlags_NoNav);
+    if (shownPage) DrawPage(shownPage, !onMain, k);
+    ImGui::EndChild();
+
+    // Footer: what the selected setting does (or the last note), and the controls.
+    ImVec2 fp = ImGui::GetCursorScreenPos();
+    dl->AddLine(ImVec2(fp.x, fp.y + 4 * k), ImVec2(fp.x + ImGui::GetContentRegionAvail().x, fp.y + 4 * k), IM_COL32(60, 60, 66, 255));
+    ImGui::Dummy(ImVec2(0, 8 * k));
+    const Item& cur = kItems[s_menu.sel];
+    bool noted = now - s_menu.noteTime < 3.0 && s_menu.capture < 0;
+    if (noted) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.47f, 1.0f), "%s", s_menu.note.c_str());
+    } else if (s_menu.capture >= 0) {
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.47f, 1.0f), "%s",
+                           cur.flags & BF_STEER ? "Turn the wheel..." : "Press a key, button or pedal...");
+    } else {
+        std::string help = onMain ? std::string("Settings for ") + cur.label + "." : HelpText(cur);
+        std::string def = onMain ? std::string() : DefaultText(cur);
+        ImGui::TextUnformatted(help.c_str());
+        if (!def.empty()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("   %s", def.c_str());
+        }
+    }
+    {
+        std::string m = MenuKeyName(), keys;
+        if (s_menu.capture >= 0) keys = m + ": cancel";
+        else if (onMain) keys = "Up/Down: category    Right: open    " + m + ": close";
+        else if (cur.kind == LINK) keys = "Left/Right: back to the categories    " + m + ": close";
+        else if (cur.kind == BIND) keys = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " + m + ": close";
+        else if (cur.kind == ACTION) keys = "Right: do it    Left: back    " + m + ": close";
+        else keys = "Up/Down: select    Left/Right: change    " + m + ": close";
+        ImGui::PushFont(s_im.small);
+        ImGui::TextDisabled("%s", keys.c_str());
+        ImGui::PopFont();
+    }
+    ImGui::End();
+    s_im.lastSel = s_menu.sel;
+    s_im.lastPage = s_menu.page;
+
+    ImGui::Render();
+    RenderImGui(dev, ImGui::GetDrawData(), W, H);
+}
+
 }  // namespace
 
 void Ui_Frame() {
@@ -911,6 +1549,11 @@ void Ui_Frame() {
     }
     if (!s_font.height) return;
 
+    if (!s_menu.open) s_im.wasOpen = false;
+    if (s_menu.open && !g_cfg.classicMenu) {
+        DrawMenuImGui(dev, desc.Width, desc.Height, k);
+        return;
+    }
     if (s_menu.open) DrawMenu(desc.Width, desc.Height, k);
     else DrawGauge(st, desc.Width, desc.Height, k);
     Flush(dev, desc.Width, desc.Height);

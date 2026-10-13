@@ -114,6 +114,11 @@ code doesn't match.
   `{id, port, value}`, ids from the GAMEACTION_* table). On PC one `GameDevice` merges keyboard
   and joystick, so `GameController=0` is done by the force feedback mod's DirectInput proxy, which
   gives the game an untouched reading of every controller.
+- The tuning menu is [Dear ImGui](https://github.com/ocornut/imgui) (v1.91.9b, vendored unmodified
+  in `third_party/imgui`, MIT) with its own renderer: `DrawIndexedPrimitiveUP` and a MANAGED font
+  texture (DYNAMIC/DEFAULT on D3D9Ex), so device resets need nothing from us. The mouse wheel comes
+  from a chained window procedure, since the game reads the mouse through DirectInput.
+  `[UI] ClassicMenu=1` brings back the old flat menu.
 - The tuning menu is drawn after the game's HUD (eDisplayFrame, 0x6E75A7) as untextured quads with
   a GDI-rasterised font, so the VR mod puts it on its HUD panel.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a
