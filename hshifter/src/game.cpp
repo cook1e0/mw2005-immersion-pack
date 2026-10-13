@@ -1,0 +1,360 @@
+// Gearbox and clutch hooks.
+//
+// Gear selection: InputPlayer::FetchInput calls DoShifting(delta) (sequential up/down) and
+// DoAutoReverse(gas, brake) (shifts into reverse when braking at a standstill and swaps the
+// pedals while reversing). With the H-shifter active both calls are replaced: the gear comes
+// from the stick through ITransmission::Shift, neutral and reverse included, and the pedals keep
+// their meaning in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
+// automatic gearbox (which also skips neutral) stays out of the way.
+//
+// Clutch: EngineRacer models a friction clutch. In its ENGAGING state the torque passed between
+// engine and gearbox is (engine w - gearbox w) * ClutchStiffness * Clutch::Update(), and the
+// engine revs freely otherwise. While the pedal is down, the player's clutch is held in that
+// state with ClutchStiffness scaled by the pedal, so the game's own physics handle slip, launches
+// and free revving. Once the pedal is up and the slip is small, the clutch is handed back to the
+// game fully engaged.
+#include "game.h"
+#include "common.h"
+#include "input.h"
+#include <math.h>
+
+namespace {
+
+// --- speed.exe v1.3 -------------------------------------------------------------------------
+constexpr uintptr_t kCallDoShifting = 0x6A8D80;     // InputPlayer::FetchInput: call DoShifting
+constexpr uintptr_t kDoShifting = 0x69CE20;         // bool InputPlayer::DoShifting(int)
+constexpr uintptr_t kCallDoAutoReverse = 0x6A8D89;  // InputPlayer::FetchInput: call DoAutoReverse
+constexpr uintptr_t kDoAutoReverse = 0x69CEF0;      // void InputPlayer::DoAutoReverse(float, float)
+constexpr uintptr_t kIsAutomaticShift = 0x68D090;   // bool InputPlayer::IsAutomaticShift() (IInput)
+constexpr uintptr_t kEngineSimulate = 0x6AF740;     // void EngineRacer::OnTaskSimulate(float)
+constexpr uintptr_t kIListFind = 0x5D59F0;          // IUnknown* UTL::COM::Object::_IList::Find(void*)
+constexpr uintptr_t kITransmissionHandle = 0x404010;// ITransmission::_IHandle (its address is the key)
+constexpr uintptr_t kGetDiffAngVel = 0x692140;      // float EngineRacer::GetDifferentialAngularVelocity(bool)
+constexpr uintptr_t kGetGearRatio = 0x691AC0;       // float EngineRacer::GetGearRatio(unsigned)
+constexpr uintptr_t kVtblRacerTrans = 0x8AB720;     // EngineRacer's ITransmission vtable
+constexpr uintptr_t kVtblDragsterTrans = 0x8ABFC8;  // EngineDragster's ITransmission vtable
+constexpr uintptr_t kClutchStiffness = 0x8F8D9C;    // float ClutchStiffness = 20
+
+// InputPlayer (the "this" of DoShifting / DoAutoReverse)
+constexpr int kIP_Vehicle = 0x7C;                   // owner; +4 holds its interface list
+
+// EngineRacer
+constexpr int kER_Transmission = 0x4C;              // ITransmission sub-object
+constexpr int kER_Gear = 0x84;
+constexpr int kER_ShiftTimer = 0x88;
+constexpr int kER_AngularVelocity = 0xEC;           // engine, rad/s
+constexpr int kER_TransmissionVelocity = 0xF4;      // gearbox input mapped to engine rad/s
+constexpr int kER_EngineLayout = 0x14C;             // Attrib engine: +0x58 RED_LINE, +0x5C IDLE
+constexpr int kER_TranyLayout = 0x160;              // Attrib transmission: +0x80 FINAL_GEAR
+constexpr int kER_Clutch = 0x198;
+
+enum GearID { G_REVERSE = 0, G_NEUTRAL = 1, G_FIRST = 2 };
+
+struct Clutch {
+    enum State { ENGAGED = 0, ENGAGING = 1, DISENGAGED = 2 };
+    int state;
+    float time;
+    float engageTime;
+};
+
+typedef bool(__thiscall* DoShifting_t)(void* ip, int delta);
+typedef void(__thiscall* DoAutoReverse_t)(void* ip, float gas, float brake);
+typedef bool(__thiscall* IsAutomaticShift_t)(void* input);
+typedef void(__thiscall* EngineSimulate_t)(void* engine, float dT);
+typedef void*(__thiscall* IListFind_t)(void* list, void* handle);
+typedef float(__thiscall* GetDiffAngVel_t)(void* engine, bool locked);
+typedef float(__thiscall* GetGearRatio_t)(void* engine, unsigned gear);
+typedef int(__thiscall* TransGetGear_t)(void* trans);
+typedef bool(__thiscall* TransShift_t)(void* trans, int gear);
+
+DoShifting_t s_origDoShifting = (DoShifting_t)kDoShifting;
+DoAutoReverse_t s_origDoAutoReverse = (DoAutoReverse_t)kDoAutoReverse;
+IsAutomaticShift_t s_origIsAutomaticShift;
+EngineSimulate_t s_origEngineSimulate;
+float s_baseStiffness = 20.0f;
+
+template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
+void** Vtbl(void* obj) { return *(void***)obj; }
+
+int TransGear(void* t) { return ((TransGetGear_t)Vtbl(t)[1])(t); }
+int TransTopGear(void* t) { return ((TransGetGear_t)Vtbl(t)[2])(t); }
+bool TransShift(void* t, int gear) { return ((TransShift_t)Vtbl(t)[3])(t, gear); }
+
+const char* GearName(int g) {
+    static const char* names[] = {"R", "N", "1", "2", "3", "4", "5", "6", "7", "8"};
+    return g >= 0 && g < 10 ? names[g] : "?";
+}
+
+// --- state (game thread only) -------------------------------------------------------------
+struct {
+    uint8_t* engine = nullptr;  // local player's EngineRacer
+    double seen = -1e9;         // last FetchInput for it
+    bool hActive = false;       // H-shifter owns the gearbox
+    bool clutchActive = false;  // clutch pedal owns the clutch
+    float pedal = 0.0f;
+    int lastGear = -100;        // gear we last left the gearbox in (-100 = unknown)
+    int refused = -100;         // gear we last refused to engage (log once)
+    bool forcing = false;       // clutch state is currently ours
+    bool hEnabled = true;       // toggled in game
+    uint32_t toggles = 0;
+} s;
+
+bool Fresh() { return Now() - s.seen < 0.5; }
+
+uint8_t* PlayerEngine(void* ip) {
+    uint8_t* vehicle = Field<uint8_t*>((uint8_t*)ip, kIP_Vehicle);
+    if (!vehicle) return nullptr;
+    void* list = Field<void*>(vehicle, 4);
+    if (!list) return nullptr;
+    void* trans = ((IListFind_t)kIListFind)(list, (void*)kITransmissionHandle);
+    if (!trans) return nullptr;
+    uintptr_t vt = *(uintptr_t*)trans;
+    if (vt != kVtblRacerTrans && vt != kVtblDragsterTrans) return nullptr;   // not a racer engine
+    return (uint8_t*)trans - kER_Transmission;
+}
+
+// Clutch engagement 0..1 from pedal travel: no grip above BiteStart, full grip below BiteEnd.
+float Engagement(float pedal) {
+    float t = Clamp((g_cfg.biteStart - pedal) / (g_cfg.biteStart - g_cfg.biteEnd), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// Driven wheels turning against the requested direction (e.g. reverse while rolling forward)?
+bool WrongDirection(uint8_t* eng, int gear) {
+    float w = ((GetDiffAngVel_t)kGetDiffAngVel)(eng, false);   // rad/s, + forward
+    if (gear == G_REVERSE) return w > 3.0f;
+    return w < -3.0f;
+}
+
+// Engine speed close enough to what the target gear would turn it at?
+bool RevMatched(uint8_t* eng, int gear) {
+    if (g_cfg.revMatchRpm <= 0.0f) return false;
+    uint8_t* engine = Field<uint8_t*>(eng, kER_EngineLayout);
+    uint8_t* tranny = Field<uint8_t*>(eng, kER_TranyLayout);
+    if (!engine || !tranny) return false;
+    const float rpmToW = 0.10471976f;
+    float maxW = Field<float>(engine, 0x58) * rpmToW;
+    float minW = Field<float>(engine, 0x5C) * rpmToW;
+    float ratio = ((GetGearRatio_t)kGetGearRatio)(eng, (unsigned)gear) * Field<float>(tranny, 0x80);
+    if (gear == G_REVERSE) ratio = -ratio;
+    float wheels = ((GetDiffAngVel_t)kGetDiffAngVel)(eng, true);
+    float target = minW + wheels * ratio * (maxW - minW) / maxW;
+    float diffRpm = fabsf(Field<float>(eng, kER_AngularVelocity) - target) / rpmToW;
+    return diffRpm <= g_cfg.revMatchRpm;
+}
+
+void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
+    void* trans = eng + kER_Transmission;
+    int cur = TransGear(trans);
+    int want = in.stickGear < 0 ? G_NEUTRAL : in.stickGear == 0 ? G_REVERSE : in.stickGear + 1;
+    if (want > TransTopGear(trans)) want = G_NEUTRAL;   // gate beyond this car's top gear
+
+    if (cur != s.lastGear) {
+        // First time, or the game changed gear itself (race start, reset, ...): follow the stick.
+        if (want != cur && TransShift(trans, want))
+            Log("shift: %s -> %s (sync with shifter)", GearName(cur), GearName(want));
+        s.lastGear = TransGear(trans);
+        return;
+    }
+    if (want == cur) {
+        s.refused = -100;
+        return;
+    }
+
+    bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
+    const char* refuse = nullptr;
+    if (want != G_NEUTRAL) {
+        if (g_cfg.requireClutch && s.clutchActive && !clutchIn && !RevMatched(eng, want))
+            refuse = "clutch not pressed";
+        else if (g_cfg.blockWrongDirection && WrongDirection(eng, want))
+            refuse = "car rolling the other way";
+    }
+    if (refuse) {
+        // The stick has left the old gate, so the box is in neutral until the gear goes in.
+        if (cur != G_NEUTRAL) TransShift(trans, G_NEUTRAL);
+        if (s.refused != want) Log("shift: %s refused (%s)", GearName(want), refuse);
+        s.refused = want;
+    } else if (TransShift(trans, want)) {
+        // With the clutch already down, the game's simulated clutch kick is redundant.
+        if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+        Log("shift: %s -> %s (clutch %.2f)", GearName(cur), GearName(want), in.clutchPedal);
+        s.refused = -100;
+    }
+    s.lastGear = TransGear(trans);
+}
+
+bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
+    Input_Start();
+    InputSnapshot in = Input_Get();
+    if (in.toggles != s.toggles) {
+        s.toggles = in.toggles;
+        s.hEnabled = !s.hEnabled;
+        s.lastGear = -100;
+        Log("toggle: H-shifter %s", s.hEnabled ? "on" : "off (game's sequential shifting)");
+    }
+
+    uint8_t* eng = PlayerEngine(ip);
+    if (eng != s.engine) {
+        s.engine = eng;
+        s.lastGear = -100;
+        s.forcing = false;
+        if (eng) Log("player engine at %p", eng);
+    }
+    if (!eng) {
+        s.hActive = s.clutchActive = false;
+        return s_origDoShifting(ip, delta);
+    }
+    s.seen = Now();
+    s.clutchActive = in.clutchBound;
+    s.pedal = in.clutchPedal;
+    bool h = s.hEnabled && in.shifterBound;
+    if (h != s.hActive) {
+        Log("H-shifter %s", h ? "active" : "inactive");
+        s.lastGear = -100;
+    }
+    s.hActive = h;
+
+    if (s.hActive) {
+        ApplyShifter(eng, in);
+        return false;   // the game's shift up/down buttons do nothing while the stick decides
+    }
+
+    bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
+    if (delta != 0 && g_cfg.requireClutch && g_cfg.sequentialNeedsClutch && s.clutchActive && !clutchIn) delta = 0;
+    bool shifted = s_origDoShifting(ip, delta);
+    if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+    return shifted;
+}
+
+void __fastcall Hook_DoAutoReverse(void* ip, void*, float gas, float brake) {
+    if (s.hActive && Fresh()) return;   // reverse is a gate on the shifter, pedals keep their roles
+    s_origDoAutoReverse(ip, gas, brake);
+}
+
+bool __fastcall Hook_IsAutomaticShift(void* input) {
+    if (s.hActive && Fresh()) return false;
+    return s_origIsAutomaticShift(input);
+}
+
+void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
+    if (eng != s.engine || !s.clutchActive || !Fresh()) {
+        if (eng == s.engine) s.forcing = false;
+        s_origEngineSimulate(eng, dT);
+        return;
+    }
+    Clutch& c = Field<Clutch>(eng, kER_Clutch);
+    float e = Engagement(s.pedal);
+    int gear = Field<int>(eng, kER_Gear);
+    float slipRpm = fabsf(Field<float>(eng, kER_AngularVelocity) - Field<float>(eng, kER_TransmissionVelocity)) * 9.5492966f;
+    // Pedal up: keep slipping until engine and gearbox speeds meet, then lock up.
+    bool force = e < 0.999f || (s.forcing && gear != G_NEUTRAL && slipRpm > g_cfg.lockRpm);
+    if (!force) {
+        if (s.forcing) {
+            s.forcing = false;
+            c.state = Clutch::ENGAGED;
+            c.time = c.engageTime = 0.0f;
+        }
+        s_origEngineSimulate(eng, dT);
+        return;
+    }
+    s.forcing = true;
+    // Clutch::Update returns 0.25 for ENGAGING with time == engageTime, and the huge time keeps
+    // the game from finishing the engagement on its own.
+    c.state = Clutch::ENGAGING;
+    c.time = c.engageTime = 1.0e6f;
+    float* stiffness = (float*)kClutchStiffness;
+    float saved = *stiffness;
+    *stiffness = s_baseStiffness * 4.0f * e * g_cfg.strength;
+    s_origEngineSimulate(eng, dT);
+    *stiffness = saved;
+}
+
+// --- patching ----------------------------------------------------------------------------
+bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
+    const uint8_t* p = (const uint8_t*)at;
+    size_t i = 0;
+    for (uint8_t b : bytes) {
+        if (p[i] != b) {
+            Log("unexpected code at 0x%06X+%u: %02X (want %02X)", (unsigned)at, (unsigned)i, p[i], b);
+            return false;
+        }
+        i++;
+    }
+    return true;
+}
+
+bool ExpectPtr(uintptr_t at, uintptr_t value) {
+    if (*(uintptr_t*)at == value) return true;
+    Log("unexpected data at 0x%06X: %08X (want %08X)", (unsigned)at, (unsigned)*(uintptr_t*)at, (unsigned)value);
+    return false;
+}
+
+void Write(uintptr_t at, const void* data, size_t n) {
+    DWORD old;
+    VirtualProtect((void*)at, n, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)at, data, n);
+    VirtualProtect((void*)at, n, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)at, n);
+}
+
+void WriteRel(uintptr_t at, uint8_t op, const void* target) {
+    uint8_t code[5] = {op};
+    int32_t rel = (int32_t)((uintptr_t)target - (at + 5));
+    memcpy(code + 1, &rel, 4);
+    Write(at, code, 5);
+}
+
+// Trampoline that runs the `stolen` original bytes at `at` and continues after them.
+// The stolen bytes must be position independent.
+void* MakeTrampoline(uintptr_t at, size_t stolen) {
+    uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+    if (!tramp) return nullptr;
+    memcpy(tramp, (void*)at, stolen);
+    tramp[stolen] = 0xE9;
+    int32_t rel = (int32_t)((at + stolen) - ((uintptr_t)tramp + stolen + 5));
+    memcpy(tramp + stolen + 1, &rel, 4);
+    return tramp;
+}
+
+}  // namespace
+
+bool Game_Install() {
+    // Every address we check must lie inside the host image (also true for patched v1.3 exes
+    // with extra sections, which only make SizeOfImage larger).
+    uint8_t* base = (uint8_t*)GetModuleHandleA(nullptr);
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    if (base != (uint8_t*)0x400000 || nt->OptionalHeader.SizeOfImage < 0x5C7000) {
+        Log("host is not speed.exe (base %p, size 0x%X)", base, (unsigned)nt->OptionalHeader.SizeOfImage);
+        return false;
+    }
+    bool ok = Expect(kCallDoShifting, {0xE8, 0x9B, 0x40, 0xFF, 0xFF})
+           && Expect(kCallDoAutoReverse, {0xE8, 0x62, 0x41, 0xFF, 0xFF})
+           && Expect(kIsAutomaticShift, {0x57, 0x8B, 0xF9, 0x8B, 0x47, 0x38})
+           && Expect(kEngineSimulate, {0x83, 0xEC, 0x3C, 0x55, 0x56, 0x8B, 0xF1})
+           && Expect(kIListFind, {0x83, 0xEC, 0x08, 0x56, 0x8B, 0x71, 0x08})
+           && Expect(kGetDiffAngVel, {0x83, 0xEC, 0x08, 0x53, 0x56, 0x8B, 0xF1})
+           && Expect(kGetGearRatio, {0x56, 0x8B, 0xB1, 0x60, 0x01, 0x00, 0x00})
+           && ExpectPtr(kVtblRacerTrans + 4, 0x6A0590)       // GetGear
+           && ExpectPtr(kVtblRacerTrans + 12, 0x6AF440)      // Shift
+           && ExpectPtr(kVtblDragsterTrans + 4, 0x6A0590)
+           && ExpectPtr(kVtblDragsterTrans + 12, 0x6AF440);
+    if (!ok) return false;
+
+    float k = *(float*)kClutchStiffness;
+    if (k > 0.0f && k < 1000.0f) s_baseStiffness = k;
+
+    s_origIsAutomaticShift = (IsAutomaticShift_t)MakeTrampoline(kIsAutomaticShift, 6);
+    s_origEngineSimulate = (EngineSimulate_t)MakeTrampoline(kEngineSimulate, 5);
+    if (!s_origIsAutomaticShift || !s_origEngineSimulate) {
+        Log("out of memory for trampolines");
+        return false;
+    }
+    WriteRel(kCallDoShifting, 0xE8, (void*)&Hook_DoShifting);
+    WriteRel(kCallDoAutoReverse, 0xE8, (void*)&Hook_DoAutoReverse);
+    WriteRel(kIsAutomaticShift, 0xE9, (void*)&Hook_IsAutomaticShift);
+    const uint8_t nop = 0x90;
+    Write(kIsAutomaticShift + 5, &nop, 1);
+    WriteRel(kEngineSimulate, 0xE9, (void*)&Hook_EngineSimulate);
+    Log("hooks installed (clutch stiffness %.1f)", s_baseStiffness);
+    return true;
+}
