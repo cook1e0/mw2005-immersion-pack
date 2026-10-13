@@ -46,10 +46,10 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `nfsmw_gameplay.asi` into the `scripts` folder
-next to `speed.exe` (with the zip's `dinput8.dll`, Ultimate ASI Loader, next to `speed.exe`) and
-`nfsmw_gameplay.ini` next to `speed.exe`. Without a loader, rename `nfsmw_gameplay.asi` to
-`dsound.dll` and put it next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `nfsmw_gameplay.asi` and `nfsmw_gameplay.ini`
+into the `scripts` folder next to `speed.exe` (with the zip's `dinput8.dll`, Ultimate ASI Loader, next
+to `speed.exe`). Without a loader, rename `nfsmw_gameplay.asi` to `dsound.dll` and put it and the
+`.ini` next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
 the clutch and each gear under CONTROLS: select one, press Right, then press the pedal or put the
 stick in that gear. To uninstall, delete `nfsmw_gameplay.asi` (or `dsound.dll`).
 

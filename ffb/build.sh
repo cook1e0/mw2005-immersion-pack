@@ -15,8 +15,13 @@ echo "built build/dinput8.dll build/ffbtool.exe"
 if [ "$1" = "install" ]; then
     GAME="${NFSMW_DIR:-/c/Games/NFSMW}"
     # Into whichever layout is installed: scripts/nfsmw_ffb.asi (ASI loader) or dinput8.dll
-    if [ -f "$GAME/scripts/nfsmw_ffb.asi" ]; then cp build/dinput8.dll "$GAME/scripts/nfsmw_ffb.asi"
-    else cp build/dinput8.dll "$GAME/"; fi
-    [ -f "$GAME/nfsmw_ffb.ini" ] || cp nfsmw_ffb.ini "$GAME/"
+    # (the mod moves an ini left next to speed.exe into scripts/ itself)
+    if [ -f "$GAME/scripts/nfsmw_ffb.asi" ]; then
+        cp build/dinput8.dll "$GAME/scripts/nfsmw_ffb.asi"
+        [ -f "$GAME/scripts/nfsmw_ffb.ini" ] || [ -f "$GAME/nfsmw_ffb.ini" ] || cp nfsmw_ffb.ini "$GAME/scripts/"
+    else
+        cp build/dinput8.dll "$GAME/"
+        [ -f "$GAME/nfsmw_ffb.ini" ] || cp nfsmw_ffb.ini "$GAME/"
+    fi
     echo "installed to $GAME"
 fi

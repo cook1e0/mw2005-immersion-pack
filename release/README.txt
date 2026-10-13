@@ -8,21 +8,22 @@ the same loader the widescreen fix and most other NFS mods use.
    widescreen fix), and create a "scripts" folder there if there is none.
 2. Copy the mods you want:
 
-  VR               scripts\nfsmw_vr.asi, and nfsmw_vr_host.exe + nfsmw_vr.ini next to speed.exe
+  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini, and nfsmw_vr_host.exe next to
+                   speed.exe
                    (Virtual Desktop, SteamVR or Meta Quest Link; for SteamVR set it as the
                    OpenXR runtime in SteamVR's settings and run Room Setup once)
-  Force feedback   scripts\nfsmw_ffb.asi, and nfsmw_ffb.ini next to speed.exe
-                   (ffbtool.exe lists / tests wheels)
-  Gameplay         scripts\nfsmw_gameplay.asi, and nfsmw_gameplay.ini next to speed.exe
+  Force feedback   scripts\nfsmw_ffb.asi + scripts\nfsmw_ffb.ini
+                   (ffbtool.exe, next to speed.exe, lists / tests wheels)
+  Gameplay         scripts\nfsmw_gameplay.asi + scripts\nfsmw_gameplay.ini
                    F4 while driving: bind wheel and pedals under Controls, an H-shifter
                    under Gear bindings
 
 Each mod works on its own or together with the others. To uninstall, delete its .asi.
-Settings are in the .ini files; each mod writes a .log next to speed.exe.
+Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
 
 Upgrading from v0.9.1 or older: delete the old d3d9.dll and dsound.dll next to speed.exe (if
-both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Your
-.ini files stay as they are.
+both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Keep your
+.ini files: on the first start each mod moves its own into scripts, with your settings.
 
 With the widescreen fix: all three mods run alongside it. If the game crashes right at start,
 set SkipIntro = 0 in scripts\NFSMostWanted.WidescreenFix.ini. The fix keeps the game's settings
@@ -31,6 +32,7 @@ game's options.
 
 Without an ASI loader: each .asi also works renamed to the DLL it used to be, next to speed.exe:
 nfsmw_vr.asi -> d3d9.dll, nfsmw_ffb.asi -> dinput8.dll, nfsmw_gameplay.asi -> dsound.dll.
+Its .ini then goes next to speed.exe too.
 
 Upgrading from v0.6.0 or older: the H-shifter mod is now the gameplay mod. On the first start
 nfsmw_hshifter.ini is renamed to nfsmw_gameplay.ini with your settings. hshiftertool.exe and

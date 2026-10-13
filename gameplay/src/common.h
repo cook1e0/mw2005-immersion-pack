@@ -19,6 +19,9 @@ void Log(const char* fmt, ...);
 
 // Directory containing the host exe (with trailing backslash).
 const char* GameDir();
+// Folder of this DLL and the mods' .ini files (see common.cpp).
+const char* ModDir();
+void ConfigFile(const char* name, char* out, bool migrate);
 
 // Seconds since an arbitrary epoch (QPC).
 double Now();

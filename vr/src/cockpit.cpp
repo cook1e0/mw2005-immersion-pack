@@ -96,7 +96,7 @@ double Now() {
 
 const char* IniPath() {
     static char path[MAX_PATH];
-    if (!path[0]) snprintf(path, sizeof(path), "%snfsmw_vr.ini", GameDir());
+    if (!path[0]) ConfigFile("nfsmw_vr.ini", path, false);
     return path;
 }
 

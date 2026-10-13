@@ -10,8 +10,8 @@ Native OpenXR VR mod for *Need for Speed: Most Wanted* (2005, PC) with full ster
 ## Install
 
 1. With [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) (`dinput8.dll`, in the release zip)
-   next to `speed.exe`, copy `nfsmw_vr.asi` into the `scripts` folder and `nfsmw_vr_host.exe` and `nfsmw_vr.ini`
-   next to `speed.exe`. Without a loader, rename `nfsmw_vr.asi` to `d3d9.dll` and put it next to `speed.exe`.
+   next to `speed.exe`, copy `nfsmw_vr.asi` and `nfsmw_vr.ini` into the `scripts` folder and `nfsmw_vr_host.exe`
+   next to `speed.exe`. Without a loader, rename `nfsmw_vr.asi` to `d3d9.dll` and put it and the `.ini` next to `speed.exe`.
 2. Connect your headset, then launch the game.
 
 To uninstall, delete `nfsmw_vr.asi` (or `d3d9.dll`), `nfsmw_vr_host.exe` and `nfsmw_vr.ini`. If something goes wrong, check `nfsmw_vr.log` in the game folder.

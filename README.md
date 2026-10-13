@@ -16,14 +16,14 @@ damage and more). Install any of them, or all three.
 2. Copy `dinput8.dll` ([Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader))
    next to `speed.exe`. Skip this if you already have it, e.g. from the
    [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw).
-3. Copy the files of the mods you want: each `.asi` goes into the `scripts` folder next to
-   `speed.exe` (create it if needed), the rest next to `speed.exe`:
+3. Copy the files of the mods you want: the `.asi` and `.ini` go into the `scripts` folder next
+   to `speed.exe` (create it if needed), the `.exe` files next to `speed.exe`:
 
    | Mod | `scripts\` | Next to `speed.exe` |
    |---|---|---|
-   | VR | `nfsmw_vr.asi` | `nfsmw_vr_host.exe`, `nfsmw_vr.ini` |
-   | Force feedback | `nfsmw_ffb.asi` | `nfsmw_ffb.ini` (`ffbtool.exe` optional: lists and tests wheels) |
-   | Gameplay | `nfsmw_gameplay.asi` | `nfsmw_gameplay.ini` |
+   | VR | `nfsmw_vr.asi`, `nfsmw_vr.ini` | `nfsmw_vr_host.exe` |
+   | Force feedback | `nfsmw_ffb.asi`, `nfsmw_ffb.ini` | `ffbtool.exe` (optional: lists and tests wheels) |
+   | Gameplay | `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini` | |
 
 4. Gameplay: press F4 while driving. Bind your wheel and pedals under *Controls* (set *Wheel
    rotation* to your wheel driver's setting and *Steering lock* to taste, then turn *Game's own
@@ -33,19 +33,20 @@ damage and more). Install any of them, or all three.
 **Upgrading from v0.9.1 or older:** the mods used to be `d3d9.dll`, `dinput8.dll` and
 `dsound.dll` next to `speed.exe`. Delete the old `d3d9.dll` and `dsound.dll` (if a mod is
 installed both ways, the old DLL runs and the `.asi` stays inactive); `dinput8.dll` is
-replaced by the loader. Your `.ini` files stay as they are.
+replaced by the loader. Keep your `.ini` files: on the first start each mod moves its own
+from next to `speed.exe` into `scripts`, with your settings.
 
 **Without an ASI loader:** each `.asi` still works renamed to its proxy DLL next to
 `speed.exe`: `nfsmw_vr.asi` as `d3d9.dll`, `nfsmw_ffb.asi` as `dinput8.dll`,
-`nfsmw_gameplay.asi` as `dsound.dll`.
+`nfsmw_gameplay.asi` as `dsound.dll`. Its `.ini` then goes next to `speed.exe` too.
 
 **Upgrading from v0.6.0 or older:** the H-shifter mod is now the gameplay mod. Replace
 `dsound.dll`; on the first start your `nfsmw_hshifter.ini` is renamed to
 `nfsmw_gameplay.ini` with all your settings and bindings. `hshiftertool.exe` and
 `nfsmw_hshifter.log` can be deleted.
 
-To uninstall a mod, delete its `.asi`. Settings are in the `.ini` files; each mod writes a `.log`
-next to `speed.exe`.
+To uninstall a mod, delete its `.asi`. Settings are in the `.ini` files next to each `.asi`; each
+mod writes a `.log` next to `speed.exe`.
 
 **With the [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw):**
 all three mods run alongside it. Two things about the fix itself:

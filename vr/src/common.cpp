@@ -18,6 +18,42 @@ const char* GameDir() {
     return s_gameDir;
 }
 
+// Directory of this DLL: scripts\ when loaded as an .asi, the game folder as a proxy DLL.
+const char* ModDir() {
+    static char dir[MAX_PATH];
+    if (!dir[0]) {
+        HMODULE self = nullptr;
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)&ModDir, &self);
+        GetModuleFileNameA(self, dir, MAX_PATH);
+        char* slash = strrchr(dir, '\\');
+        if (slash) slash[1] = 0;
+    }
+    return dir;
+}
+
+static bool FileExists(const char* path) { return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES; }
+
+// Finds one of the mods' .ini files: next to this DLL, next to speed.exe (where they were before
+// v0.10.0) or in scripts\. A missing one belongs next to this DLL. With migrate, one found next to
+// speed.exe while this DLL is in scripts\ is moved here.
+void ConfigFile(const char* name, char* out, bool migrate) {
+    char other[MAX_PATH];
+    snprintf(out, MAX_PATH, "%s%s", ModDir(), name);
+    if (FileExists(out)) return;
+    snprintf(other, MAX_PATH, "%s%s", GameDir(), name);
+    if (_stricmp(ModDir(), GameDir()) != 0 && FileExists(other)) {
+        if (migrate && MoveFileA(other, out)) {
+            Log("settings: moved %s next to the mod (%s)", name, ModDir());
+            return;
+        }
+        strcpy(out, other);
+        return;
+    }
+    snprintf(other, MAX_PATH, "%sscripts\\%s", GameDir(), name);
+    if (FileExists(other)) strcpy(out, other);
+}
+
 void LogInit(const char* fileName) {
     InitializeCriticalSection(&s_logLock);
     char path[MAX_PATH];
@@ -53,7 +89,7 @@ static int ReadInt(const char* ini, const char* key, int def) {
 
 void LoadConfig() {
     char ini[MAX_PATH];
-    snprintf(ini, sizeof(ini), "%snfsmw_vr.ini", GameDir());
+    ConfigFile("nfsmw_vr.ini", ini, true);
     Config& c = g_cfg;
     c.enabled = ReadInt(ini, "Enabled", c.enabled) != 0;
     c.forceWindowed = ReadInt(ini, "ForceWindowed", c.forceWindowed) != 0;

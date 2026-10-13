@@ -264,9 +264,9 @@ int FfbIndex(const void* value) {
 }
 
 std::string FfbIniPath() {
-    std::string path = IniPath();
-    size_t slash = path.find_last_of("\\/");
-    return path.substr(0, slash + 1) + "nfsmw_ffb.ini";
+    char path[MAX_PATH];
+    ConfigFile("nfsmw_ffb.ini", path, false);
+    return path;
 }
 struct Item {
     Kind kind;

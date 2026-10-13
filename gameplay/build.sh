@@ -19,8 +19,13 @@ echo "built build/dsound.dll"
 if [ "$1" = "install" ]; then
     GAME="${NFSMW_DIR:-/c/Games/NFSMW}"
     # Into whichever layout is installed: scripts/nfsmw_gameplay.asi (ASI loader) or dsound.dll
-    if [ -f "$GAME/scripts/nfsmw_gameplay.asi" ]; then cp build/dsound.dll "$GAME/scripts/nfsmw_gameplay.asi"
-    else cp build/dsound.dll "$GAME/"; fi
-    [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/"
+    # (the mod moves an ini left next to speed.exe into scripts/ itself)
+    if [ -f "$GAME/scripts/nfsmw_gameplay.asi" ]; then
+        cp build/dsound.dll "$GAME/scripts/nfsmw_gameplay.asi"
+        [ -f "$GAME/scripts/nfsmw_gameplay.ini" ] || [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/scripts/"
+    else
+        cp build/dsound.dll "$GAME/"
+        [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/"
+    fi
     echo "installed to $GAME"
 fi

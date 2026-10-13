@@ -59,3 +59,6 @@ void LoadConfig();
 
 // Directory containing speed.exe (with trailing backslash).
 const char* GameDir();
+// Folder of this DLL and the mods' .ini files (see common.cpp).
+const char* ModDir();
+void ConfigFile(const char* name, char* out, bool migrate);
