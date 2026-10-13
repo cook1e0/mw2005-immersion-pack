@@ -1,7 +1,8 @@
 # Cockpit notes (work in progress)
 
-State of the `cockpit` branch: seat and head removal work in a first test (Mustang GT, free roam,
-`FakeHmd=1` on the desktop). Not tried in a real headset yet.
+Seat and head removal work in a first test (Mustang GT, free roam, `FakeHmd=1` on the desktop).
+The seat also applies on a flat screen (no headset: the single view is moved the same way). Not
+tried in a real headset yet.
 
 ## What it does
 

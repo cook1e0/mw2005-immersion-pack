@@ -26,7 +26,7 @@ To uninstall, delete the two files. If something goes wrong, check `nfsmw_vr.log
 | Numpad 9 / 3 | Seat up / down |
 | Numpad 5 | Seat back to the driver's head |
 
-In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car.
+In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car. This also works on a flat screen without a headset.
 
 ## Settings
 

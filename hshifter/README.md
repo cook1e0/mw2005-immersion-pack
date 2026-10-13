@@ -9,7 +9,8 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
   pedal down and lock-up on release all come from the game's physics. Buttons or keys work as a
   digital clutch that is eased in and out.
 - **Clutch required to shift** (optional): moving the stick into a gate without the clutch leaves
-  the box in neutral until you press the clutch. Optional rev-matched clutchless shifts.
+  the box in neutral and grinds; that gear only goes in once the stick has been back to neutral
+  and in again with the clutch pressed. Optional rev-matched clutchless shifts.
 - Reverse is refused while rolling forward (and forward gears while rolling backward).
 - **Engine wear** (optional): no rev limiter. Above the redline the engine heats up, loses power
   when hot, and blows at full heat. A blown engine totals the car in a race; in free roam, use
@@ -19,12 +20,17 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Damage / heat meter**: the speedbreaker meter next to the tachometer shows car damage, filling
   from the bottom up, with a car icon instead of the clock. Engine heat above 50% fills the same
   bar in red, and at 75% heat or damage the meter pulses and the car icon flashes red. The
-  speedbreaker itself is off by default.
+  speedbreaker itself is off by default. A spike strip icon above it turns from grey to flashing
+  red while a tire is popped.
+- **Engine smoke**: a damaged (75%) or hot (50% heat) engine smokes, trailing behind the car.
+- **Popped tires**: spike strips leave the car drivable, with less grip and some drag.
+- **Traffic density**: a multiplier on traffic, from none to 3x.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
   drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
   the front torque share and gravity, for all cars or per car. Only your car is affected
   (gravity optionally all cars).
-- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, changed
+- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic, and
+  the force feedback mod's strength (if it is installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
 
@@ -110,8 +116,10 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 ## Limitations
 
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
-- A refused shift plays the totaled car's engine failure sound (`[Shifter] GrindSound`, a sound
-  moment key; 0 = silent). The game has no gearbox grind sound outside drag races.
+- A refused shift plays the gear grind of the intro's sabotaged BMW (`[Shifter] GrindSound`, a
+  sound moment key; 0 = silent), with the drag race missed-shift exhaust pop.
+- Traffic density above 1 raises the game's limit of 20 cars around you (up to 40); not tested for
+  long sessions.
 - `TorqueSplit` multiplies the car's own front share, so a rear-wheel drive car (0% front) stays
   rear-wheel drive.
 - Not yet tested with a physical wheel and shifter, only keyboard bindings.
