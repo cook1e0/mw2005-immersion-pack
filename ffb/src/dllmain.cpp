@@ -14,7 +14,7 @@ static HMODULE s_realDll;
 static DirectInput8Create_t s_origCreate;  // .asi mode: the game's original import
 static bool s_active;
 
-// The master Gain, for the H-shifter mod's tuning menu (read live by the effect update).
+// The master Gain, for the gameplay mod's F4 tuning menu (read live by the effect update).
 extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 
 static FARPROC RealProc(const char* name) {

@@ -20,7 +20,7 @@ struct AxisCal {
 static std::vector<AxisCal> s_cal;
 
 static HWND CreateHiddenWindow() {
-    return CreateWindowExA(WS_EX_TOOLWINDOW, "STATIC", "nfsmw_hshifter", WS_POPUP, 0, 0, 1, 1,
+    return CreateWindowExA(WS_EX_TOOLWINDOW, "STATIC", "nfsmw_gameplay", WS_POPUP, 0, 0, 1, 1,
                            nullptr, nullptr, GetModuleHandleA(nullptr), nullptr);
 }
 
@@ -334,7 +334,7 @@ static DWORD WINAPI InputThread(LPVOID) {
                 c.known = true;
                 c.released = raw > 32767.0f ? 65535.0f : 0.0f;
                 c.pressed = 65535.0f - c.released;
-                Log("input: clutch %s learned released=%d pressed=%d (run hshiftertool setup to calibrate)",
+                Log("input: clutch %s learned released=%d pressed=%d (run gameplaytool setup to calibrate)",
                     BindingName(b).c_str(), (int)c.released, (int)c.pressed);
             }
             float p = (raw - c.released) / (c.pressed - c.released);

@@ -25,7 +25,7 @@ Code: `src/cockpit.cpp`, hooked into `game.cpp` (`Cockpit_ApplySeat` before leve
 - The seat is measured from the previous frame's draw and applied to the current game camera.
   That is exact only while the camera is rigid to the car (bumper/hood); seat is off when the
   camera is more than 3 m from the head (chase cams).
-- Seat controls are keyboard only. For a wheel in VR, add them to the hshifter F4 menu (e.g. an
+- Seat controls are keyboard only. For a wheel in VR, add them to the gameplay mod's F4 menu (e.g. an
   exported function from `d3d9.dll` that the menu calls).
 - Friend's wishlist still open: wheel and hands turning with steering, working mirrors (the rear
   view is on the flat HUD panel), cockpit EQ.

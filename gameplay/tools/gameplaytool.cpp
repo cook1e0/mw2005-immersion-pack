@@ -1,7 +1,7 @@
-// hshiftertool: find and configure the clutch pedal and H-shifter for nfsmw_hshifter.
-//   hshiftertool list              attached controllers
-//   hshiftertool monitor           live axes / buttons / hats (Esc to quit)
-//   hshiftertool setup [ini]       detect clutch and shifter, write the ini
+// gameplaytool: find and configure the clutch pedal and H-shifter for the gameplay mod (nfsmw_gameplay.ini).
+//   gameplaytool list              attached controllers
+//   gameplaytool monitor           live axes / buttons / hats (Esc to quit)
+//   gameplaytool setup [ini]       detect clutch and shifter, write the ini
 #include "../src/devices.h"
 #include <conio.h>
 #include <stdio.h>
@@ -285,14 +285,14 @@ int main(int argc, char** argv) {
         } else {
             GetModuleFileNameA(nullptr, ini, MAX_PATH);
             char* slash = strrchr(ini, '\\');
-            strcpy(slash ? slash + 1 : ini, "nfsmw_hshifter.ini");
+            strcpy(slash ? slash + 1 : ini, "nfsmw_gameplay.ini");
         }
         return CmdSetup(ini);
     }
     printf("usage:\n"
-           "  hshiftertool list            attached controllers and their inputs\n"
-           "  hshiftertool monitor         live view of every axis, button and hat\n"
-           "  hshiftertool setup [ini]     detect clutch pedal and H-shifter, write nfsmw_hshifter.ini\n"
+           "  gameplaytool list            attached controllers and their inputs\n"
+           "  gameplaytool monitor         live view of every axis, button and hat\n"
+           "  gameplaytool setup [ini]     detect clutch pedal and H-shifter, write nfsmw_gameplay.ini\n"
            "                               (default: the ini next to this exe)\n");
     return 1;
 }

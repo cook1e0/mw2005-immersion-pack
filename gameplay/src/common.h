@@ -12,7 +12,7 @@
 #include <vector>
 
 // ---------------------------------------------------------------------------
-// Logging (nfsmw_hshifter.log next to speed.exe)
+// Logging (nfsmw_gameplay.log next to speed.exe)
 // ---------------------------------------------------------------------------
 void LogInit();
 void Log(const char* fmt, ...);
@@ -26,7 +26,7 @@ double Now();
 template <class T> static inline T Clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 // ---------------------------------------------------------------------------
-// Configuration (nfsmw_hshifter.ini next to speed.exe)
+// Configuration (nfsmw_gameplay.ini next to speed.exe)
 // ---------------------------------------------------------------------------
 constexpr int kMaxJoys = 8;
 constexpr int kMaxGears = 7;    // forward gears on the shifter

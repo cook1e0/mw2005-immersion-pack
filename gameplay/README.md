@@ -1,7 +1,9 @@
-# NFS Most Wanted (2005) H-pattern shifter + clutch mod
+# NFS Most Wanted (2005) gameplay mod
 
-Real H-pattern gear selection and an analog clutch for `speed.exe` v1.3, working with any
-DirectInput controller (wheel shifters, separate pedal sets, button boxes) or the keyboard.
+Gameplay changes for `speed.exe` v1.3, all optional and tuned in game from the F4 menu. At its
+core: real H-pattern gear selection and an analog clutch, working with any DirectInput controller
+(wheel shifters, separate pedal sets, button boxes) or the keyboard. Until v0.6.0 this was the
+H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on the first start).
 
 - **H-pattern**: the gearbox follows the stick. Neutral and reverse are real gates. Gates the car
   doesn't have act as neutral.
@@ -36,16 +38,16 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll`, `nfsmw_hshifter.ini`
-and `hshiftertool.exe` next to `speed.exe`. Then, with your pedals and shifter connected, run in
-the game folder:
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll`, `nfsmw_gameplay.ini`
+and `gameplaytool.exe` next to `speed.exe`. Then, with your pedals and shifter connected, either
+bind them in game (F4, CONTROLS) or run in the game folder:
 
 ```
-hshiftertool setup
+gameplaytool setup
 ```
 
 It asks you to press the clutch and put the stick in each gear, and writes the bindings to
-`nfsmw_hshifter.ini`. `hshiftertool list` and `hshiftertool monitor` show the attached controllers
+`nfsmw_gameplay.ini`. `gameplaytool list` and `gameplaytool monitor` show the attached controllers
 and live input values. To uninstall, delete `dsound.dll`.
 
 The game's Automatic/Manual setting doesn't matter while the shifter is active. `Toggle=` (e.g.
@@ -53,7 +55,7 @@ The game's Automatic/Manual setting doesn't matter while the shifter is active. 
 
 ## Settings
 
-All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
+All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 
 | Setting | |
 |---|---|
@@ -73,7 +75,7 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Physics] Grip / TorqueSplit / Gravity` | tire grip, multiplier on the torque sent to the front wheels, gravity in g |
 | `[Car.<name>]` | a car's own physics values (set with *Settings for this car only* in the menu) |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
-| `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
+| `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |
 
 Binding syntax: `joy0:b12` (button), `joy0:s0` / `joy0:-rz` (axis), `joy0:pov0:up` (hat),
 `key:LSHIFT` (keyboard), comma-separated for several. `[Devices] JoyN=` pins a slot to a controller

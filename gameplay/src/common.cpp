@@ -19,7 +19,7 @@ const char* GameDir() {
 }
 
 const char* IniPath() {
-    if (!s_ini[0]) snprintf(s_ini, sizeof(s_ini), "%snfsmw_hshifter.ini", GameDir());
+    if (!s_ini[0]) snprintf(s_ini, sizeof(s_ini), "%snfsmw_gameplay.ini", GameDir());
     return s_ini;
 }
 
@@ -34,7 +34,7 @@ double Now() {
 void LogInit() {
     InitializeCriticalSection(&s_logLock);
     char path[MAX_PATH];
-    snprintf(path, sizeof(path), "%snfsmw_hshifter.log", GameDir());
+    snprintf(path, sizeof(path), "%snfsmw_gameplay.log", GameDir());
     s_log = fopen(path, "w");
 }
 

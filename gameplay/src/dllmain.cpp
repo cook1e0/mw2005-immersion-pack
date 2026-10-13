@@ -46,16 +46,28 @@ static bool LoadRealDsound() {
     return g_dsound[0] != nullptr;
 }
 
+// Up to v0.6.0 this was the H-shifter mod with nfsmw_hshifter.ini: an existing one becomes
+// nfsmw_gameplay.ini, keeping the player's settings and bindings.
+static void MigrateOldIni() {
+    char oldPath[MAX_PATH];
+    snprintf(oldPath, sizeof(oldPath), "%snfsmw_hshifter.ini", GameDir());
+    if (GetFileAttributesA(IniPath()) != INVALID_FILE_ATTRIBUTES) return;
+    if (GetFileAttributesA(oldPath) == INVALID_FILE_ATTRIBUTES) return;
+    if (MoveFileA(oldPath, IniPath())) Log("settings: nfsmw_hshifter.ini renamed to nfsmw_gameplay.ini");
+    else Log("settings: could not rename nfsmw_hshifter.ini (error %lu)", GetLastError());
+}
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     if (reason != DLL_PROCESS_ATTACH) return TRUE;
     DisableThreadLibraryCalls(inst);
     LogInit();
-    Log("NFSMW H-pattern shifter + clutch mod, built " __DATE__ " " __TIME__);
+    Log("NFSMW gameplay mod, built " __DATE__ " " __TIME__);
     if (LoadedAs(inst, "dsound.dll") && !LoadRealDsound()) {
         Log("cannot load the system dsound.dll - game audio will fail");
-        MessageBoxA(nullptr, "nfsmw_hshifter: cannot load the system dsound.dll", "NFSMW H-shifter", MB_ICONERROR);
+        MessageBoxA(nullptr, "nfsmw_gameplay: cannot load the system dsound.dll", "NFSMW gameplay mod", MB_ICONERROR);
         return FALSE;
     }
+    MigrateOldIni();
     LoadConfig();
     if (!g_cfg.enabled) {
         Log("disabled in ini");

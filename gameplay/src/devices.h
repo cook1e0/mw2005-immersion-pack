@@ -1,4 +1,4 @@
-// DirectInput game-controller access and input bindings. Shared by the mod and hshiftertool.
+// DirectInput game-controller access and input bindings. Shared by the mod and gameplaytool.
 #pragma once
 #include "common.h"
 
