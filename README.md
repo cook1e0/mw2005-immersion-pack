@@ -8,7 +8,7 @@ damage and more). Install any of them, or all three.
 |---|---|---|---|
 | VR | [`vr/`](vr/) | `d3d9.dll` | Native OpenXR stereo 3D with 6-DoF head tracking; HUD and menus on a floating panel |
 | Force feedback | [`ffb/`](ffb/) | `dinput8.dll` | Steering forces from the game's own tyre model |
-| Gameplay | [`gameplay/`](gameplay/) | `dsound.dll` | H-pattern shifter and clutch, engine heat and blow-ups, car damage and smoke, drivable popped tires, physics sliders, traffic density, in-game tuning menu |
+| Gameplay | [`gameplay/`](gameplay/) | `dsound.dll` | H-pattern shifter and clutch, engine heat and blow-ups, car damage and smoke, drivable popped tires, physics sliders, traffic density, no SUV cops, in-game tuning menu |
 
 ## Install
 
