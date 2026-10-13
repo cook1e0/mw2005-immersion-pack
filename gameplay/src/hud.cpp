@@ -13,10 +13,12 @@
 // The heat overlay is a clone of that arc (FEObject::Clone), inserted right after it in its parent
 // group so it draws on top, tinted red and rotated by the heat above HeatFrom. The clock icon
 // (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. While heat or damage is at
-// Warn or above both arcs pulse and the car icon flashes in the overlay's red. Above the car icon
-// a clone of it shows the spike strip milestone icon (MILESTONE_SPIKESTRIPS): grey, flashing red
-// while a tire is popped. The HUD package owns the clones and frees them with the rest of the
-// package; a new HUD (or a clone that is gone from its list) gets new ones.
+// Warn or above both arcs pulse. The car icon is always in the arc's colour. Above it a clone of
+// it shows the spike strip milestone icon (MILESTONE_SPIKESTRIPS), flashing red while a tire is
+// popped and hidden otherwise. Both icons are opaque (the spike icon sits over the arc, so a
+// translucent one takes on the arc's colour) and have a dark outline (eight black copies around
+// them) so they read on bright scenery. The HUD package owns the clones and frees them with the
+// rest of the package; a new HUD (or a clone that is gone from its list) gets new ones.
 #include "hud.h"
 #include "common.h"
 #include "game.h"
@@ -64,6 +66,7 @@ constexpr int kPK_Objects = 0x44;                   // FEPackage: FEMinList of t
 constexpr int kML_Head = 0x08;
 constexpr int kOD_SizeX = 0x38;                     // FEObjData: Size.x, Size.y
 constexpr int kOD_SizeY = 0x3C;
+constexpr int kOD_PosX = 0x1C;                      // FEObjData: Pos.x
 constexpr int kOD_PosY = 0x20;                      // FEObjData: Pos.y (screen y, down)
 constexpr int kOD_PosZ = 0x24;                      // FEObjData: Pos.z (objects are drawn far to near)
 constexpr int kMID_Rot = 0x8C;                      // FEMultiImageData: mask rotation (degrees)
@@ -71,7 +74,11 @@ constexpr uint32_t kDirty = 0x03C00000;             // FF_Dirty | FF_DirtyTransf
 enum { FE_Image = 1, FE_Group = 5, FE_MultiImage = 12 };
 
 constexpr uint32_t kHeatColor = 0xFFE01E14;
-constexpr uint32_t kIdleColor = 0x80A0A0A0;         // spike strip icon with intact tires
+constexpr float kFlashLow = 0.45f;                  // icon flash: brightness 1 -> kFlashLow -> 1
+constexpr uint32_t kOutlineColor = 0xC0000000;
+constexpr float kOutline = 1.5f;                    // outline width, in HUD units
+constexpr float kOutlineDepth = 0.01f;              // outline copies just behind their icon
+constexpr float kMinLevel = 0.001f;                 // lowest level the game's meter is given
 constexpr float kSpikeGap = 0.25f;                  // space between the car and spike icons, in icon heights
 
 typedef void(__thiscall* SetLevel_t)(void* iface, float level);
@@ -120,6 +127,13 @@ uint32_t WithAlpha(uint32_t argb, float a) {
     return (argb & 0x00FFFFFF) | (alpha << 24);
 }
 
+// Opaque colour at brightness k (0..1).
+uint32_t Bright(uint32_t argb, float k) {
+    uint32_t out = 0xFF000000;
+    for (int sh = 0; sh < 24; sh += 8) out |= (uint32_t)Clamp(((argb >> sh) & 0xFF) * k, 0.0f, 255.0f) << sh;
+    return out;
+}
+
 void SetRotation(uint8_t* multiImage, float degrees) {
     uint8_t* data = Field<uint8_t*>(multiImage, kFO_Data);
     if (!data) return;
@@ -151,6 +165,7 @@ struct {
     std::vector<IconImage> icon;
     uint8_t* iconList = nullptr;    // the list holding the car icon image and the spike icon
     uint8_t* spike = nullptr;       // spike strip icon (a clone of the car icon)
+    std::vector<uint8_t*> carOutline, spikeOutline;
     uint32_t spikeTex = 0;          // texture hash, 0 = not loaded
     bool spikeLooked = false;
     bool applied = false;           // our look is on (icon swapped, clone present)
@@ -197,6 +212,8 @@ void Setup(uint8_t* meter) {
     s.bar = Field<uint8_t*>(meter, kSB_Bar);
     s.list = s.clone = s.iconList = s.spike = nullptr;
     s.icon.clear();
+    s.carOutline.clear();
+    s.spikeOutline.clear();
     s.applied = s.failed = false;
     const char* pkgName = Field<const char*>(meter, kSB_Package);
     uint8_t* feng = *(uint8_t**)kFEngInstance;
@@ -256,27 +273,62 @@ bool MakeClone() {
     return true;
 }
 
-// The spike strip icon: the car icon cloned, its texture swapped and moved up by its height plus
-// a gap.
-bool MakeSpike() {
+// A copy of the car icon image, moved by (dx, dy) and dz further back, with texture tex.
+uint8_t* CloneIcon(float dx, float dy, float dz, uint32_t tex) {
     uint8_t* img = s.icon[0].img;
     uint8_t* c = ((Clone_t)Vtbl(img)[1])(img, false);
-    if (!c) return false;
+    if (!c) return nullptr;
     Field<void*>(c, kFO_Cached) = nullptr;
     uint8_t* src = Field<uint8_t*>(img, kFO_Data);
     uint8_t* dst = Field<uint8_t*>(c, kFO_Data);
-    if (!src || !dst) return false;
+    if (!src || !dst) return nullptr;
     memcpy(dst, src, std::min(Field<uint32_t>(c, kFO_DataSize), Field<uint32_t>(img, kFO_DataSize)));
-    Field<float>(dst, kOD_PosY) -= fabsf(Field<float>(src, kOD_SizeY)) * (1.0f + kSpikeGap);
-    ((SetTextureHash_t)kSetTextureHash)(c, s.spikeTex);
+    Field<float>(dst, kOD_PosX) += dx;
+    Field<float>(dst, kOD_PosY) += dy;
+    Field<float>(dst, kOD_PosZ) += dz;
+    ((SetTextureHash_t)kSetTextureHash)(c, tex);
     Field<uint32_t>(c, kFO_Flags) |= kDirty;
     ((AddNode_t)kAddNode)(s.iconList, img, c);
-    s.spike = c;
-    Log("hud: spike strip icon %p added (y %.1f -> %.1f)", c, Field<float>(src, kOD_PosY), Field<float>(dst, kOD_PosY));
+    return c;
+}
+
+// The spike strip icon sits above the car icon by its height plus a gap.
+float SpikeOffset() {
+    uint8_t* d = Field<uint8_t*>(s.icon[0].img, kFO_Data);
+    return d ? -fabsf(Field<float>(d, kOD_SizeY)) * (1.0f + kSpikeGap) : 0.0f;
+}
+
+// Outline copies of an icon (at dy above the car icon) in the eight directions around it; shown
+// while show and the car icon are. Returns false if they can't be made.
+bool UpdateOutline(std::vector<uint8_t*>& out, float dy, uint32_t tex, bool show) {
+    if (out.empty() || !InList(s.iconList, out[0])) {
+        out.clear();
+        for (int i = 0; i < 8; i++) {
+            float a = i * 0.78539816f;
+            uint8_t* c = CloneIcon(cosf(a) * kOutline, dy + sinf(a) * kOutline, kOutlineDepth, tex);
+            if (!c) return false;
+            out.push_back(c);
+        }
+        Log("hud: outline %p.. added", out[0]);
+    }
+    uint32_t hide = (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (show ? 0u : 1u);
+    for (uint8_t* c : out) {
+        SetColor(c, kOutlineColor);
+        uint32_t& flags = Field<uint32_t>(c, kFO_Flags);
+        if ((flags & 1u) != hide) flags = (flags & ~1u) | hide | kDirty;
+    }
     return true;
 }
 
-void UpdateSpike(int popped, float pulse) {
+bool MakeSpike() {
+    uint8_t* c = CloneIcon(0.0f, SpikeOffset(), 0.0f, s.spikeTex);
+    if (!c) return false;
+    s.spike = c;
+    Log("hud: spike strip icon %p added (y offset %.1f)", c, SpikeOffset());
+    return true;
+}
+
+void UpdateSpike(int popped, float flash) {
     if (!s.spikeTex || !s.iconList || s.icon.empty()) return;
     if (!s.spike || !InList(s.iconList, s.spike)) {
         s.spike = nullptr;
@@ -285,10 +337,12 @@ void UpdateSpike(int popped, float pulse) {
             return;
         }
     }
-    SetColor(s.spike, popped ? WithAlpha(kHeatColor, pulse) : kIdleColor);
+    SetColor(s.spike, Bright(kHeatColor, flash));
+    // Bit 0 = invisible (FEngSetInvisible): shown with the car icon, and only with a popped tire.
     uint32_t& flags = Field<uint32_t>(s.spike, kFO_Flags);
-    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u);
+    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (popped ? 0u : 1u);
     if (vis != flags) flags = vis | kDirty;
+    UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, popped != 0);
 }
 
 void Apply() {
@@ -316,6 +370,9 @@ void Restore() {
     }
     if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, WithAlpha(kHeatColor, 0.0f));
     if (s.spike && InList(s.iconList, s.spike)) SetColor(s.spike, 0);
+    for (auto* out : {&s.carOutline, &s.spikeOutline})
+        if (!out->empty() && InList(s.iconList, (*out)[0]))
+            for (uint8_t* c : *out) SetColor(c, 0);
     s.applied = false;
 }
 
@@ -334,8 +391,13 @@ void Update(uint8_t* meter, const HudStatus& h) {
     SetColor(s.bar, WithAlpha(s.barColor, pulse));
     SetRotation(s.bar, Angle(h.damage));
     SetRotation(s.clone, Angle(heat));
-    for (auto& i : s.icon) SetColor(i.img, warn ? WithAlpha(kHeatColor, pulse) : i.color);
-    UpdateSpike(h.poppedTires, 0.6f + 0.4f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f));
+    float wave = 0.5f + 0.5f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f);
+    float flash = kFlashLow + (1.0f - kFlashLow) * wave;
+    for (auto& i : s.icon)
+        SetColor(i.img, s.barColor | 0xFF000000);
+    if (s.iconList && !s.icon.empty())
+        UpdateOutline(s.carOutline, 0.0f, Field<uint32_t>(s.icon[0].img, kFO_Handle), true);
+    UpdateSpike(h.poppedTires, flash);
     // Visible whenever the arc is (bit 0 = invisible, FEngSetInvisible); the clone keeps the
     // flag the arc had when it was cloned and the game never touches it again.
     uint32_t& flags = Field<uint32_t>(s.clone, kFO_Flags);
@@ -365,7 +427,10 @@ void __fastcall Hook_SetPursuitLevel(uint8_t* iface, void*, float level) {
     s.seen = Now();
     HudStatus h = Game_Hud();
     s.h = h;
-    ((SetLevel_t)kSetPursuitLevel)(iface, h.damage);
+    // SpeedBreakerMeter::Update plays one script on the icon group at level 0 and another above
+    // it; the level-0 one leaves the group at the arc's depth, where the arc can draw over the
+    // icons. Never 0, so the icons stay in front (the arc is turned from h.damage, not this).
+    ((SetLevel_t)kSetPursuitLevel)(iface, std::max(h.damage, kMinLevel));
     Update(iface - kSB_Iface, h);
 }
 
