@@ -38,6 +38,7 @@ The game window shows a stabilised version of the headset view, including the fl
 
 - Rain and some post-processing effects run slightly faster than normal, because the scene is rendered twice per frame.
 - The rear-view mirror is part of the flat HUD panel.
+- The crash camera of a totaled car (drag race crashes) is skipped in the headset; the view stays in the car.
 
 ## How it works
 

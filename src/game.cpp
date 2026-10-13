@@ -33,6 +33,8 @@ constexpr uintptr_t kGetResolution = 0x6C27D0;   // __getResolutionByIndex(int* 
 constexpr uintptr_t kResolutionIndex = 0x90181C; // selected entry of the 6 built-in resolutions
 constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
 constexpr uintptr_t kPlayerAspectScale = 0x8AF994; // float 1.15 applied to player views' aspect
+constexpr uintptr_t kCallTotaledCam = 0x631257;  // EShowRaceOverMessage: call CameraAI::MaybeDoTotaledCam(IPlayer*)
+constexpr uintptr_t kTotaledCam = 0x479F20;      // cdecl, 1 arg
 
 // eView (PC layout)
 constexpr int kViewPlatInfo = 0x00;
@@ -58,6 +60,7 @@ constexpr V3 kWorldUp = {0, 0, 1}; // NFSMW world space is Z-up (verified from l
 
 typedef void(__fastcall* ViewSetupFn)(void* platInfo, void* edx, void* view, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5);
 typedef void(__cdecl* RenderSceneFn)();
+typedef void(__cdecl* TotaledCamFn)(void* player);
 
 ViewSetupFn oViewSetup = (ViewSetupFn)kViewSetup;
 RenderSceneFn oRenderScene = (RenderSceneFn)kRenderScene;
@@ -236,12 +239,26 @@ void __cdecl hkRenderScene() {
     s_stereoFrame = true;
 }
 
+// A totaled car (drag race crash, or an engine blown by the H-shifter mod's engine wear) cuts
+// to a third-person crash camera. In the headset that is a sudden jump out of the car, so it is
+// skipped while VR is running and the view stays in the cockpit.
+void __cdecl hkTotaledCam(void* player) {
+    if (Xr_Available()) {
+        Log("game: totaled camera skipped (VR)");
+        return;
+    }
+    ((TotaledCamFn)kTotaledCam)(player);
+}
+
 } // namespace
 
 void Game_InstallHooks() {
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);
     PatchRel32(kCallRenderScene, 0xE8, (void*)&hkRenderScene);
     PatchRel32(kGetResolution, 0xE9, (void*)&hkGetResolution);
+    static const uint8_t kTotaledCall[5] = {0xE8, 0xC4, 0x8C, 0xE4, 0xFF};
+    if (memcmp((void*)kCallTotaledCam, kTotaledCall, 5) == 0) PatchRel32(kCallTotaledCam, 0xE8, (void*)&hkTotaledCam);
+    else Log("game: unexpected code at the totaled camera call, not patched");
     Log("game: hooks installed");
 }
 
