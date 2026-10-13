@@ -35,22 +35,23 @@ const char* ModDir() {
 
 static bool FileExists(const char* path) { return GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES; }
 
-// Finds one of the mods' .ini files: next to this DLL, next to speed.exe (where they were before
-// v0.10.0) or in scripts\. A missing one belongs next to this DLL. With migrate, one found next to
-// speed.exe while this DLL is in scripts\ is moved here.
+// Finds one of the mods' .ini files. While this DLL is in scripts\, one next to speed.exe (where
+// they were before v0.10.0) holds the player's settings and wins over the default one a release
+// zip puts in scripts\; with migrate it is moved over that one. Otherwise: next to this DLL, else
+// in scripts\, else (missing) next to this DLL.
 void ConfigFile(const char* name, char* out, bool migrate) {
     char other[MAX_PATH];
     snprintf(out, MAX_PATH, "%s%s", ModDir(), name);
-    if (FileExists(out)) return;
     snprintf(other, MAX_PATH, "%s%s", GameDir(), name);
     if (_stricmp(ModDir(), GameDir()) != 0 && FileExists(other)) {
-        if (migrate && MoveFileA(other, out)) {
+        if (migrate && MoveFileExA(other, out, MOVEFILE_REPLACE_EXISTING)) {
             Log("settings: moved %s next to the mod (%s)", name, ModDir());
             return;
         }
         strcpy(out, other);
         return;
     }
+    if (FileExists(out)) return;
     snprintf(other, MAX_PATH, "%sscripts\\%s", GameDir(), name);
     if (FileExists(other)) strcpy(out, other);
 }

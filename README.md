@@ -33,8 +33,8 @@ damage and more). Install any of them, or all three.
 **Upgrading from v0.9.1 or older:** the mods used to be `d3d9.dll`, `dinput8.dll` and
 `dsound.dll` next to `speed.exe`. Delete the old `d3d9.dll` and `dsound.dll` (if a mod is
 installed both ways, the old DLL runs and the `.asi` stays inactive); `dinput8.dll` is
-replaced by the loader. Keep your `.ini` files: on the first start each mod moves its own
-from next to `speed.exe` into `scripts`, with your settings.
+replaced by the loader. Leave your `.ini` files where they are: on the first start each mod
+moves its own from next to `speed.exe` into `scripts`, replacing the default one from the zip.
 
 **Without an ASI loader:** each `.asi` still works renamed to its proxy DLL next to
 `speed.exe`: `nfsmw_vr.asi` as `d3d9.dll`, `nfsmw_ffb.asi` as `dinput8.dll`,

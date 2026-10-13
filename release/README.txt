@@ -22,8 +22,9 @@ Each mod works on its own or together with the others. To uninstall, delete its 
 Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
 
 Upgrading from v0.9.1 or older: delete the old d3d9.dll and dsound.dll next to speed.exe (if
-both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Keep your
-.ini files: on the first start each mod moves its own into scripts, with your settings.
+both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Leave your
+.ini files where they are: on the first start each mod moves its own into scripts, replacing
+the default one from the zip.
 
 With the widescreen fix: all three mods run alongside it. If the game crashes right at start,
 set SkipIntro = 0 in scripts\NFSMostWanted.WidescreenFix.ini. The fix keeps the game's settings
