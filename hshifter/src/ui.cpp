@@ -211,7 +211,9 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // button, hat direction or pedal pressed is appended. Left unbinds the action (the menu's own
 // controls go back to their defaults, so they can't be lost).
 // LINK switches between the main page and the fine tuning page (BF_TUNING items).
-enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK };
+// CAR switches the current car between its own physics values and the [Physics] ones; the
+// per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
+enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4 };
 struct Item {
     Kind kind;
@@ -238,6 +240,8 @@ const Item kItems[] = {
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "SHIFTER AND PHYSICS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Shifting", "Shifter", "Sequential", &g_cfg.sequential, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
@@ -253,7 +257,9 @@ const Item kItems[] = {
     BINDING("Gear 6", "Shifter", "Gear6", gear[6], 0),
     BINDING("Gear 7", "Shifter", "Gear7", gear[7], 0),
     BINDING("Neutral (latching)", "Shifter", "Neutral", neutral, 0),
-    BINDING("H-shifter on/off", "General", "Toggle", toggle, 0),
+    BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
+    BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
+    BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
     BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
     BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
     BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
@@ -271,13 +277,14 @@ const Item kItems[] = {
     {HEADER, "CAR DAMAGE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", BF_TUNING},
     {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", BF_TUNING},
-    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.0f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
+    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
     {HEADER, "PHYSICS (1 = GAME DEFAULT)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
+    {CAR, "Settings for this car only", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {NUMBER, "Stability control", "Physics", "Stability", &g_cfg.stability, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {NUMBER, "Drift assist", "Physics", "DriftAssist", &g_cfg.driftAssist, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.05f, 1, "%.2fx", BF_TUNING},
-    {NUMBER, "Grip balance (+ front)", "Physics", "GripBalance", &g_cfg.gripBalance, -0.5f, 0.5f, 0.05f, 100, "%+.0f%%", BF_TUNING},
+    {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", BF_TUNING},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", BF_TUNING},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, BF_TUNING},
     {HEADER, "SHIFTER AND CLUTCH", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
@@ -357,7 +364,9 @@ void Note(const std::string& text) {
 
 std::string ValueText(const Item& it, int index) {
     char buf[64];
+    if (it.value == &g_cfg.sequential) return g_cfg.sequential ? "Sequential" : "H-pattern";
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
+    if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return s_menu.page == 0 ? ">" : "<";
     if (it.kind == BIND) {
         if (index == s_menu.capture) return "Press a key, button or pedal...";
@@ -446,6 +455,10 @@ void Change(int index, int dir) {
     } else if (it.kind == LINK) {
         SetPage(1 - s_menu.page);
         return;
+    } else if (it.kind == CAR) {
+        if (!*Physics_Car()) return;
+        Physics_SetOwnSettings(!Physics_OwnSettings());
+        Note(std::string(Physics_Car()) + (Physics_OwnSettings() ? ": own physics settings" : ": back to the shared physics settings"));
     } else if (it.kind == BIND) {
         if (dir > 0) StartCapture(index);
         else Unbind(it);
@@ -458,13 +471,14 @@ void Change(int index, int dir) {
 
 void Save() {
     for (const Item& it : kItems) {
-        if (it.kind == HEADER || it.kind == LINK) continue;
+        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR) continue;
         char buf[32];
         std::string text;
         if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
         else if (it.kind == NUMBER) snprintf(buf, sizeof(buf), "%g", *(float*)it.value), text = buf;
         else text = *(std::string*)it.value;
-        WritePrivateProfileStringA(it.section, it.key, text.c_str(), IniPath());
+        std::string section = Physics_IsPerCar(it.value) ? Physics_Section() : it.section;
+        WritePrivateProfileStringA(section.c_str(), it.key, text.c_str(), IniPath());
     }
     if (s_menu.clutchCal) {
         WritePrivateProfileStringA("Clutch", "Released", std::to_string(g_cfg.clutchReleased).c_str(), IniPath());
@@ -563,7 +577,13 @@ void DrawMenu(int W, int H, float k) {
     else if (cur.kind == LINK) hint = "Left/Right: " + std::string(s_menu.page == 0 ? "open" : "back") + "    " + MenuKeyName() + ": close";
     else hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
     bool noted = Now() - s_menu.noteTime < 3.0 && s_menu.capture < 0;
-    const char* title = s_menu.page == 0 ? "DRIVETRAIN TUNING" : "FINE TUNING";
+    std::string titleText = s_menu.page == 0 ? "DRIVETRAIN TUNING" : "FINE TUNING";
+    if (s_menu.page == 1 && *Physics_Car()) {
+        std::string car = Physics_Car();
+        for (auto& c : car) c = (char)toupper((unsigned char)c);
+        titleText += "  -  " + car;
+    }
+    const char* title = titleText.c_str();
     float w = std::max(labelW + gap + valueW, std::max(TextWidth(hint.c_str()), TextWidth(title))) + 2 * pad;
     if (noted) w = std::max(w, TextWidth(s_menu.note.c_str()) + 2 * pad);
     std::vector<int> page = PageRows();

@@ -108,12 +108,16 @@ void LoadConfig() {
     }
     c.neutral = ReadStr("Shifter", "Neutral", "");
     c.latching = ReadInt("Shifter", "Latching", 0) != 0;
+    c.sequential = ReadInt("Shifter", "Sequential", 0) != 0;
+    c.shiftUp = ReadStr("Shifter", "ShiftUp", c.shiftUp.c_str());
+    c.shiftDown = ReadStr("Shifter", "ShiftDown", c.shiftDown.c_str());
     c.requireClutch = ReadInt("Shifter", "RequireClutch", 1) != 0;
     c.shiftPedal = Clamp(ReadFloat("Shifter", "ClutchToShift", c.shiftPedal), 0.0f, 1.0f);
     c.revMatchRpm = Clamp(ReadFloat("Shifter", "RevMatchRPM", 0.0f), 0.0f, 3000.0f);
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
+    c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xC565AC30").c_str(), nullptr, 0);
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
@@ -132,7 +136,7 @@ void LoadConfig() {
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
-    c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.0f, 1.0f);
+    c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
 
     c.hudMeter = ReadInt("HUD", "Meter", 1) != 0;
     c.speedbreaker = ReadInt("HUD", "Speedbreaker", 0) != 0;
@@ -140,13 +144,14 @@ void LoadConfig() {
     c.hudHeatFrom = Clamp(ReadFloat("HUD", "HeatFrom", c.hudHeatFrom), 0.0f, 0.95f);
     c.hudWarn = Clamp(ReadFloat("HUD", "Warn", c.hudWarn), 0.0f, 1.0f);
     c.hudDepth = ReadFloat("HUD", "Depth", c.hudDepth);
+    c.hudFillUp = ReadInt("HUD", "FillUp", 1) != 0;
 
     c.physics = ReadInt("Physics", "Physics", 1) != 0;
     c.tractionControl = Clamp(ReadFloat("Physics", "TractionControl", c.tractionControl), 0.0f, 1.0f);
     c.stability = Clamp(ReadFloat("Physics", "Stability", c.stability), 0.0f, 1.0f);
     c.driftAssist = Clamp(ReadFloat("Physics", "DriftAssist", c.driftAssist), 0.0f, 1.0f);
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
-    c.gripBalance = Clamp(ReadFloat("Physics", "GripBalance", c.gripBalance), -0.5f, 0.5f);
+    c.torqueSplit = Clamp(ReadFloat("Physics", "TorqueSplit", c.torqueSplit), 0.0f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
 

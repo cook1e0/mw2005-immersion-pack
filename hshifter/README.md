@@ -16,12 +16,14 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
   *Jump to Safe House* from the pause menu. Manual shifting only.
 - **Car damage** (optional): crashes into walls, traffic and cops damage the car; at 100% it is
   totaled like a blown engine. Props (cones, barrels, signs) don't count.
-- **Damage / heat meter**: the speedbreaker meter next to the tachometer shows car damage, with a
-  car icon instead of the clock. Engine heat above 50% fills the same bar in red, and the meter
-  pulses at 75% heat or damage. The speedbreaker itself is off by default.
+- **Damage / heat meter**: the speedbreaker meter next to the tachometer shows car damage, filling
+  from the bottom up, with a car icon instead of the clock. Engine heat above 50% fills the same
+  bar in red, and at 75% heat or damage the meter pulses and the car icon flashes red. The
+  speedbreaker itself is off by default.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
   drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
-  front/rear grip balance and gravity. Only your car is affected (gravity optionally all cars).
+  the front torque share and gravity, for all cars or per car. Only your car is affected
+  (gravity optionally all cars).
 - **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
@@ -54,6 +56,7 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Shifter] RequireClutch / ClutchToShift` | need the clutch (and how far down) to engage a gear |
 | `[Shifter] RevMatchRPM` | allow clutchless shifts within this many rpm of the new gear |
 | `[Shifter] Latching` | gear stays selected after its button is released (keyboard, button boxes) |
+| `[Shifter] Sequential / ShiftUp / ShiftDown` | sequential shifting instead of the H-pattern, and its up/down bindings (Left Shift / Left Ctrl) |
 | `[Engine] EngineWear / RevLimiter` | engine heat and blow-ups on/off; keep the rev limiter |
 | `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it |
 | `[Engine] PowerLossStart / PowerLoss` | heat where power starts dropping, and how much is lost at full heat |
@@ -61,7 +64,8 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size, damage per hit |
 | `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
 | `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
-| `[Physics] Grip / GripBalance / Gravity` | tire grip, grip moved to front (+) or rear (-), gravity in g |
+| `[Physics] Grip / TorqueSplit / Gravity` | tire grip, multiplier on the torque sent to the front wheels, gravity in g |
+| `[Car.<name>]` | a car's own physics values (set with *Settings for this car only* in the menu) |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
 
@@ -106,7 +110,10 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 ## Limitations
 
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
-- Nothing grinds audibly when a shift is refused; the box just stays in neutral.
+- A refused shift plays the totaled car's engine failure sound (`[Shifter] GrindSound`, a sound
+  moment key; 0 = silent). The game has no gearbox grind sound outside drag races.
+- `TorqueSplit` multiplies the car's own front share, so a rear-wheel drive car (0% front) stays
+  rear-wheel drive.
 - Not yet tested with a physical wheel and shifter, only keyboard bindings.
 - Car damage: the player's `DamageRacer` keeps the game's damage total (`IDamageable::GetHealth`),
   which racers never fill. `DamageVehicle::OnImpact` (DamageRacer vtable 0x8AD378) is replaced to

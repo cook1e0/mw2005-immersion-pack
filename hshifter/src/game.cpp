@@ -35,6 +35,7 @@
 #include "physics.h"
 #include "vfx.h"
 #include <math.h>
+#include <stdio.h>
 
 namespace {
 
@@ -68,6 +69,9 @@ constexpr uintptr_t kOnImpact = 0x69C030;
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
 constexpr uintptr_t kEventNew = 0x627400;          // void* Event::operator new(size_t) (queued, game thread)
 constexpr uintptr_t kEMissShift = 0x6226F0;        // EMissShift::EMissShift(HSIMABLE, float), as in drag races
+constexpr uintptr_t kMomentGetKind = 0x469B10;     // UCrc32 MGamePlayMoment::_GetKind() (returned through a pointer)
+constexpr uintptr_t kMessageDeliver = 0x65FAF0;     // void Hermes::Message::Deliver()
+constexpr uintptr_t kStringHash32 = 0x5CC240;       // unsigned stringhash32(const char*)
 constexpr uintptr_t kRaceStatus = 0x91E000;         // GRaceStatus* GRaceStatus::fObj; +0x1960 mPlayMode (0 = roaming)
 constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
 constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
@@ -85,7 +89,10 @@ constexpr int kER_EngineLayout = 0x14C;             // Attrib engine: +0x58 RED_
 constexpr int kER_TranyLayout = 0x160;              // Attrib transmission: +0x80 FINAL_GEAR
 constexpr int kER_Clutch = 0x198;
 constexpr int kER_Owner = 0x34;                     // ISimable: vtbl+0x20 GetPlayer, +4 interface list
-constexpr int kER_Vehicle = 0x48;                   // IVehicle: vtbl+0x20 IsStaging
+constexpr int kER_Vehicle = 0x48;                   // IVehicle: vtbl+0x20 IsStaging, +0x44 GetVehicleName
+constexpr uintptr_t kVtblPVehicle = 0x8AA828;       // PVehicle's IVehicle vtable
+constexpr int kPV_Attributes = 0x24;                // ... + this: Attrib::Instance (+4 Collection*, key at +0x20)
+constexpr uintptr_t kStringToKey = 0x454640;        // unsigned Attrib::StringToKey(const char*)
 constexpr int kER_EngineDamage = 0x78;              // IEngineDamage sub-object (+0x12C mBlown)
 constexpr int kER_RPM = 0x180;
 constexpr int kER_Blown = 0x1A4;
@@ -154,8 +161,9 @@ struct {
     int lastGear = -100;        // gear we last left the gearbox in (-100 = unknown)
     int refused = -100;         // gear we last refused to engage (log once)
     bool forcing = false;       // clutch state is currently ours
-    bool hEnabled = true;       // toggled in game
     uint32_t toggles = 0;
+    uint32_t ups = 0, downs = 0;    // ShiftUp / ShiftDown presses seen
+    bool inputSynced = false;
     uint32_t blows = 0, repairs = 0, hits = 0;
     float heat = 0.0f;          // 0..1, the player engine blows at 1
     int heatStep = 0;           // last logged quarter of heat
@@ -173,6 +181,7 @@ struct {
 
 bool Fresh() { return Now() - s.seen < 0.5; }
 bool IsBlown(uint8_t* eng);
+const char* VehicleName(uint8_t* eng);
 void BlowEngine(uint8_t* eng);
 void AddDamage(uint8_t* eng, float add, float impact);
 
@@ -218,12 +227,25 @@ bool RevMatched(uint8_t* eng, int gear) {
     return diffRpm <= g_cfg.revMatchRpm;
 }
 
-// The drag race "missed shift": gearbox crunch and an exhaust pop.
+// Plays a sound "moment" (a streamed one-off sound) the way SFXCTL_Engine::MessageVehicleDestroyed
+// does for a totaled car: an MGamePlayMoment delivered to the "MomentStrm" port.
+void PlayMoment(uint32_t moment) {
+    alignas(16) uint32_t msg[0x48 / 4] = {};
+    ((void(__cdecl*)(uint32_t*))kMomentGetKind)(&msg[0]);
+    msg[1] = ((uint32_t(__cdecl*)(const char*))kStringHash32)("MomentStrm");
+    msg[2] = 0x48;                  // message size
+    msg[0x44 / 4] = moment;
+    ((void(__thiscall*)(void*))kMessageDeliver)(msg);
+}
+
+// A missed shift: the drag race "missed shift" event (exhaust pop) and, since that has no sound
+// outside drag races, the totaled car's engine failure sound ([Shifter] GrindSound).
 void MissShift(uint8_t* eng) {
     uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
     if (!owner) return;
     void* ev = ((void*(__cdecl*)(size_t))kEventNew)(0x10);
     if (ev) ((void(__thiscall*)(void*, void*, float))kEMissShift)(ev, Field<void*>(owner, 8), 0.0f);
+    if (g_cfg.grindSound) PlayMoment(g_cfg.grindSound);
 }
 
 void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
@@ -272,12 +294,21 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
 bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
     Input_Start();
     InputSnapshot in = Input_Get();
+    if (!s.inputSynced) {
+        s.inputSynced = true;
+        s.toggles = in.toggles;
+        s.ups = in.shiftUp;
+        s.downs = in.shiftDown;
+    }
     if (in.toggles != s.toggles) {
         s.toggles = in.toggles;
-        s.hEnabled = !s.hEnabled;
+        g_cfg.sequential = !g_cfg.sequential;
         s.lastGear = -100;
-        Log("toggle: H-shifter %s", s.hEnabled ? "on" : "off (game's sequential shifting)");
+        Log("toggle: %s shifting", g_cfg.sequential ? "sequential" : "H-pattern");
     }
+    int presses = (int)(in.shiftUp - s.ups) - (int)(in.shiftDown - s.downs);
+    s.ups = in.shiftUp;
+    s.downs = in.shiftDown;
 
     uint8_t* eng = PlayerEngine(ip);
     if (eng != s.engine) {
@@ -289,6 +320,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         s.menuBlocked = false;
         s.blown = eng && IsBlown(eng);
         if (eng) Log("player engine at %p%s", eng, s.blown ? " (blown)" : "");
+        if (eng) Physics_SetCar(VehicleName(eng));
     }
     if (!eng) {
         s.hActive = s.clutchActive = false;
@@ -297,7 +329,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
     s.seen = Now();
     s.clutchActive = in.clutchBound;
     s.pedal = in.clutchPedal;
-    bool h = s.hEnabled && in.shifterBound;
+    bool h = !g_cfg.sequential && in.shifterBound;
     if (h != s.hActive) {
         Log("H-shifter %s", h ? "active" : "inactive");
         s.lastGear = -100;
@@ -309,8 +341,20 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         return false;   // the game's shift up/down buttons do nothing while the stick decides
     }
 
+    // Sequential: our ShiftUp / ShiftDown bindings, or the game's own shift controls.
+    if (g_cfg.sequential && delta == 0 && presses != 0) delta = presses > 0 ? 1 : -1;
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
-    if (delta != 0 && g_cfg.requireClutch && g_cfg.sequentialNeedsClutch && s.clutchActive && !clutchIn) delta = 0;
+    bool needClutch = g_cfg.requireClutch && s.clutchActive && (g_cfg.sequential || g_cfg.sequentialNeedsClutch);
+    if (delta != 0 && needClutch && !clutchIn) {
+        // The game's shift control and ShiftUp / ShiftDown can be the same key: one press, one grind.
+        static double lastRefused = -1e9;
+        if (Now() - lastRefused > 0.2) {
+            Log("shift: %s refused (clutch not pressed)", delta > 0 ? "up" : "down");
+            if (g_cfg.grind) MissShift(eng);
+        }
+        lastRefused = Now();
+        delta = 0;
+    }
     bool shifted = s_origDoShifting(ip, delta);
     if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
     return shifted;
@@ -323,7 +367,8 @@ void __fastcall Hook_DoAutoReverse(void* ip, void*, float gas, float brake) {
 
 // Called by the player's EngineRacer::DoShifting every step.
 bool __fastcall Hook_IsAutomaticShift(void* input) {
-    bool automatic = !(s.hActive && Fresh()) && s_origIsAutomaticShift(input);
+    // Our shifting modes are manual; otherwise the game's transmission setting decides.
+    bool automatic = !((s.hActive || g_cfg.sequential) && Fresh()) && s_origIsAutomaticShift(input);
     s.autoShift = automatic;
     return automatic;
 }
@@ -336,6 +381,40 @@ bool IsBlown(uint8_t* eng) { return Field<bool>(eng, kER_Blown); }
 // with manual shifting: the automatic gearbox over-revs on its own in wheelspin.
 bool WearApplies(uint8_t* eng) {
     return g_cfg.engineWear && eng == s.engine && Fresh() && !s.autoShift && !IsDragster(eng);
+}
+
+// The vehicle's name, e.g. "bmwm3gtre46": the car folder (CARS\<NAME>) whose Attrib key matches
+// the vehicle's attribute collection or one of its parents, or the key in hex. Null if not a PVehicle.
+const char* VehicleName(uint8_t* eng) {
+    uint8_t* vehicle = Field<uint8_t*>(eng, kER_Vehicle);
+    if (!vehicle || *(uintptr_t*)vehicle != kVtblPVehicle) return nullptr;
+    uint8_t* collection = Field<uint8_t*>(vehicle, kPV_Attributes + 4);
+    if (!collection) return nullptr;
+    uint32_t key = Field<uint32_t>(collection, 0x20);
+    static std::vector<std::pair<uint32_t, std::string>> cars;
+    if (cars.empty()) {
+        WIN32_FIND_DATAA fd;
+        HANDLE h = FindFirstFileA((std::string(GameDir()) + "CARS\\*").c_str(), &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            do {
+                if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == '.') continue;
+                std::string n = fd.cFileName;
+                for (auto& c : n) c = (char)tolower((unsigned char)c);
+                cars.push_back({((uint32_t(__cdecl*)(const char*))kStringToKey)(n.c_str()), n});
+            } while (FindNextFileA(h, &fd));
+            FindClose(h);
+        }
+        cars.push_back({0, ""});    // looked once
+    }
+    // A customised car (career, quick race) is a collection whose parent chain leads to the model.
+    for (uint8_t* col = collection; col; col = Field<uint8_t*>(col, 0x10)) {
+        uint32_t k = Field<uint32_t>(col, 0x20);
+        for (auto& c : cars)
+            if (c.first == k && !c.second.empty()) return c.second.c_str();
+    }
+    static char hex[16];
+    snprintf(hex, sizeof(hex), "%08X", key);
+    return hex;
 }
 
 bool IsStaging(uint8_t* eng) {

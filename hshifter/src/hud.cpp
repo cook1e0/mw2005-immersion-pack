@@ -6,10 +6,14 @@
 // rotated to 175 * (1 - level) degrees. That slot is replaced, so the arc shows the car's damage
 // instead, all in the game's own art and position (and on the VR mod's HUD panel).
 //
+// The game's arc fills from the top down; with [HUD] FillUp the mask is turned the other way
+// (after SpeedBreakerMeter::Update, which sets it only when the level changes) so it fills
+// from the bottom up.
+//
 // The heat overlay is a clone of that arc (FEObject::Clone), inserted right after it in its parent
 // group so it draws on top, tinted red and rotated by the heat above HeatFrom. The clock icon
-// (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. Both arcs pulse while
-// heat or damage is at Warn or above. The HUD package owns the clone and frees it with the rest
+// (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. While heat or damage is at
+// Warn or above both arcs pulse and the car icon flashes in the overlay's red. The HUD package owns the clone and frees it with the rest
 // of the package; a new HUD (or a clone that is gone from its list) gets a new one.
 #include "hud.h"
 #include "common.h"
@@ -21,6 +25,8 @@ namespace {
 // --- speed.exe v1.3 -------------------------------------------------------------------------
 constexpr uintptr_t kSlotSetPursuitLevel = 0x8A2110;// SpeedBreakerMeter's ISpeedBreakerMeter vtable +4
 constexpr uintptr_t kSetPursuitLevel = 0x5685C0;    // void SpeedBreakerMeter::SetPursuitLevel(float)
+constexpr uintptr_t kSlotUpdate = 0x8A2118;         // SpeedBreakerMeter's HudElement vtable +4
+constexpr uintptr_t kUpdate = 0x568460;             // void SpeedBreakerMeter::Update(IPlayer*)
 constexpr uintptr_t kFEngInstance = 0x91CADC;       // cFEng* cFEng::mInstance
 constexpr uintptr_t kFindPackage = 0x516AF0;        // FEPackage* cFEng::FindPackage(const char*)
 constexpr uintptr_t kAddNode = 0x5AEE90;            // void FEMinList::AddNode(FEMinNode* after, FEMinNode* node)
@@ -64,6 +70,7 @@ enum { FE_Image = 1, FE_Group = 5, FE_MultiImage = 12 };
 constexpr uint32_t kHeatColor = 0xFFE01E14;
 
 typedef void(__thiscall* SetLevel_t)(void* iface, float level);
+typedef void(__thiscall* MeterUpdate_t)(void* meter, void* player);
 typedef void*(__thiscall* IListFind_t)(void* list, void* handle);
 typedef bool(__thiscall* RequestMessage_t)(void* gm, const char* text, bool singleFrame, uint32_t fengHash,
                                            uint32_t iconTexture, uint32_t iconFengHash, int priority);
@@ -127,6 +134,7 @@ void DumpGroup(const char* what, uint8_t* list, int depth) {
 struct IconImage {
     uint8_t* img;
     uint32_t tex;           // original texture
+    uint32_t color;         // original colour
 };
 
 struct {
@@ -140,7 +148,18 @@ struct {
     bool failed = false;            // couldn't set up for this meter, don't retry every frame
     uint32_t carIcon = 0;           // texture hash, 0 = none found
     double seen = -1e9;             // last SetPursuitLevel (the meter and its HUD exist)
+    float minAngle = 175.0f;        // mask rotation of an empty arc (the game's own fill direction)
+    HudStatus h;                    // last status shown
 } s;
+
+// Mask rotation for a level 0..1. The game turns the mask from minAngle (empty) to 0 (full);
+// filling up turns it from the opposite side, minAngle - 180 (full) to -180 (empty).
+float Angle(float level) {
+    level = Clamp(level, 0.0f, 1.0f);
+    if (!g_cfg.hudFillUp) return s.minAngle * (1.0f - level);
+    float flip = s.minAngle > 0.0f ? -180.0f : 180.0f;
+    return flip + s.minAngle * level;
+}
 
 uint32_t PickIcon() {
     const char* names[] = {g_cfg.hudIcon.c_str(), "INGAME_ICON_PLAYERCAR", "COPS_ICON", "HIDE_CAR_ICON"};
@@ -159,7 +178,7 @@ uint32_t PickIcon() {
 void CollectIcon(uint8_t* list, int depth) {
     for (uint8_t* o = ListHead(list); o && depth < 4; o = Next(o)) {
         int type = Field<int>(o, kFO_Type);
-        if (type == FE_Image) s.icon.push_back({o, Field<uint32_t>(o, kFO_Handle)});
+        if (type == FE_Image) s.icon.push_back({o, Field<uint32_t>(o, kFO_Handle), GetColor(o)});
         else if (type == FE_Group) CollectIcon(o + kFG_Children, depth + 1);
     }
 }
@@ -236,8 +255,14 @@ void Apply() {
 
 void Restore() {
     if (!s.applied) return;
-    for (auto& i : s.icon) ((SetTextureHash_t)kSetTextureHash)(i.img, i.tex);
-    if (s.bar) SetColor(s.bar, s.barColor);
+    for (auto& i : s.icon) {
+        ((SetTextureHash_t)kSetTextureHash)(i.img, i.tex);
+        SetColor(i.img, i.color);
+    }
+    if (s.bar) {
+        SetColor(s.bar, s.barColor);
+        SetRotation(s.bar, s.minAngle * (1.0f - Field<float>(s.meter, kSB_Iface + 8)));   // the game's level
+    }
     if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, WithAlpha(kHeatColor, 0.0f));
     s.applied = false;
 }
@@ -246,7 +271,7 @@ void Update(uint8_t* meter, const HudStatus& h) {
     if (meter != s.meter || Field<uint8_t*>(meter, kSB_Bar) != s.bar) Setup(meter);
     if (s.failed) return;
     const char* pkgName = Field<const char*>(meter, kSB_Package);
-    float minAngle = pkgName && _stricmp(pkgName, "HUD_Drag.fng") == 0 ? -48.0f : 175.0f;
+    s.minAngle = pkgName && _stricmp(pkgName, "HUD_Drag.fng") == 0 ? -48.0f : 175.0f;
     Apply();
     if (s.failed) return;
 
@@ -255,7 +280,9 @@ void Update(uint8_t* meter, const HudStatus& h) {
     // Quick fade: 1 -> 0.2 -> 1 every 0.5 s.
     float pulse = warn ? 0.6f + 0.4f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f) : 1.0f;
     SetColor(s.bar, WithAlpha(s.barColor, pulse));
-    SetRotation(s.clone, minAngle - heat * minAngle);
+    SetRotation(s.bar, Angle(h.damage));
+    SetRotation(s.clone, Angle(heat));
+    for (auto& i : s.icon) SetColor(i.img, warn ? WithAlpha(kHeatColor, pulse) : i.color);
     // Visible whenever the arc is (bit 0 = invisible, FEngSetInvisible); the clone keeps the
     // flag the arc had when it was cloned and the game never touches it again.
     uint32_t& flags = Field<uint32_t>(s.clone, kFO_Flags);
@@ -284,8 +311,16 @@ void __fastcall Hook_SetPursuitLevel(uint8_t* iface, void*, float level) {
     }
     s.seen = Now();
     HudStatus h = Game_Hud();
+    s.h = h;
     ((SetLevel_t)kSetPursuitLevel)(iface, h.damage);
     Update(iface - kSB_Iface, h);
+}
+
+// The game's Update turns the arc's mask when the level changes; ours is put back after it.
+void __fastcall Hook_MeterUpdate(uint8_t* meter, void*, void* player) {
+    ((MeterUpdate_t)kUpdate)(meter, player);
+    if (g_cfg.hudMeter && s.applied && meter == s.meter && s.bar && Now() - s.seen < 0.5)
+        SetRotation(s.bar, Angle(s.h.damage));
 }
 
 }  // namespace
@@ -303,14 +338,16 @@ bool Hud_Message(const char* text) {
 }
 
 void Hud_Install() {
-    if (*(uintptr_t*)kSlotSetPursuitLevel != kSetPursuitLevel) {
+    if (*(uintptr_t*)kSlotSetPursuitLevel != kSetPursuitLevel || *(uintptr_t*)kSlotUpdate != kUpdate) {
         Log("hud: unexpected SpeedBreakerMeter vtable, meter unchanged");
         return;
     }
-    void* p = (void*)&Hook_SetPursuitLevel;
-    DWORD old;
-    VirtualProtect((void*)kSlotSetPursuitLevel, 4, PAGE_READWRITE, &old);
-    memcpy((void*)kSlotSetPursuitLevel, &p, 4);
-    VirtualProtect((void*)kSlotSetPursuitLevel, 4, old, &old);
+    for (auto slot : {std::make_pair(kSlotSetPursuitLevel, (void*)&Hook_SetPursuitLevel),
+                      std::make_pair(kSlotUpdate, (void*)&Hook_MeterUpdate)}) {
+        DWORD old;
+        VirtualProtect((void*)slot.first, 4, PAGE_READWRITE, &old);
+        memcpy((void*)slot.first, &slot.second, 4);
+        VirtualProtect((void*)slot.first, 4, old, &old);
+    }
     Log("hud: speedbreaker meter shows damage and heat (%s)", g_cfg.hudMeter ? "on" : "off");
 }

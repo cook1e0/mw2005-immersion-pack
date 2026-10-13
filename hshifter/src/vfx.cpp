@@ -4,8 +4,9 @@
 // DamageEffect (the smoke cop cars trail) at health <= 0.5, EngineBlownEffect for a blown engine.
 // The player's cars have no DamageEffect, so the code that loads that key is patched: for the
 // car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage), the
-// key becomes the car's own EngineBlownEffect (the drag race blown engine smoke). Cars without
-// one get the cop cars' DamageEffect, taken from the first car seen with one.
+// key becomes the cop cars' DamageEffect (read from the copmidsize car data, or taken from the
+// first car seen with one). The car's own EngineBlownEffect is only a fallback: it is the drag
+// race smoke for a car that has stopped, and stays where it started instead of trailing the car.
 #include "vfx.h"
 #include "common.h"
 
@@ -14,10 +15,36 @@ namespace {
 constexpr uintptr_t kDamageKeyLoad = 0x75642E;      // UpdateEffects: mov ecx,[esp+0x18] (DamageEffect key); test ecx,ecx
 constexpr uintptr_t kIsViewAnchor = 0x744C00;       // bool VehicleRenderConn::IsViewAnchor()
 constexpr int kPkt_Health = 0x90;                   // Pkt_Car_Service: mHealth
+constexpr uintptr_t kFindCollection = 0x455FD0;     // const Attrib::Collection* Attrib::FindCollection(class, key)
+constexpr uintptr_t kCollectionGetData = 0x454190;  // void* Attrib::Collection::GetData(attrib, index)
+constexpr uintptr_t kStringToKey = 0x454640;        // unsigned Attrib::StringToKey(const char*)
+constexpr uint32_t kClassEcar = 0xA5B543B7;
+constexpr uint32_t kAttrDamageEffect = 0x30B2997B;  // ecar DamageEffect: RefSpec, +4 = emittergroup key
 
 typedef bool(__thiscall* IsViewAnchor_t)(void* conn);
+typedef void*(__cdecl* FindCollection_t)(uint32_t cls, uint32_t key);
+typedef void*(__thiscall* GetData_t)(void* collection, uint32_t attrib, uint32_t index);
+typedef uint32_t(__cdecl* StringToKey_t)(const char*);
 
 uint32_t s_copKey = 0;
+
+// The cop cars' DamageEffect from the car data, so it is known before any cop shows up.
+uint32_t CopSmokeKey() {
+    static bool looked;
+    if (s_copKey || looked) return s_copKey;
+    looked = true;
+    for (const char* car : {"copmidsize", "copsport", "copsuv", "copghost", "copheavy"}) {
+        void* c = ((FindCollection_t)kFindCollection)(kClassEcar, ((StringToKey_t)kStringToKey)(car));
+        uint32_t* ref = c ? (uint32_t*)((GetData_t)kCollectionGetData)(c, kAttrDamageEffect, 0) : nullptr;
+        if (ref && ref[1]) {
+            s_copKey = ref[1];
+            Log("vfx: damage smoke effect %08X (from %s)", s_copKey, car);
+            break;
+        }
+    }
+    if (!s_copKey) Log("vfx: no cop damage smoke in the car data");
+    return s_copKey;
+}
 
 }  // namespace
 
@@ -34,7 +61,8 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
     if (!g_cfg.damageSmoke) return key;
     float health = *(float*)(pkt + kPkt_Health);
     if (health > 1.0f - g_cfg.smokeFrom) return 0;
-    uint32_t k = key ? key : blownKey ? blownKey : s_copKey;
+    uint32_t cop = CopSmokeKey();
+    uint32_t k = key ? key : cop ? cop : blownKey;
     static uint32_t logged;
     if (k != logged) {
         logged = k;

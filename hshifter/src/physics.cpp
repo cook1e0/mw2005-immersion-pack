@@ -8,15 +8,18 @@
 //   (TuneWheelParams / YawFrictionBoost);
 // - drift stabiliser: DoDrifting damps rotation by DriftStabilizerTable;
 // - drift assist: DoDrifting lowers rear grip in a slide by DriftRearFrictionTable.
-// These and the grip (Tweak_GlobalGripScale, the tires' GRIP_SCALE per axle) are tuning data
-// read while a car's suspension simulates. SuspensionRacer::OnTaskSimulate is wrapped: for the
+// These, the grip (Tweak_GlobalGripScale) and the torque split (the transmission's TORQUE_SPLIT,
+// the front wheels' share) are tuning data read while a car's suspension simulates. SuspensionRacer::OnTaskSimulate is wrapped: for the
 // player's car the slider values are swapped in for the duration of the call and the game's own
 // values put back after it, so AI and traffic keep the stock physics.
 //
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
-#include "physics.h"
+//
+// Per car: a [Car.<vehicle name>] section in the ini holds a car's own slider values; the
+// [Physics] values apply to every car without one.
 #include "common.h"
+#include "physics.h"
 #include "game.h"
 
 namespace {
@@ -32,7 +35,8 @@ constexpr uintptr_t kDriftStabTable = 0x938210;     // tGraph DriftStabilizerTab
 constexpr uintptr_t kISuspensionHandle = 0x404040;
 constexpr uintptr_t kIRigidBodyHandle = 0x4039F0;
 
-constexpr int kSR_TireSpecs = 0xA0;                 // SuspensionRacer: tires layout (+0x18 GRIP_SCALE front, rear)
+constexpr int kSR_Tranny = 0xDC;                    // SuspensionRacer: transmission layout (+0x70 TORQUE_SPLIT)
+constexpr int kTR_TorqueSplit = 0x70;
 constexpr int kRB_Specs = 0x84;                     // RigidBody: rigidbodyspecs layout (+0xF0 GRAVITY)
 
 typedef void(__thiscall* Simulate_t)(void* obj, float dT);
@@ -72,8 +76,8 @@ bool Owns(uint8_t* obj, void* iface) { return iface && (uint8_t*)iface >= obj &&
 // Saved values while the player's suspension simulates.
 struct Saved {
     float grip, slip, yaw;
-    float gripScale[2];
-    float* tire;
+    float split;
+    float* tranny;
 };
 
 void Apply(uint8_t* susp, Saved& sv) {
@@ -89,13 +93,11 @@ void Apply(uint8_t* susp, Saved& sv) {
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i] * c.stability;
     float* rear = *(float**)(kDriftRearTable + 0x10);
     for (int i = 0; i < g.rearN; i++) rear[i] = 1.0f + (g.rear[i] - 1.0f) * c.driftAssist;
-    sv.tire = Field<float*>(susp, kSR_TireSpecs);
-    if (sv.tire) {
-        float* gs = (float*)((uint8_t*)sv.tire + 0x18);
-        sv.gripScale[0] = gs[0];
-        sv.gripScale[1] = gs[1];
-        gs[0] *= 1.0f + c.gripBalance;
-        gs[1] *= 1.0f - c.gripBalance;
+    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+    sv.tranny = tranny ? (float*)(tranny + kTR_TorqueSplit) : nullptr;
+    if (sv.tranny) {
+        sv.split = *sv.tranny;
+        *sv.tranny = Clamp(sv.split * c.torqueSplit, 0.0f, 1.0f);
     }
 }
 
@@ -107,17 +109,13 @@ void Restore(const Saved& sv) {
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i];
     float* rear = *(float**)(kDriftRearTable + 0x10);
     memcpy(rear, g.rear, g.rearN * sizeof(float));
-    if (sv.tire) {
-        float* gs = (float*)((uint8_t*)sv.tire + 0x18);
-        gs[0] = sv.gripScale[0];
-        gs[1] = sv.gripScale[1];
-    }
+    if (sv.tranny) *sv.tranny = sv.split;
 }
 
 bool Stock() {
     const Config& c = g_cfg;
     return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.gripBalance == 0.0f;
+           c.torqueSplit == 1.0f;
 }
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
@@ -125,10 +123,11 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         s_origSusp(susp, dT);
         return;
     }
-    static bool logged;
-    if (!logged) {
-        logged = true;
-        Log("physics: player suspension %p (tires %p)", susp, Field<void*>(susp, kSR_TireSpecs));
+    static uint8_t* logged;
+    if (logged != susp) {
+        logged = susp;
+        uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+        Log("physics: player suspension %p (torque split %.2f front)", susp, tranny ? Field<float>(tranny, kTR_TorqueSplit) : -1.0f);
     }
     Saved sv;
     Apply(susp, sv);
@@ -182,7 +181,78 @@ void* Detour(uintptr_t at, size_t stolen, void* hook) {
     return tramp;
 }
 
+// --- per car ---------------------------------------------------------------------------------
+struct PerCar {
+    float Config::*field;
+    const char* key;
+    float lo, hi;
+};
+const PerCar kPerCar[] = {
+    {&Config::tractionControl, "TractionControl", 0.0f, 1.0f},
+    {&Config::stability, "Stability", 0.0f, 1.0f},
+    {&Config::driftAssist, "DriftAssist", 0.0f, 1.0f},
+    {&Config::grip, "Grip", 0.3f, 2.0f},
+    {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
+    {&Config::gravity, "Gravity", 0.1f, 3.0f},
+};
+constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
+
+struct {
+    std::string car;            // the player's vehicle name, empty = none yet
+    bool own = false;           // it has its own [Car.<name>] section
+    float global[kNumPerCar];   // the [Physics] values while a car has its own
+} pc;
+
+void StoreGlobal() {
+    for (int i = 0; i < kNumPerCar; i++) pc.global[i] = g_cfg.*kPerCar[i].field;
+}
+
+void LoadGlobal() {
+    for (int i = 0; i < kNumPerCar; i++) g_cfg.*kPerCar[i].field = pc.global[i];
+}
+
 }  // namespace
+
+std::string Physics_Section() { return pc.own ? "Car." + pc.car : "Physics"; }
+const char* Physics_Car() { return pc.car.c_str(); }
+bool Physics_OwnSettings() { return pc.own; }
+
+bool Physics_IsPerCar(const void* value) {
+    for (const PerCar& p : kPerCar)
+        if (value == &(g_cfg.*p.field)) return true;
+    return false;
+}
+
+void Physics_SetCar(const char* name) {
+    std::string car = name ? name : "";
+    if (car == pc.car) return;
+    if (!pc.own) StoreGlobal();
+    pc.car = car;
+    std::string section = "Car." + car;
+    char buf[64];
+    pc.own = !car.empty() && GetPrivateProfileSectionA(section.c_str(), buf, sizeof(buf), IniPath()) > 0;
+    LoadGlobal();
+    if (pc.own) {
+        for (const PerCar& p : kPerCar)
+            if (GetPrivateProfileStringA(section.c_str(), p.key, "", buf, sizeof(buf), IniPath()) > 0)
+                g_cfg.*p.field = Clamp((float)atof(buf), p.lo, p.hi);
+    }
+    Log("physics: car %s (%s)", car.empty() ? "?" : car.c_str(), pc.own ? "own settings" : "[Physics] settings");
+}
+
+void Physics_SetOwnSettings(bool on) {
+    if (on == pc.own || pc.car.empty()) return;
+    if (on) {
+        // Starts from the values in use; written to [Car.<name>] when the menu saves.
+        StoreGlobal();
+        pc.own = true;
+    } else {
+        WritePrivateProfileStringA(("Car." + pc.car).c_str(), nullptr, nullptr, IniPath());
+        pc.own = false;
+        LoadGlobal();
+    }
+    Log("physics: %s %s", pc.car.c_str(), on ? "has its own settings" : "back to [Physics] settings");
+}
 
 void Physics_Install() {
     if (!Expect(kSuspSimulate, {0x81, 0xEC, 0xFC, 0x00, 0x00, 0x00, 0x56, 0x8B, 0xF1}) ||
@@ -202,9 +272,9 @@ void Physics_Install() {
     }
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
-    Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, balance %+.2f, "
+    Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, torque split x%.2f, "
         "gravity %.2f%s)", g_cfg.physics ? "on" : "off", g_cfg.tractionControl * 100, g_cfg.stability * 100,
-        g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.gripBalance, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
+        g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.torqueSplit, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
 }
 
 void Physics_Frame() {

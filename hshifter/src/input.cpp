@@ -7,7 +7,7 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair, s_hit, s_menu, s_nav[4];
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_menu, s_nav[4];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -54,6 +54,8 @@ static void ParseAll() {
     }
     parse("Neutral", g_cfg.neutral, s_neutral);
     parse("Toggle", g_cfg.toggle, s_toggle);
+    parse("ShiftUp", g_cfg.shiftUp, s_up);
+    parse("ShiftDown", g_cfg.shiftDown, s_down);
     parse("DebugBlow", g_cfg.debugBlow, s_blow);
     parse("DebugRepair", g_cfg.debugRepair, s_repair);
     parse("DebugDamage", g_cfg.debugDamage, s_hit);
@@ -251,7 +253,7 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false, prevHit = false, prevMenu = false;
+    bool prevNeutral = false, prevToggle = false, prevUp = false, prevDown = false, prevBlow = false, prevRepair = false, prevHit = false, prevMenu = false;
     Repeater nav[4];
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
@@ -365,6 +367,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (g_cfg.latching) stick = latched;
 
         bool toggleDown = AnyDown(s_toggle, focus);
+        bool upDown = AnyDown(s_up, focus), downDown = AnyDown(s_down, focus);
         bool blowDown = AnyDown(s_blow, focus);
         bool repairDown = AnyDown(s_repair, focus);
         bool hitDown = AnyDown(s_hit, focus);
@@ -378,6 +381,8 @@ static DWORD WINAPI InputThread(LPVOID) {
         s_snap.shifterBound = shifterBound;
         s_snap.stickGear = stick;
         if (toggleDown && !prevToggle) s_snap.toggles++;
+        if (upDown && !prevUp) s_snap.shiftUp++;
+        if (downDown && !prevDown) s_snap.shiftDown++;
         if (blowDown && !prevBlow) s_snap.blows++;
         if (repairDown && !prevRepair) s_snap.repairs++;
         if (hitDown && !prevHit) s_snap.hits++;
@@ -385,6 +390,8 @@ static DWORD WINAPI InputThread(LPVOID) {
         for (int i = 0; i < 4; i++) s_snap.menuNav[i] += navPresses[i];
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
+        prevUp = upDown;
+        prevDown = downDown;
         prevBlow = blowDown;
         prevRepair = repairDown;
         prevHit = hitDown;

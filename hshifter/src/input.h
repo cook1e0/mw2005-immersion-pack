@@ -8,6 +8,8 @@ struct InputSnapshot {
     bool  shifterBound = false; // some gear binding is usable right now
     int   stickGear = -1;       // -1 neutral, 0 reverse, 1..7 forward gears
     uint32_t toggles = 0;       // incremented on every press of the toggle binding
+    uint32_t shiftUp = 0;       // ... of [Shifter] ShiftUp (sequential mode)
+    uint32_t shiftDown = 0;     // ... of [Shifter] ShiftDown
     uint32_t blows = 0;         // ... of [Engine] DebugBlow
     uint32_t repairs = 0;       // ... of [Engine] DebugRepair
     uint32_t hits = 0;          // ... of [Damage] DebugDamage

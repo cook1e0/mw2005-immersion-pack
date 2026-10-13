@@ -53,12 +53,16 @@ struct Config {
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7
     std::string neutral;            // only used with Latching=1
     bool  latching = false;         // gear stays selected after the button is released
+    bool  sequential = false;       // sequential shifting (ShiftUp / ShiftDown) instead of the H-pattern
+    std::string shiftUp = "key:LSHIFT";
+    std::string shiftDown = "key:LCTRL";
     bool  requireClutch = true;     // need the clutch pressed to put it in gear
     float shiftPedal = 0.60f;       // pedal travel that counts as "clutch pressed"
     float revMatchRpm = 0.0f;       // >0: allow clutchless shifts within this many rpm
     bool  blockWrongDirection = true; // no reverse while rolling forward (and vice versa)
     bool  keepShiftDelay = false;   // keep the game's shift delay even when the clutch was used
     bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
+    uint32_t grindSound = 0xC565AC30; // ... with this sound moment (the totaled car's engine failure), 0 = none
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
 
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
@@ -86,16 +90,18 @@ struct Config {
     bool  speedbreaker = false;     // the game's speedbreaker (its meter is taken over)
     std::string hudIcon = "INGAME_ICON_PLAYERCAR"; // texture replacing the speedbreaker clock
     float hudHeatFrom = 0.5f;       // heat where the red overlay starts filling
-    float hudWarn = 0.75f;          // heat or damage at which the meter flashes
+    float hudWarn = 0.75f;          // heat or damage at which the meter and car icon flash
+    bool  hudFillUp = true;         // the meter fills from the bottom up (the game's arc fills downwards)
     float hudDepth = -1.0f;         // overlay z offset from the arc; - is nearer (in front)
 
-    // [Physics] the player car's driving aids, grip and gravity (1 = the game's own)
+    // [Physics] the player car's driving aids, grip and gravity (1 = the game's own). A car with
+    // its own [Car.<name>] section uses the values there (see physics.h).
     bool  physics = true;
     float tractionControl = 0.25f;  // traction control strength
     float stability = 0.25f;        // yaw control and drift stabiliser strength
     float driftAssist = 0.5f;       // how much rear grip is lowered in a slide
     float grip = 1.0f;              // overall tire grip
-    float gripBalance = 0.0f;       // + moves grip to the front axle, - to the rear
+    float torqueSplit = 1.0f;       // multiplies the share of torque sent to the front wheels
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
 
@@ -111,7 +117,7 @@ struct Config {
     std::string menuRight = "key:RIGHT,key:NUMPAD6";
 
     // [General]
-    std::string toggle;             // binding that switches between H-pattern and the game's sequential shifting
+    std::string toggle;             // binding that switches between H-pattern and sequential shifting
     bool  logInputs = false;
 };
 extern Config g_cfg;
