@@ -24,6 +24,11 @@ Upgrading from v0.9.1 or older: delete the old d3d9.dll and dsound.dll next to s
 both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Your
 .ini files stay as they are.
 
+With the widescreen fix: all three mods run alongside it. If the game crashes right at start,
+set SkipIntro = 0 in scripts\NFSMostWanted.WidescreenFix.ini. The fix keeps the game's settings
+in its own registry key starting from defaults (640x480, low detail): set them again in the
+game's options.
+
 Without an ASI loader: each .asi also works renamed to the DLL it used to be, next to speed.exe:
 nfsmw_vr.asi -> d3d9.dll, nfsmw_ffb.asi -> dinput8.dll, nfsmw_gameplay.asi -> dsound.dll.
 

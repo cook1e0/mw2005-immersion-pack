@@ -47,6 +47,14 @@ replaced by the loader. Your `.ini` files stay as they are.
 To uninstall a mod, delete its `.asi`. Settings are in the `.ini` files; each mod writes a `.log`
 next to `speed.exe`.
 
+**With the [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw):**
+all three mods run alongside it. Two things about the fix itself:
+
+- If the game crashes right at start, set `SkipIntro = 0` in
+  `scripts\NFSMostWanted.WidescreenFix.ini` (it crashed in the boot screens on our v1.3 exe).
+- It keeps the game's settings in its own registry key, starting from defaults (640x480, low
+  detail): set the resolution and graphics again in the game's options.
+
 ## Requirements
 
 - `speed.exe` v1.3

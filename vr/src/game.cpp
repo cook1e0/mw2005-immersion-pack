@@ -98,13 +98,22 @@ void PatchRel32(uintptr_t addr, uint8_t opcode, void* hook) {
     FlushInstructionCache(GetCurrentProcess(), p, 5);
 }
 
+// Another mod's hook of __getResolutionByIndex found at install (the widescreen fix returns the
+// desktop or its ini resolution); it supplies the size whenever we don't override it.
+typedef void(__stdcall* GetResolution_t)(int*, int*);
+GetResolution_t s_prevGetResolution;
+
 // Replaces the 6-entry resolution table with the headset's per-eye size.
 void __stdcall hkGetResolution(int* w, int* h) {
     static const int kTable[6][2] = {{640, 480}, {800, 600}, {1024, 768}, {1280, 960}, {1280, 1024}, {1600, 1200}};
-    int index = *(int*)kResolutionIndex;
-    if (index < 0 || index > 5) index = 2;
-    *w = kTable[index][0];
-    *h = kTable[index][1];
+    if (s_prevGetResolution) {
+        s_prevGetResolution(w, h);
+    } else {
+        int index = *(int*)kResolutionIndex;
+        if (index < 0 || index > 5) index = 2;
+        *w = kTable[index][0];
+        *h = kTable[index][1];
+    }
 
     const char* mode = g_cfg.resolution;
     int cw = 0, ch = 0;
@@ -318,6 +327,11 @@ void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
 void Game_InstallHooks() {
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);
     PatchRel32(kCallRenderScene, 0xE8, (void*)&hkRenderScene);
+    const uint8_t* res = (const uint8_t*)kGetResolution;
+    if (res[0] == 0xE9) {
+        s_prevGetResolution = (GetResolution_t)(kGetResolution + 5 + *(const int32_t*)(res + 1));
+        Log("game: resolution function already hooked by another mod, chained");
+    }
     PatchRel32(kGetResolution, 0xE9, (void*)&hkGetResolution);
     static const uint8_t kTotaledCall[5] = {0xE8, 0xC4, 0x8C, 0xE4, 0xFF};
     if (memcmp((void*)kCallTotaledCam, kTotaledCall, 5) == 0) PatchRel32(kCallTotaledCam, 0xE8, (void*)&hkTotaledCam);

@@ -915,7 +915,8 @@ bool Game_Install() {
     Vfx_Install();
     Traffic_Install();
     Controls_Install();
-    if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
+    // Only the call itself: the widescreen fix hooks the instruction right after it.
+    if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());
     } else {
