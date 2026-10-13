@@ -412,6 +412,19 @@ public:
         }
         return real->StretchRect(src, srcRect, dst, dstRect, filter);
     }
+    // Same for other mods' colour clears on the HUD layer (the widescreen fix's HideAABug clears
+    // 1px black lines along the screen edges, which framed the HUD panel).
+    HRESULT STDMETHODCALLTYPE Clear(DWORD count, CONST D3DRECT* rects, DWORD flags, D3DCOLOR color, float z,
+                                    DWORD stencil) override {
+        if (s_hudPhase && (flags & D3DCLEAR_TARGET) && !FromGame(_ReturnAddress())) {
+            static bool logged;
+            if (!logged) Log("d3d9: skipping another mod's clear of the HUD layer (e.g. widescreen fix HideAABug)");
+            logged = true;
+            flags &= ~D3DCLEAR_TARGET;
+            if (!flags) return D3D_OK;
+        }
+        return real->Clear(count, rects, flags, color, z, stencil);
+    }
     HRESULT STDMETHODCALLTYPE EndScene() override {
         s_skipPostPass = false;
         return real->EndScene();

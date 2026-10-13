@@ -14,8 +14,8 @@ Native OpenXR VR mod for *Need for Speed: Most Wanted* (2005, PC) with full ster
    next to `speed.exe`. Without a loader, rename `nfsmw_vr.asi` to `d3d9.dll` and put it and the `.ini` next to `speed.exe`.
 2. Connect your headset, then launch the game.
 
-With ThirteenAG's widescreen fix, its end-of-frame colour pass (`ConsoleGamma`, `SMAA`) is skipped on
-the HUD layer in VR, where it would turn the menu and HUD panel black; the headset view never had it.
+With ThirteenAG's widescreen fix, its end-of-frame colour pass (`ConsoleGamma`, `SMAA`) and edge lines (`HideAABug`) are
+skipped on the HUD layer in VR, where they would black out or frame the menu and HUD panel; the headset view never had them.
 
 To uninstall, delete `nfsmw_vr.asi` (or `d3d9.dll`), `nfsmw_vr_host.exe` and `nfsmw_vr.ini`. If something goes wrong, check `nfsmw_vr.log` in the game folder.
 
