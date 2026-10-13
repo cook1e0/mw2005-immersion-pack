@@ -8,10 +8,11 @@
 // first car seen with one). The car's own EngineBlownEffect is only a fallback: it is the drag
 // race smoke for a car that has stopped, and stays where it started instead of trailing the car.
 //
-// Particles take a fraction of the car's velocity (the emitter data's VelocityInherit). The
-// cop smoke inherits little, so behind a fast car it was left behind the chase camera within a
-// frame or two and only showed once the car stopped. The player's smoke effect update is
-// wrapped to give its particles [Damage] SmokeTrail of the car's velocity instead.
+// Particles take a fraction (the emitter data's VelocityInherit, 0.5 for the cop smoke) of the
+// velocity UpdateEffects passes, which is the simulation's vector: its axes are not the render
+// world's, so at speed the particles flew off and the smoke only showed once the car stopped.
+// The player's smoke effect update is wrapped: its particles get [Damage] SmokeTrail of the
+// car's render-space velocity (from its render matrix's movement) instead.
 #include "vfx.h"
 #include "common.h"
 
@@ -33,6 +34,7 @@ typedef uint32_t(__cdecl* StringToKey_t)(const char*);
 
 constexpr uintptr_t kSmokeUpdateCall = 0x75645D;    // UpdateEffects: call Effect::Update for the DamageEffect
 constexpr uintptr_t kEffectUpdate = 0x744A50;       // VehicleRenderConn::Effect::Update(mtx, key, dt, intensity, vel)
+constexpr uintptr_t kGroupNumParticles = 0x503A90;  // unsigned EmitterGroup::GetNumParticles()
 constexpr int kEffect_Group = 0x50;                 // Effect: EmitterGroup*
 constexpr int kEffect_Key = 0x54;                   // Effect: emittergroup key of the group
 constexpr int kGroup_Emitters = 0x08;               // EmitterGroup: list of Emitters (the list node is the Emitter)
@@ -94,24 +96,38 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
 // Replaces UpdateEffects' call of Effect::Update for the DamageEffect. Before the group spawns
 // particles, each emitter's inherited velocity is set so that, after the game scales it by the
 // emitter's VelocityInherit, particles leave with SmokeTrail of the car's velocity.
-static void __fastcall SmokeUpdate(void* eff, void*, const void* mtx, uint32_t key, float dt, float intensity, const float* vel) {
+static void __fastcall SmokeUpdate(void* eff, void*, const float* mtx, uint32_t key, float dt, float intensity, const float* vel) {
     uint8_t* group = *(uint8_t**)((uint8_t*)eff + kEffect_Group);
-    if (s_playerSmoke && vel && group && key == *(uint32_t*)((uint8_t*)eff + kEffect_Key)) {
+    if (s_playerSmoke && vel && mtx && group && key == *(uint32_t*)((uint8_t*)eff + kEffect_Key)) {
+        // The car's velocity in render space, from its render matrix's movement (the game's
+        // vector is in simulation space, whose axes differ).
+        static float lastPos[3];
+        static double lastTime;
+        static float v[3];
+        double now = Now();
+        float rdt = (float)(now - lastTime);
+        if (rdt > 0.001f && rdt < 0.2f)
+            for (int a = 0; a < 3; a++) v[a] = v[a] * 0.5f + (mtx[12 + a] - lastPos[a]) / rdt * 0.5f;
+        else if (rdt >= 0.2f)
+            v[0] = v[1] = v[2] = 0;
+        if (rdt > 0.001f || rdt < 0) {
+            memcpy(lastPos, mtx + 12, sizeof(lastPos));
+            lastTime = now;
+        }
         uint8_t* head = group + kGroup_Emitters;
         for (uint8_t* e = *(uint8_t**)head; e && e != head; e = *(uint8_t**)e) {
             uint8_t* wrapper = *(uint8_t**)(e + kEmitter_Data);
             uint8_t* data = wrapper ? *(uint8_t**)(wrapper + 8) : nullptr;
             float inherit = data ? *(float*)(data + kData_Inherit) : 0.0f;
-            static void* logged;
-            if (data && data != logged) {
-                logged = data;
-                Log("vfx: smoke emitter %p inherit %.3f local %u", e, inherit, *(uint32_t*)(data + kData_InheritLocal));
-            }
             float k = inherit > 0.01f ? g_cfg.smokeTrail / inherit : 0.0f;
-            float* v = (float*)(e + kEmitter_Inherit);
-            v[0] = vel[0] * k;
-            v[1] = vel[1] * k;
-            v[2] = vel[2] * k;
+            float* iv = (float*)(e + kEmitter_Inherit);
+            for (int a = 0; a < 3; a++) iv[a] = v[a] * k;
+        }
+        static double lastLog;
+        if (now - lastLog > 2.0) {
+            lastLog = now;
+            Log("vfx: smoke car velocity %.1f %.1f %.1f (game's %.1f %.1f %.1f), %u particles", v[0], v[1], v[2], vel[0],
+                vel[1], vel[2], ((unsigned(__thiscall*)(void*))kGroupNumParticles)(group));
         }
         vel = nullptr;  // keep these instead of the game's
     }

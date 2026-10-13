@@ -21,6 +21,7 @@ struct HudStatus {
     bool valid = false;         // the player's car is known
     float damage = 0.0f;
     float heat = 0.0f;          // 0 unless engine wear applies
+    int poppedTires = 0;        // tires punctured (spike strips)
 };
 HudStatus Game_Hud();
 

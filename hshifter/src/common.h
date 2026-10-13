@@ -62,7 +62,7 @@ struct Config {
     bool  blockWrongDirection = true; // no reverse while rolling forward (and vice versa)
     bool  keepShiftDelay = false;   // keep the game's shift delay even when the clutch was used
     bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
-    uint32_t grindSound = 0xC565AC30; // ... with this sound moment (the totaled car's engine failure), 0 = none
+    uint32_t grindSound = 0xBC2DFA2F; // ... with this sound moment (the totaled car's engine failure), 0 = none
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
 
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)

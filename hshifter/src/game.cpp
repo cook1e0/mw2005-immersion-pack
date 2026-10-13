@@ -71,6 +71,7 @@ constexpr uintptr_t kResetDamageRacer = 0x69C930;   // void DamageRacer::ResetDa
 constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
 constexpr uintptr_t kSlotOnImpact = 0x8AD378;     // DamageRacer vtable: DamageVehicle::OnImpact
 constexpr uintptr_t kOnImpact = 0x69C030;
+constexpr uintptr_t kGetTireDamage = 0x68CC80;     // eTireDamage DamageRacer::GetTireDamage(unsigned wheel)
 constexpr uintptr_t kISpikeableHandle = 0x68CC70;  // ISpikeable::_IHandle; vtbl[1] GetTireDamage, [3] Puncture
 constexpr uintptr_t kPuncture = 0x69C730;           // void DamageRacer::Puncture(unsigned wheel) (ISpikeable this)
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
@@ -663,6 +664,17 @@ void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float*
 }
 
 // --- popped tires ----------------------------------------------------------------------------
+// Tires with damage (ISpikeable::GetTireDamage: 0 = intact).
+int PoppedTires(uint8_t* eng) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    void* list = owner ? Field<void*>(owner, 4) : nullptr;
+    void* spike = list ? ((IListFind_t)kIListFind)(list, (void*)kISpikeableHandle) : nullptr;
+    if (!spike || Vtbl(spike)[1] != (void*)kGetTireDamage) return 0;
+    int n = 0;
+    for (unsigned w = 0; w < 4; w++) n += ((int(__thiscall*)(void*, unsigned))kGetTireDamage)(spike, w) != 0;
+    return n;
+}
+
 // Testing: the game's own puncture on all four wheels, as a spike strip does it.
 void PopTires(uint8_t* eng) {
     uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
@@ -802,6 +814,7 @@ HudStatus Game_Hud() {
         s.damageStep = (int)(h.damage * 10.0f + 0.001f);
     }
     h.heat = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine) ? s.heat : 0.0f;
+    h.poppedTires = PoppedTires(s.engine);
     return h;
 }
 

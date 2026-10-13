@@ -351,9 +351,9 @@ const struct {
     uint32_t moment;
     const char* name;
 } kGrindSounds[] = {
-    {0xC565AC30, "Totaled"},
-    {0xBC2DFA2F, "Engine state 1"},
+    {0xBC2DFA2F, "Gear grind"},
     {0xBAE41D1B, "Engine state 2"},
+    {0xC565AC30, "Totaled"},
 };
 
 std::string SoundName(uint32_t moment) {

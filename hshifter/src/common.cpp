@@ -117,7 +117,7 @@ void LoadConfig() {
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
-    c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xC565AC30").c_str(), nullptr, 0);
+    c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xBC2DFA2F").c_str(), nullptr, 0);
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
