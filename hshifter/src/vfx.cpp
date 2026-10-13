@@ -3,9 +3,9 @@
 // CarRenderConn::UpdateEffects runs each car's engine effects: DeathEffect at health 0,
 // DamageEffect (the smoke cop cars trail) at health <= 0.5, EngineBlownEffect for a blown engine.
 // The player's cars have no DamageEffect, so the code that loads that key is patched: for the
-// car the camera follows, the key becomes a cop car's DamageEffect once the car's damage reaches
-// [Damage] SmokeFrom (health = 1 - damage). The cop key is taken from the first car seen with one
-// (any cop on screen), falling back to the key cop cars use in v1.3.
+// car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage), the
+// key becomes the car's own EngineBlownEffect (the drag race blown engine smoke). Cars without
+// one get the cop cars' DamageEffect, taken from the first car seen with one.
 #include "vfx.h"
 #include "common.h"
 
@@ -21,8 +21,8 @@ uint32_t s_copKey = 0;
 
 }  // namespace
 
-// Called from the patch with the render connection, the service packet and the car's own key.
-extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key) {
+// Called from the patch with the render connection, the service packet and the car's own keys.
+extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key, uint32_t blownKey) {
     bool player = ((IsViewAnchor_t)kIsViewAnchor)(conn);
     if (!player) {
         if (key && key != s_copKey) {
@@ -34,7 +34,7 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
     if (!g_cfg.damageSmoke) return key;
     float health = *(float*)(pkt + kPkt_Health);
     if (health > 1.0f - g_cfg.smokeFrom) return 0;
-    uint32_t k = key ? key : s_copKey;
+    uint32_t k = key ? key : blownKey ? blownKey : s_copKey;
     static uint32_t logged;
     if (k != logged) {
         logged = k;
@@ -44,16 +44,17 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
 }
 
 // Replaces "mov ecx,[esp+0x18]; test ecx,ecx" (6 bytes) with a call; the flags are set on return.
+// [esp+0x1c] at the patch holds the EngineBlownEffect key (read there by the blown engine branch).
 __asm__(
     ".text\n"
     "_Vfx_DamageKeyStub:\n"
-    "    movl 0x1c(%esp), %ecx\n"       // the key, past our return address
     "    pushal\n"
-    "    pushl %ecx\n"
+    "    pushl 0x40(%esp)\n"            // EngineBlownEffect key: 0x20 past our return address, + pushal
+    "    pushl 0x40(%esp)\n"            // DamageEffect key: 0x1c past it, + pushal + the push above
     "    pushl %edx\n"                  // Pkt_Car_Service*
     "    pushl %esi\n"                  // CarRenderConn*
     "    call _Vfx_DamageKey\n"
-    "    addl $12, %esp\n"
+    "    addl $16, %esp\n"
     "    movl %eax, 0x18(%esp)\n"       // pushal's ecx slot
     "    popal\n"
     "    testl %ecx, %ecx\n"
