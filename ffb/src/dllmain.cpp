@@ -17,12 +17,15 @@ static bool s_active;
 // The master Gain, for the gameplay mod's F4 tuning menu (read live by the effect update).
 extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 
-// Live settings for the gameplay mod (F4 menu, [Controls]): Gain, CenterSpring, SoftLock,
-// SoftLockAt, GameController (0 = hide the controllers' input from the game). Null if unknown.
+// Live settings for the gameplay mod (F4 menu, [Controls]): Gain, CenterSpring,
+// CenterSpringParked, CenterSpringSpeed, SoftLock, SoftLockAt, GameController (0 = hide the
+// controllers' input from the game). Null if unknown.
 extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
     if (!name) return nullptr;
     if (!strcmp(name, "Gain")) return &g_cfg.gain;
     if (!strcmp(name, "CenterSpring")) return &g_cfg.centerSpring;
+    if (!strcmp(name, "CenterSpringParked")) return &g_cfg.centerSpringParked;
+    if (!strcmp(name, "CenterSpringSpeed")) return &g_cfg.centerSpringSpeed;
     if (!strcmp(name, "SoftLock")) return &g_cfg.softLock;
     if (!strcmp(name, "SoftLockAt")) return &g_cfg.softLockAt;
     if (!strcmp(name, "GameController")) return &g_cfg.gameController;

@@ -39,8 +39,9 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   adds a soft lock there. *Game's own controller input: Off* makes the game ignore the
   controllers completely, its menus included (needs the force feedback mod;
   the keyboard keeps working).
-- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic, and
-  the force feedback mod's strength (if it is installed), changed
+- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic,
+  the force feedback mod's strength and centring spring, and the VR mod's view recentre and HUD
+  panel size, distance and height (when those mods are installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
 
@@ -79,6 +80,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Car.<name>]` | a car's own physics values (set with *Settings for this car only* in the menu) |
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
+| `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
 | `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |

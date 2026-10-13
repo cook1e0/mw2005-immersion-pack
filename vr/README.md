@@ -78,6 +78,14 @@ For a 64-bit-only manifest such as SteamVR's
 
 In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car. This also works on a flat screen without a headset.
 
+With the gameplay mod, **F4 > VR** has **Recenter view** (same as F8), **HUD size**, **HUD distance**,
+and **HUD height**. Panel changes take effect immediately, including through the SteamVR helper,
+and are saved to `nfsmw_vr.ini` when the menu closes.
+
+The seat follows the car's current body transform, with a fixed position inside the car. Horizon
+levelling still changes the view's roll/pitch relative to the body: F7 toggles it, or set
+`LevelRoll=0` and `LevelPitch=0` for full body rotation.
+
 ## Settings
 
 Everything is in `nfsmw_vr.ini`. The useful ones:
@@ -94,6 +102,14 @@ The game window shows a stabilised version of the headset view, including the fl
 
 - Rain and some post-processing effects run slightly faster than normal, because the scene is rendered twice per frame.
 - The rear-view mirror is part of the flat HUD panel.
+- The game originally has only 400 KB of temporary render memory per frame. Rendering two eyes
+  can exceed that in busy scenes, dropping cars in the second eye and potentially crashing. The
+  mod reserves 2 MB per buffer and logs usage/failures. This addresses that allocation limit;
+  SteamVR headset testing is still needed to confirm the reported crash is fully resolved.
+
+Install `nfsmw_vr.asi` and `nfsmw_vr_host.exe` from the same build. A helper version mismatch is
+reported in `nfsmw_vr.log`. `FakeHmd=1` is a desktop stereo test mode; use `FakeHmd=0` for playing
+with a real headset.
 
 ## How it works
 
@@ -106,6 +122,9 @@ Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Be
 ## Building
 
 Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` (released as `nfsmw_vr.asi`) and `bin\nfsmw_vr_host.exe`.
+
+Run `tests\run.cmd` for the x86 cockpit regression harness. It exercises the production camera
+code with a synthetic game layout; it does not launch or modify the game.
 
 ## Credits
 

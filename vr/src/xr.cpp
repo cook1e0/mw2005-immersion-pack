@@ -496,6 +496,7 @@ bool BridgeStart(LUID luid) {
         return false;
     }
     memset(b.shm, 0, sizeof(BridgeShared));
+    b.shm->protocolVersion = kBridgeProtocolVersion;
 
     std::string exe = std::string(GameDir()) + XR_BRIDGE_EXE;
     char cmdLine[MAX_PATH + 32];
@@ -514,7 +515,9 @@ bool BridgeStart(LUID luid) {
     b.shm->luidLow = luid.LowPart;
     b.shm->luidHigh = luid.HighPart;
     // Generous timeout: SteamVR may have to start up first.
-    if (!BridgeCall(kBridgeInit, 120000) || !b.shm->result) {
+    if (!BridgeCall(kBridgeInit, 120000) || !b.shm->result || b.shm->hostProtocolVersion != kBridgeProtocolVersion) {
+        if (b.shm->hostProtocolVersion != kBridgeProtocolVersion)
+            Log("XR: bridge version mismatch; replace nfsmw_vr_host.exe with the one shipped with this VR mod");
         Log("XR: the bridge could not start OpenXR - see nfsmw_vr_host.log");
         BridgeStop();
         return false;
@@ -830,6 +833,11 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         b.shm->tanX = tanX;
         b.shm->tanY = tanY;
         b.shm->withHud = withHud;
+        b.shm->hudDistance = g_cfg.hudDistance;
+        b.shm->hudWidth = g_cfg.hudWidth;
+        b.shm->hudHeight = g_cfg.hudHeight;
+        b.shm->screenDistance = g_cfg.screenDistance;
+        b.shm->screenWidth = g_cfg.screenWidth;
         BridgeCall(kBridgeEndFrame);
         return;
     }

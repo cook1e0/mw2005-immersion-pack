@@ -45,6 +45,14 @@ constexpr uintptr_t kCallPlayIce = 0x6405A4;     // call ICEManager::SetGenericC
 constexpr uintptr_t kPlayIce = 0x46E2D0;         // thiscall, 2 args
 constexpr uintptr_t kCallIceAction = 0x6405B0;   // call CameraAI::SetAction(EVIEW_PLAYER1, "CDActionIce")
 constexpr uintptr_t kSetAction = 0x479EB0;       // cdecl, 2 args
+// Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
+// them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
+constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
+constexpr uint32_t kFrameMemGame = 0x64000;
+constexpr uint32_t kFrameMemVr = 0x200000;
+constexpr uintptr_t kFrameMemBuffer = 0x915128;  // FrameMemoryBuffer (null until eInitEngine)
+constexpr uintptr_t kFrameMemLargest = 0x915FA0; // Eframelargest: most used in one frame (bytes)
+constexpr uintptr_t kFrameMemMaxFail = 0x915F9C; // FrameMallocMaxFailAmount: most refused in one frame (bytes)
 
 // eView (PC layout)
 constexpr int kViewPlatInfo = 0x00;
@@ -226,7 +234,7 @@ void __cdecl hkRenderScene() {
         // Flat screen: the cockpit seat still applies to the single view.
         uint8_t saved[kCameraParamsSize];
         bool seat = false;
-        if (active && cam) {
+        if (active && cam && s_haveSetupArgs) {
             memcpy(saved, cam, sizeof(saved));
             M4 V;
             memcpy(&V, saved + kCamMatrix, sizeof(V));
@@ -237,11 +245,17 @@ void __cdecl hkRenderScene() {
                 EyeView centre = {};
                 centre.relOrientation.w = 1;
                 ApplyEyeToCamera(cam, seated, centre);
+                oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
+                           s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
                 seat = true;
             }
         }
         oRenderScene();
-        if (seat) memcpy(cam, saved, sizeof(saved));
+        if (seat) {
+            memcpy(cam, saved, sizeof(saved));
+            oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
+                       s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+        }
         return;
     }
 
@@ -276,6 +290,8 @@ void __cdecl hkRenderScene() {
     }
 
     memcpy(cam, saved, sizeof(saved));
+    oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
+               s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
     D3D_BeginHudPhase();
     s_stereoFrame = true;
 }
@@ -322,9 +338,52 @@ void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
     else Log("game: unexpected code at the %s call (0x%X), not patched", what, (unsigned)site);
 }
 
+// Both eyes render within one frame, so everything ___eDisplayFrame takes from frame memory is
+// taken twice before the buffers swap. In a busy scene (traffic, cops, smoke) the second eye ran
+// out: eFrameMalloc returns null, car drawing is skipped, and unchecked allocations can crash.
+// This is a possible cause of the reported right-eye failure, independent of the XR runtime.
+// Reserve 2 MB per buffer before allocation; never rewind the allocator between the eyes, as
+// queued GPU work may still use matrices and lights allocated for the first eye.
+void EnlargeFrameMemory() {
+    if (*(void**)kFrameMemBuffer) {
+        Log("game: frame memory already allocated, left at %u KB", kFrameMemGame / 1024);
+        return;
+    }
+    for (uintptr_t a : kFrameMemSizes)
+        if (*(const uint32_t*)a != kFrameMemGame) {
+            Log("game: unexpected code at the frame memory size (0x%X), not changed", (unsigned)a);
+            return;
+        }
+    for (uintptr_t a : kFrameMemSizes) {
+        DWORD old;
+        VirtualProtect((void*)a, 4, PAGE_EXECUTE_READWRITE, &old);
+        *(uint32_t*)a = kFrameMemVr;
+        VirtualProtect((void*)a, 4, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)a, 4);
+    }
+    Log("game: frame memory %u KB -> %u KB per buffer", kFrameMemGame / 1024, kFrameMemVr / 1024);
+}
+
 } // namespace
 
+// Logs frame memory use when it reaches a new high (and any frame that ran out).
+void Game_CheckFrameMemory() {
+    static int logged;
+    static uint32_t loggedFail;
+    int largest = *(int*)kFrameMemLargest;
+    uint32_t fail = *(uint32_t*)kFrameMemMaxFail;
+    if (largest > logged + 32 * 1024) {
+        logged = largest;
+        Log("game: frame memory peak %d KB", largest / 1024);
+    }
+    if (fail > loggedFail) {
+        loggedFail = fail;
+        Log("game: WARNING frame memory ran out (%u KB short in one frame): some objects were not drawn", fail / 1024);
+    }
+}
+
 void Game_InstallHooks() {
+    EnlargeFrameMemory();
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);
     PatchRel32(kCallRenderScene, 0xE8, (void*)&hkRenderScene);
     const uint8_t* res = (const uint8_t*)kGetResolution;
@@ -351,6 +410,7 @@ void Game_RenderedFov(float* tanX, float* tanY) {
 
 void Game_EndOfFrame() {
     s_stereoFrame = false;
+    Game_CheckFrameMemory();
     Cockpit_EndFrame();
 }
 

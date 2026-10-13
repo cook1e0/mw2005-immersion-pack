@@ -21,6 +21,10 @@ the same loader the widescreen fix and most other NFS mods use.
 Each mod works on its own or together with the others. To uninstall, delete its .asi.
 Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
 
+Upgrading from v0.10.x: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe
+next to speed.exe. Keep your existing .ini files and bindings. New settings use defaults when
+missing. The VR plugin and its helper must be from the same build. See FIXES.md for this release.
+
 Upgrading from v0.9.1 or older: delete the old d3d9.dll and dsound.dll next to speed.exe (if
 both copies are there, the old one runs). The old dinput8.dll is replaced by the loader. Leave your
 .ini files where they are: on the first start each mod moves its own into scripts, replacing
@@ -44,12 +48,15 @@ settings aren't needed), H-pattern shifter and clutch, engine heat / over-rev / 
 shifting only), car damage and engine smoke, drivable popped tires, physics sliders, no SUV
 cops, a damage / heat meter in place of the speedbreaker meter, and an in-game tuning menu on F4
 while driving (categories, sliders, mouse on a flat screen, reset to mod or game defaults, and
-the force feedback settings when that mod is installed).
+the force feedback settings when that mod is installed). Controls includes steering linearity.
 
-Force feedback: steering weight from the game's tyre model, a centring spring, and a soft lock
-at the gameplay mod's steering lock.
+Force feedback: steering weight from the game's tyre model, a centring spring that grows with
+speed (parked strength and full-strength speed adjustable in F4), and a soft lock at the gameplay
+mod's steering lock.
 
 VR extras: in the bumper and hood cameras you sit in the driver's seat (also on a flat screen).
+F4 > VR: recenter view and adjust HUD size, distance and height. For headset play use FakeHmd=0.
+F7 toggles horizon levelling; it is enabled by default for comfort.
 
 Licences: the mods are MIT (LICENSE). Ultimate ASI Loader by ThirteenAG
 (https://github.com/ThirteenAG/Ultimate-ASI-Loader) is MIT: LICENSE-asi-loader.txt.

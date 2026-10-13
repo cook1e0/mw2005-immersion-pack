@@ -1,8 +1,11 @@
-# Cockpit notes (work in progress)
+# Cockpit notes
 
-Seat and head removal work in a first test (Mustang GT, free roam, `FakeHmd=1` on the desktop).
-The seat also applies on a flat screen (no headset: the single view is moved the same way). Not
-tried in a real headset yet.
+Seat and head removal were tested in Mustang GT free roam with `FakeHmd=1` on the desktop.
+On 2026-10-14 the body-locked seat reported zero matrix difference across 50,576 draws
+while driving. Stereo frame memory reached 705 KB, above the original 400 KB limit, without
+allocation-failure warnings. This remains a desktop stereo test, not real-headset validation.
+The x86 regression harness covers body motion, offsets, current POV selection, car unloads,
+anchor switches, LOD changes and frame lifecycle.
 
 ## What it does
 
@@ -22,11 +25,15 @@ Code: `src/cockpit.cpp`, hooked into `game.cpp` (`Cockpit_ApplySeat` before leve
   or neck piece left by the cut? Check in the headset, try a larger `HeadSize`.
 - Only the Mustang was seen. Check other cars (the head test assumes the head is the top
   `HeadSize` and the rear 0.4 m of the driver model: x forward, z up).
-- The seat is measured from the previous frame's draw and applied to the current game camera.
-  That is exact only while the camera is rigid to the car (bumper/hood); seat is off when the
-  camera is more than 3 m from the head (chase cams).
-- Seat controls are keyboard only. For a wheel in VR, add them to the gameplay mod's F4 menu (e.g. an
-  exported function of the VR mod that the menu calls).
+- The seat follows the car body as it is drawn this frame (see Camera below), so the bumper and
+  hood cameras' lag and shake no longer move you inside the car. The head position is measured in
+  body space once per car and stays fixed across driver LOD changes. The current render connection
+  is resolved by world id each frame, never retained as a pointer across car unloads. The current
+  camera anchor selects the body or smoothed matrix; its previous frame's POV mode is not reused.
+  Seat is off when the camera is more than 3 m from the head (chase cams). F7 disables horizon
+  levelling, which otherwise intentionally changes the camera rotation relative to the body.
+- Seat controls are keyboard only. The gameplay mod's F4 menu has a VR page (recenter, HUD panel)
+  through the VR mod's `NfsmwVr_Setting` / `NfsmwVr_Recenter` exports; seat offsets could go there too.
 - Friend's wishlist still open: wheel and hands turning with steering, working mirrors (the rear
   view is on the flat HUD panel), cockpit EQ.
 
@@ -77,6 +84,13 @@ cut to the non-head part; everything else draws the full, reordered entry.
 - Player view `eViews[1]` at 0x919650, camera at +0x40, camera position at +0x40 in it.
 - Game camera space: +x right, +y down, +z forward; world is Z-up. `M4` rows of the inverse view
   are right, down, forward, position.
+- `CarRenderConn` (vtable 0x8B5254, `OnRender` at slot 3 = 0x750E20) draws the car with: in an
+  in-car camera of the view (`view+0x44` first mover - 4, `GetAnchor()` = vtable +0x10, anchor
+  +0x94 == conn +0x30 world id and int16 anchor +0xC8 == 1) the body's own matrix `*[conn+0x34]`
+  with its row 3 moved by -(`conn+0x50` bVector4 through the matrix, D3DXVec4Transform);
+  otherwise the smoothed render matrix at `conn+0x330`. Both are up to date before
+  `___eDisplayFrame`. The VR mod hooks the vtable slot to know which car (and body matrix) a
+  driver solid belongs to.
 
 ### Tools used
 

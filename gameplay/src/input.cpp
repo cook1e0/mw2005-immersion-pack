@@ -148,7 +148,8 @@ static bool AnyUsable(const std::vector<Binding>& list) {
 }
 
 // Steering, -1 left .. +1 right: the first usable axis binding, scaled so that SteeringLock
-// degrees of wheel rotation (of WheelRotation in all) give full lock.
+// degrees of wheel rotation (of WheelRotation in all) give full lock, then shaped by
+// SteeringLinearity (output = input ^ linearity, so full lock stays at the steering lock).
 static bool ReadSteer(float* out) {
     for (auto& b : s_steer) {
         if (b.kind != BK_AXIS || !BindingUsable(b)) continue;
@@ -157,6 +158,7 @@ static bool ReadSteer(float* out) {
         v *= g_cfg.wheelRotation / g_cfg.steeringLock;
         float dz = g_cfg.steerDeadzone, a = fabsf(v);
         a = a <= dz ? 0.0f : (a - dz) / (1.0f - dz);
+        a = powf(fminf(a, 1.0f), g_cfg.steerLinearity);
         *out = Clamp(v < 0 ? -a : a, -1.0f, 1.0f);
         return true;
     }

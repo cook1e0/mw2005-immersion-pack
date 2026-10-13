@@ -118,6 +118,8 @@ void LoadConfig() {
     c.brakeLockVibration = ReadFloat(s, "BrakeLockVibration", c.brakeLockVibration);
     c.menuSpring = ReadFloat(s, "MenuSpring", c.menuSpring);
     c.centerSpring = ReadFloat(s, "CenterSpring", c.centerSpring);
+    c.centerSpringParked = Clamp(ReadFloat(s, "CenterSpringParked", c.centerSpringParked), 0.0f, 1.0f);
+    c.centerSpringSpeed = Clamp(ReadFloat(s, "CenterSpringSpeed", c.centerSpringSpeed), 10.0f, 400.0f);
     c.softLock = ReadFloat(s, "SoftLock", c.softLock);
     c.minForce = ReadFloat(s, "MinForce", c.minForce);
     c.invertForce = ReadInt(s, "InvertForce", c.invertForce) != 0;
@@ -131,11 +133,11 @@ void LoadConfig() {
     c.slipSign = Clamp(ReadInt("Calibration", "SlipSign", 0), -1, 1);
     c.rightSign = Clamp(ReadInt("Calibration", "RightSign", 0), -1, 1);
     Log("config: enabled=%d native=%d gain=%.2f sat=%.2f peak=%.1f drift=%.2f damper=%.2f/%.2f "
-        "friction=%.2f/%.2f road=%.2f coll=%.2f eng=%.3f lock=%.2f menu=%.2f centre=%.2f softlock=%.2f min=%.2f invert=%d axis=%d hz=%d "
+        "friction=%.2f/%.2f road=%.2f coll=%.2f eng=%.3f lock=%.2f menu=%.2f centre=%.2f (%.0f%% parked, full at %.0f km/h) softlock=%.2f min=%.2f invert=%d axis=%d hz=%d "
         "cal(force=%d slip=%d right=%d) game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.satGain, c.satPeakAngle, c.driftAlign, c.damperLow, c.damperHigh,
         c.friction, c.standstillFriction, c.roadGain, c.collisionGain, c.engineVibration, c.brakeLockVibration,
-        c.menuSpring, c.centerSpring, c.softLock, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign,
+        c.menuSpring, c.centerSpring, c.centerSpringParked * 100.0f, c.centerSpringSpeed, c.softLock, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign,
         c.gameController > 0.5f ? "on" : "hidden");
 }
 

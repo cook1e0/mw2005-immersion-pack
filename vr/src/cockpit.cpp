@@ -10,10 +10,14 @@
 // game's copy of the indices and in the index buffer. Instances whose head is near the eyes then
 // get a copy of the entry that stops before the head; other cars keep their whole driver.
 //
-// The seat: the head of the driver nearest the game camera is measured in that camera's space
-// each frame. In the bumper and hood cameras (the camera is rigid to the car and close to the
-// head) the eyes are moved there, plus a per-car offset adjusted with the seat keys and saved to
-// [Seat] in nfsmw_vr.ini.
+// The seat: the head of the driver nearest the game camera is measured each frame, in the space of
+// the car body it is drawn with. In the bumper and hood cameras (camera close to the head) the
+// eyes are put there, plus a per-car offset adjusted with the seat keys and saved to [Seat] in
+// nfsmw_vr.ini, and they take the car body's orientation, not the game camera's. The bumper and
+// hood cameras lag and shake against the car, so a seat that followed the game camera (as it did
+// at first, from the previous frame's measurement) wobbled inside the car. The body matrix is
+// rebuilt before the eyes render the same way CarRenderConn::OnRender builds it, so the eyes
+// stay fixed to the car model in the same frame.
 #include "cockpit.h"
 #include <d3d9.h>
 #include <algorithm>
@@ -31,6 +35,20 @@ constexpr uintptr_t kSubmitEntry = 0x6E0AB0;        // cdecl, queues one draw en
 constexpr uintptr_t kPlayerView = 0x919650;         // &eViews[EVIEW_PLAYER1]
 constexpr int kViewCamera = 0x40;
 constexpr int kCamPosition = 0x40;
+
+// CarRenderConn (the car's render connection) and how OnRender (0x750E20) places the body.
+constexpr uintptr_t kCarRenderConnVtbl = 0x8B5254;
+constexpr int kVtblOnRender = 3;                    // OnRender(eView*, int reflection), thiscall
+constexpr uintptr_t kOnRender = 0x750E20;
+constexpr uintptr_t kFindConn = 0x744D40;           // VehicleRenderConn::Find(world id), cdecl
+constexpr int kConnWorldId = 0x30;
+constexpr int kConnBodyMatrix = 0x34;               // bMatrix4*: the body's matrix (in-car cameras)
+constexpr int kConnCog = 0x50;                      // bVector4: centre of mass offset, body space
+constexpr int kConnRenderMatrix = 0x330;            // bMatrix4: smoothed render matrix (other cameras)
+constexpr int kViewMovers = 0x44;                   // eView: list of camera movers (node = mover + 4)
+constexpr int kMoverGetAnchor = 0x10 / 4;           // CameraMover vtable: GetAnchor()
+constexpr int kAnchorWorldId = 0x94;
+constexpr int kAnchorPov = 0xC8;                    // int16: 1 = in-car (bumper / hood) camera
 
 // eModel / eSolid / plat info / draw entry
 constexpr int kModelSolid = 0x0C;
@@ -74,13 +92,27 @@ struct Seen {
     float dist = 1e9f;
     float cam[3];
     std::string car;
+    uint32_t worldId = 0;                           // never retain a render connection across frames
+    float body[3];                                  // head in the car body's space (x fwd, y left, z up)
 } s_frame;
 struct {
     bool valid = false;
     float cam[3];                                   // head in game camera space (right, down, forward)
     std::string car;
+    uint32_t worldId = 0;
+    float body[3];
     double time = 0;
 } s_head;
+
+// The car being drawn in the player view (inside CarRenderConn::OnRender) and its body matrix.
+uint8_t* s_curConn = nullptr;
+M4 s_curBody;
+bool s_curPov;
+// Compare only a seat actually applied in this frame, to the same car's player-view draw.
+uint8_t* s_seatedConn = nullptr;
+M4 s_seatedBody;
+float s_bodyMismatch = 0;
+unsigned s_bodyDraws = 0;
 
 float s_offset[3];                                  // right, up, forward (m) for s_head.car
 std::string s_offsetCar;
@@ -214,6 +246,60 @@ Driver* GetDriver(uint8_t* solid) {
     return d;
 }
 
+// Whether CarRenderConn::OnRender draws the car in `view` with the in-car camera's body matrix.
+// Decided while the car is drawn: before ___eDisplayFrame the camera's anchor can still say
+// otherwise (seen in the hood camera, which draws with the render matrix).
+uint8_t* ViewAnchor(uint8_t* view) {
+    uint8_t* list = view + kViewMovers;
+    uint8_t* node = At<uint8_t*>(list, 0);
+    if (node == list || !node) return nullptr;
+    uint8_t* mover = node - 4;
+    typedef uint8_t*(__thiscall * GetAnchor_t)(uint8_t*);
+    return ((GetAnchor_t)(At<void**>(mover, 0)[kMoverGetAnchor]))(mover);
+}
+
+bool DrawsWithPov(uint8_t* conn, uint8_t* view) {
+    uint8_t* anchor = ViewAnchor(view);
+    return anchor && At<int>(anchor, kAnchorWorldId) == At<int>(conn, kConnWorldId) && At<int16_t>(anchor, kAnchorPov) == 1;
+}
+
+// The body matrix CarRenderConn::OnRender draws the car with: with `pov`, the body's own
+// matrix moved by its centre of mass offset, otherwise the smoothed render matrix. Both are up
+// to date before ___eDisplayFrame. Translation in row 3.
+M4 BodyMatrix(uint8_t* conn, bool pov) {
+    M4 m;
+    memcpy(&m, conn + kConnRenderMatrix, sizeof(m));
+    const M4* body = pov ? At<const M4*>(conn, kConnBodyMatrix) : nullptr;
+    if (!body) return m;
+    m = *body;
+    const float* cog = &At<float>(conn, kConnCog);
+    for (int a = 0; a < 3; a++)
+        m.m[3][a] -= cog[0] * m.m[0][a] + cog[1] * m.m[1][a] + cog[2] * m.m[2][a] + cog[3] * m.m[3][a];
+    return m;
+}
+
+void __fastcall hkOnRender(uint8_t* conn, void* edx, uint8_t* view, int reflection) {
+    uint8_t* prev = s_curConn;
+    M4 prevBody = s_curBody;
+    bool prevPov = s_curPov;
+    s_curConn = !reflection && (uintptr_t)view == kPlayerView ? conn : nullptr;
+    if (s_curConn) {
+        s_curPov = DrawsWithPov(conn, view);
+        s_curBody = BodyMatrix(conn, s_curPov);
+    }
+    if (s_curConn && conn == s_seatedConn) {
+        float d = 0;
+        for (int i = 0; i < 4; i++) for (int j = 0; j < 3; j++) d = std::max(d, fabsf(s_curBody.m[i][j] - s_seatedBody.m[i][j]));
+        s_bodyMismatch = std::max(s_bodyMismatch, d);
+        s_bodyDraws++;
+    }
+    typedef void(__fastcall * OnRender_t)(uint8_t*, void*, uint8_t*, int);
+    ((OnRender_t)kOnRender)(conn, edx, view, reflection);
+    s_curConn = prev;
+    s_curBody = prevBody;
+    s_curPov = prevPov;
+}
+
 float Dist(const float* a, const float* b) {
     float d[3] = {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
     return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -229,7 +315,8 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     for (int a = 0; a < 3; a++) world[a] = h[0] * m[a] + h[1] * m[4 + a] + h[2] * m[8 + a] + m[12 + a];
 
     // Seat measurement: the head in the game camera's space.
-    if (s_haveBase) {
+    uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
+    if (s_haveBase && s_curConn && anchor && At<uint32_t>(anchor, kAnchorWorldId) == At<uint32_t>(s_curConn, kConnWorldId)) {
         float rel[3], cam[3];
         for (int a = 0; a < 3; a++) rel[a] = world[a] - s_base.m[3][a];
         for (int r = 0; r < 3; r++) cam[r] = rel[0] * s_base.m[r][0] + rel[1] * s_base.m[r][1] + rel[2] * s_base.m[r][2];
@@ -238,6 +325,17 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
             s_frame.dist = dist;
             memcpy(s_frame.cam, cam, sizeof(cam));
             if (s_frame.car != d->car) s_frame.car = d->car;
+            s_frame.worldId = At<uint32_t>(s_curConn, kConnWorldId);
+            if (s_curConn) {
+                // Rows 0..2 of the body matrix are its axes: project onto them.
+                const M4& b = s_curBody;
+                for (int r = 0; r < 3; r++) {
+                    float len2 = b.m[r][0] * b.m[r][0] + b.m[r][1] * b.m[r][1] + b.m[r][2] * b.m[r][2];
+                    float dot = (world[0] - b.m[3][0]) * b.m[r][0] + (world[1] - b.m[3][1]) * b.m[r][1] +
+                                (world[2] - b.m[3][2]) * b.m[r][2];
+                    s_frame.body[r] = len2 > 1e-8f ? dot / len2 : 0.0f;
+                }
+            }
         }
     }
 
@@ -292,11 +390,21 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 }  // namespace
 
 void Cockpit_Install() {
-    if (PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry))
-        Log("cockpit: installed (seat %s, hide head %s)", g_cfg.seat ? "on" : "off", g_cfg.hideHead ? "on" : "off");
+    if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
+    void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
+    if (*slot == (void*)kOnRender) {
+        DWORD old;
+        VirtualProtect(slot, 4, PAGE_READWRITE, &old);
+        *slot = (void*)&hkOnRender;
+        VirtualProtect(slot, 4, old, &old);
+    } else {
+        Log("cockpit: unexpected CarRenderConn::OnRender, body-locked seat unavailable");
+    }
+    Log("cockpit: installed (seat %s, hide head %s)", g_cfg.seat ? "on" : "off", g_cfg.hideHead ? "on" : "off");
 }
 
 bool Cockpit_ApplySeat(M4& view) {
+    s_seatedConn = nullptr;
     s_base = MInvRigid(view);
     s_haveBase = true;
     if (!g_cfg.seat || !s_head.valid || Now() - s_head.time > 0.5) return false;
@@ -306,22 +414,60 @@ bool Cockpit_ApplySeat(M4& view) {
         if (s_offsetDirty) SaveOffset();
         LoadOffset(s_head.car);
     }
-    // Camera space: +x right, +y down, +z forward.
-    float c[3] = {s_head.cam[0] + s_offset[0], s_head.cam[1] - s_offset[1], s_head.cam[2] + s_offset[2]};
+    uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
+    if (!anchor || At<uint32_t>(anchor, kAnchorWorldId) != s_head.worldId) return false;
+    // The previous car may have unloaded. Resolve the current connection by id, rather than
+    // inspecting yesterday's pointer (which may already be freed or reused by a traffic car).
+    auto find = (uint8_t*(__cdecl*)(uint32_t))kFindConn;
+    uint8_t* conn = find(s_head.worldId);
+    if (!conn || At<uintptr_t>(conn, 0) != kCarRenderConnVtbl) return false;
     M4 w = s_base;
-    for (int a = 0; a < 3; a++) w.m[3][a] += c[0] * s_base.m[0][a] + c[1] * s_base.m[1][a] + c[2] * s_base.m[2][a];
+    {
+        // Fixed to the car body as it is drawn this frame. Camera rows: right = -left, down = -up,
+        // forward; the body's rows are forward, left, up.
+        M4 b = BodyMatrix(conn, DrawsWithPov(conn, (uint8_t*)kPlayerView));
+        s_seatedBody = b;
+        const int row[3] = {1, 2, 0};
+        const float sgn[3] = {-1, -1, 1};
+        for (int i = 0; i < 3; i++) {
+            const float* r = b.m[row[i]];
+            float len = sqrtf(r[0] * r[0] + r[1] * r[1] + r[2] * r[2]);
+            if (len < 1e-6f) return false;
+            for (int a = 0; a < 3; a++) w.m[i][a] = sgn[i] * r[a] / len;
+        }
+        // The head, then the seat offset (right, up, forward) along the car's axes.
+        const float* h = s_head.body;
+        float local[3] = {h[0] + s_offset[2], h[1] - s_offset[0], h[2] + s_offset[1]};
+        for (int a = 0; a < 3; a++)
+            w.m[3][a] = b.m[3][a] + local[0] * b.m[0][a] + local[1] * b.m[1][a] + local[2] * b.m[2][a];
+    }
+    s_seatedConn = conn;
     view = MInvRigid(w);
     return true;
 }
 
 void Cockpit_EndFrame() {
+    static double lastReport;
+    if (s_bodyDraws && Now() - lastReport > 5.0) {
+        lastReport = Now();
+        Log("cockpit: seat/body max difference %.6f over %u draws", s_bodyMismatch, s_bodyDraws);
+        s_bodyMismatch = 0;
+        s_bodyDraws = 0;
+    }
     if (s_frame.dist < 1e8f) {
+        // The seat is a fixed point in the body. Re-measuring it each frame makes LOD changes
+        // and different head meshes move the eyes around inside the cockpit.
+        bool newCar = !s_head.valid || s_head.worldId != s_frame.worldId || s_head.car != s_frame.car;
         s_head.valid = true;
         memcpy(s_head.cam, s_frame.cam, sizeof(s_head.cam));
         s_head.car = s_frame.car;
+        s_head.worldId = s_frame.worldId;
+        if (newCar) memcpy(s_head.body, s_frame.body, sizeof(s_head.body));
         s_head.time = Now();
     }
     s_frame.dist = 1e9f;
+    s_frame.worldId = 0;
+    s_seatedConn = nullptr;
     s_haveBase = false;
 }
 

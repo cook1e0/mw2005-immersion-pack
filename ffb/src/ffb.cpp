@@ -441,7 +441,10 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
     o.damper = damperDrive * S.fade + c.damperHigh * (1.0f - S.fade);
     o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade + c.friction * (1.0f - S.fade);
-    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + c.centerSpring) * S.fade;
+    // Centring spring: weak when parked, full from CenterSpringSpeed up (speed is in m/s).
+    float springSpeed = Clamp(speed * 3.6f / Clamp(c.centerSpringSpeed, 10.0f, 400.0f), 0.0f, 1.0f);
+    float centre = c.centerSpring * (c.centerSpringParked + (1.0f - c.centerSpringParked) * springSpeed);
+    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade;
 
     // --- constant ---------------------------------------------------------------------------
     float total = (S.sat + S.road + (S.forceSign ? jolt : 0.0f)) * S.fade;

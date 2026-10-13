@@ -222,51 +222,112 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32 };
 
-// Force feedback settings: the FFB mod's [FFB] values, changed live through its
-// NfsmwFfb_Setting export and saved to nfsmw_ffb.ini. Older FFB builds only export the Gain.
-const char* const kFfbKeys[] = {"Gain", "CenterSpring", "SoftLock", "SoftLockAt", "GameController"};
-enum { FFB_GAIN, FFB_CENTER, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_COUNT };
-float s_ffb[FFB_COUNT] = {1.0f, 0.15f, 0.8f, 1.0f, 1.0f};
+// Settings of the other mods, changed live through their exports and saved to their .ini: the
+// FFB mod's [FFB] values (NfsmwFfb_Setting; older FFB builds only export NfsmwFfb_Gain) and the
+// VR mod's [VR] HUD panel (NfsmwVr_Setting).
+enum { MOD_FFB, MOD_VR };
+const struct {
+    const char* exportName;     // float* __cdecl (const char* key), null for an unknown key
+    const char* ini;
+    const char* missing;        // shown in place of the value without the mod
+} kExtMods[] = {
+    {"NfsmwFfb_Setting", "nfsmw_ffb.ini", "No FFB mod"},
+    {"NfsmwVr_Setting", "nfsmw_vr.ini", "No VR mod"},
+};
+const struct {
+    int mod;
+    const char* key;
+    float def;                  // the mod's default
+} kExt[] = {
+    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.25f}, {MOD_FFB, "CenterSpringParked", 0.3f},
+    {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
+    {MOD_FFB, "GameController", 1.0f},
+    {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
+};
+enum {
+    FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
+    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, EXT_COUNT
+};
+static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
+float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
-// The FFB mod is dinput8.dll as a proxy or any name as an .asi: find it by its export.
-static HMODULE FindFfbModule() {
+// A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
+// (proxy and .asi), only the running one answers for its first key.
+HMODULE FindModule(const char* exportName, const char* key) {
     HMODULE mods[512];
     DWORD bytes = 0;
-    if (!EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes)) return GetModuleHandleA("dinput8.dll");
-    for (DWORD k = 0; k < bytes / sizeof(HMODULE) && k < 512; k++)
-        if (GetProcAddress(mods[k], "NfsmwFfb_Gain")) return mods[k];
-    return nullptr;
+    if (!EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes)) return nullptr;
+    HMODULE any = nullptr;
+    for (DWORD k = 0; k < bytes / sizeof(HMODULE) && k < 512; k++) {
+        FARPROC get = GetProcAddress(mods[k], exportName);
+        if (!get) continue;
+        if (((float* (__cdecl*)(const char*))get)(key)) return mods[k];
+        if (!any) any = mods[k];
+    }
+    return any;
 }
 
-float* FfbSetting(int i) {
-    static float* p[FFB_COUNT];
+HMODULE ExtModule(int mod) {
+    static HMODULE m[2];
+    static bool looked[2];
+    if (!looked[mod]) {
+        looked[mod] = true;
+        const char* first = nullptr;
+        for (auto& e : kExt)
+            if (e.mod == mod && !first) first = e.key;
+        m[mod] = FindModule(kExtMods[mod].exportName, first);
+        // Older FFB builds: Gain only.
+        if (!m[mod] && mod == MOD_FFB) {
+            HMODULE mods[512];
+            DWORD bytes = 0;
+            if (EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes))
+                for (DWORD k = 0; k < bytes / sizeof(HMODULE) && k < 512 && !m[mod]; k++)
+                    if (GetProcAddress(mods[k], "NfsmwFfb_Gain")) m[mod] = mods[k];
+        }
+    }
+    return m[mod];
+}
+
+// The mod's live value for s_ext[i], or null without the mod (or a build that lacks the key).
+float* ExtSetting(int i) {
+    static float* p[EXT_COUNT];
     static bool looked;
     if (!looked) {
         looked = true;
-        HMODULE m = FindFfbModule();
-        FARPROC get = m ? GetProcAddress(m, "NfsmwFfb_Setting") : nullptr;
-        FARPROC gain = m ? GetProcAddress(m, "NfsmwFfb_Gain") : nullptr;
-        for (int k = 0; k < FFB_COUNT; k++)
-            p[k] = get ? ((float* (__cdecl*)(const char*))get)(kFfbKeys[k]) : nullptr;
+        for (int k = 0; k < EXT_COUNT; k++) {
+            s_ext[k] = kExt[k].def;
+            HMODULE m = ExtModule(kExt[k].mod);
+            FARPROC get = m ? GetProcAddress(m, kExtMods[kExt[k].mod].exportName) : nullptr;
+            p[k] = get ? ((float* (__cdecl*)(const char*))get)(kExt[k].key) : nullptr;
+        }
+        FARPROC gain = ExtModule(MOD_FFB) ? GetProcAddress(ExtModule(MOD_FFB), "NfsmwFfb_Gain") : nullptr;
         if (!p[FFB_GAIN] && gain) p[FFB_GAIN] = ((float* (__cdecl*)())gain)();
         if (!g_cfg.gameController && !p[FFB_GAMECONTROLLER])
             Log("ui: GameController=0 needs the force feedback mod; the game still reads the controller");
         Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
+        Log("ui: VR mod %s", p[VR_HUDWIDTH] ? "found" : "not loaded");
     }
     return p[i];
 }
 
-// Index into s_ffb of a menu value, or -1.
-int FfbIndex(const void* value) {
-    for (int i = 0; i < FFB_COUNT; i++)
-        if (value == &s_ffb[i]) return i;
+// Index into s_ext of a menu value, or -1.
+int ExtIndex(const void* value) {
+    for (int i = 0; i < EXT_COUNT; i++)
+        if (value == &s_ext[i]) return i;
     return -1;
 }
 
-std::string FfbIniPath() {
+std::string ExtIniPath(int i) {
     char path[MAX_PATH];
-    ConfigFile("nfsmw_ffb.ini", path, false);
+    ConfigFile(kExtMods[kExt[i].mod].ini, path, false);
     return path;
+}
+
+// The VR mod's recentre (same as its key). False without a headset.
+bool VrRecenter() {
+    HMODULE m = ExtModule(MOD_VR);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwVr_Recenter") : nullptr;
+    return f && ((int(__cdecl*)())f)() != 0;
 }
 struct Item {
     Kind kind;
@@ -300,6 +361,7 @@ const Item kItems[] = {
     LINK_("Damage and tires", "DAMAGE AND TIRES"),
     LINK_("Physics", "PHYSICS"),
     LINK_("Traffic and HUD", "TRAFFIC AND HUD"),
+    LINK_("VR", "VR"),
     LINK_("Menu and testing", "MENU AND TESTING"),
 
     PAGE_("CONTROLS"),
@@ -311,6 +373,7 @@ const Item kItems[] = {
     {NUMBER, "Wheel rotation", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
     HEADER_("BUTTONS"),
@@ -325,9 +388,11 @@ const Item kItems[] = {
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
-    {NUMBER, "Strength", "FFB", "Gain", &s_ffb[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ffb[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ffb[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ext[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring when parked", "FFB", "CenterSpringParked", &s_ext[FFB_CENTERPARKED], 0.0f, 1.0f, 0.05f, 100, "%.0f%% of it", 0},
+    {NUMBER, "Full centring from", "FFB", "CenterSpringSpeed", &s_ext[FFB_CENTERSPEED], 20.0f, 300.0f, 10.0f, 1, "%.0f km/h", 0},
+    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -418,6 +483,15 @@ const Item kItems[] = {
     RESET_,
     RESET_GAME_,
 
+    PAGE_("VR"),
+    BACK_,
+    {ACTION, "Recenter view", nullptr, "RecenterVr", nullptr, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("HUD PANEL"),
+    {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
+    {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
+    {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
+    RESET_,
+
     PAGE_("MENU AND TESTING"),
     BACK_,
     HEADER_("MENU KEYS"),
@@ -428,7 +502,7 @@ const Item kItems[] = {
     BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
     HEADER_("TESTING"),
     BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
-    {ACTION, "Pop all four tires now", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Pop all four tires now", nullptr, "PopTires", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -549,8 +623,8 @@ std::string LinkSummary(const char* page) {
         return buf;
     }
     if (p == "FORCE FEEDBACK") {
-        if (!FfbSetting(FFB_GAIN)) return "No FFB mod";
-        snprintf(buf, sizeof(buf), "%.0f%%", *FfbSetting(FFB_GAIN) * 100.0f);
+        if (!ExtSetting(FFB_GAIN)) return "No FFB mod";
+        snprintf(buf, sizeof(buf), "%.0f%%", *ExtSetting(FFB_GAIN) * 100.0f);
         return buf;
     }
     if (p == "SHIFTER AND CLUTCH") return g_cfg.sequential ? "Sequential" : "H-pattern";
@@ -564,6 +638,11 @@ std::string LinkSummary(const char* page) {
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() && Physics_OwnSettings() ? "This car's own" : "On";
     if (p == "TRAFFIC AND HUD") return g_cfg.noSuvCops ? "No SUV cops" : "SUV cops";
+    if (p == "VR") {
+        if (!ExtSetting(VR_HUDWIDTH)) return kExtMods[MOD_VR].missing;
+        snprintf(buf, sizeof(buf), "HUD %.0f%%", *ExtSetting(VR_HUDWIDTH) / kExt[VR_HUDWIDTH].def * 100.0f);
+        return buf;
+    }
     return "";
 }
 
@@ -585,8 +664,8 @@ std::string ValueText(const Item& it, int index) {
         if (s.size() > 28) s = s.substr(0, 25) + "...";
         return s;
     }
-    int ffb = FfbIndex(it.value);
-    if (ffb >= 0 && !FfbSetting(ffb)) return "No FFB mod";
+    int ext = ExtIndex(it.value);
+    if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
@@ -676,10 +755,9 @@ bool DefaultOf(const Item& it, float* f, bool* b, uint32_t* u) {
     const char* base = (const char*)&g_cfg;
     const char* p = (const char*)it.value;
     if (it.kind == NUMBER) {
-        static const float ffbDefaults[] = {1.0f, 0.15f, 0.8f};
-        int ffb = FfbIndex(it.value);
-        if (ffb >= 0 && ffb < 3) {
-            *f = ffbDefaults[ffb];
+        int ext = ExtIndex(it.value);
+        if (ext >= 0) {
+            *f = kExt[ext].def;
             return true;
         }
     }
@@ -697,7 +775,7 @@ const struct {
     const void* value;
     float game;
 } kGameDefaults[] = {
-    {&g_cfg.gameController, 1},
+    {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1},
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
@@ -748,8 +826,8 @@ bool ResetItem(const Item& it, bool game = false) {
         return false;
     }
     if (it.kind == NUMBER) {
-        int ffb = FfbIndex(it.value);
-        if (ffb >= 0 && !FfbSetting(ffb)) return false;
+        int ext = ExtIndex(it.value);
+        if (ext >= 0 && !ExtSetting(ext)) return false;
         *(float*)it.value = f;
         AfterNumberChange(it);
     } else if (it.kind == TOGGLE) {
@@ -770,10 +848,10 @@ int ResetPage(int index, bool game) {
     return n;
 }
 
-// After a number changed (bindings or mouse): pass FFB values on, keep pairs consistent.
+// After a number changed (bindings or mouse): pass the other mods' values on, keep pairs consistent.
 void AfterNumberChange(const Item& it) {
-    int ffb = FfbIndex(it.value);
-    if (ffb >= 0 && FfbSetting(ffb)) *FfbSetting(ffb) = *(float*)it.value;
+    int ext = ExtIndex(it.value);
+    if (ext >= 0 && ExtSetting(ext)) *ExtSetting(ext) = *(float*)it.value;
     // The steering lock is part of the wheel's rotation.
     if (g_cfg.steeringLock > g_cfg.wheelRotation) {
         if (it.value == &g_cfg.steeringLock) g_cfg.steeringLock = g_cfg.wheelRotation;
@@ -793,8 +871,8 @@ void Change(int index, int dir) {
         bool& b = *(bool*)it.value;
         b = !b;
     } else if (it.kind == NUMBER) {
-        int ffb = FfbIndex(it.value);
-        if (ffb >= 0 && !FfbSetting(ffb)) return;
+        int ext = ExtIndex(it.value);
+        if (ext >= 0 && !ExtSetting(ext)) return;
         float& v = *(float*)it.value;
         v = Clamp(roundf((v + dir * it.step) / it.step) * it.step, it.lo, it.hi);
         AfterNumberChange(it);
@@ -813,6 +891,10 @@ void Change(int index, int dir) {
     } else if (it.kind == ACTION) {
         if (dir < 0) {
             GoBack();
+            return;
+        }
+        if (strcmp(it.key, "RecenterVr") == 0) {
+            Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
             return;
         }
         Game_PopTires();
@@ -861,9 +943,9 @@ void Save() {
         else if (it.kind == NUMBER) snprintf(buf, sizeof(buf), "%g", *(float*)it.value), text = buf;
         else if (it.kind == SOUND) snprintf(buf, sizeof(buf), "0x%08X", *(uint32_t*)it.value), text = buf;
         else text = *(std::string*)it.value;
-        int ffb = FfbIndex(it.value);
-        if (ffb >= 0) {
-            if (FfbSetting(ffb)) WritePrivateProfileStringA(it.section, it.key, text.c_str(), FfbIniPath().c_str());
+        int ext = ExtIndex(it.value);
+        if (ext >= 0) {
+            if (ExtSetting(ext)) WritePrivateProfileStringA(it.section, it.key, text.c_str(), ExtIniPath(ext).c_str());
             continue;
         }
         std::string section = Physics_IsPerCar(it.value) ? Physics_Section() : it.section;
@@ -893,8 +975,8 @@ void SetOpen(bool open) {
     s_menu.open = open;
     Log("ui: menu %s", open ? "opened" : "closed");
     if (open)
-        for (int i = 0; i < FFB_COUNT; i++)
-            if (FfbSetting(i)) s_ffb[i] = *FfbSetting(i);
+        for (int i = 0; i < EXT_COUNT; i++)
+            if (ExtSetting(i)) s_ext[i] = *ExtSetting(i);
     if (!open) {
         CancelCapture();
         if (s_menu.dirty) {
@@ -1059,11 +1141,17 @@ const struct {
     {&g_cfg.wheelRotation, "Set this to the wheel's rotation in its driver (G HUB, Fanatec, ...), lock to lock."},
     {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game. A soft lock (FFB) stops it there."},
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
+    {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
-    {&s_ffb[FFB_GAIN], "Overall force feedback strength."},
-    {&s_ffb[FFB_CENTER], "Pulls the wheel back to the centre while driving, also when slow or parked."},
-    {&s_ffb[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
+    {&s_ext[FFB_GAIN], "Overall force feedback strength."},
+    {&s_ext[FFB_CENTER], "Pulls the wheel back to the centre while driving, at full strength at speed."},
+    {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
+    {&s_ext[FFB_CENTERSPEED], "Speed where the centring spring reaches full strength."},
+    {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
+    {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
+    {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
+    {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
     {&g_cfg.sequential, "H-pattern shifter, or sequential shift up / shift down."},
     {&g_cfg.requireClutch, "A gear only goes in with the clutch pressed."},
     {&g_cfg.shiftPedal, "How far the clutch must be pressed to count for a shift."},
@@ -1112,6 +1200,8 @@ const struct {
 
 const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
+    if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
+        return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";
@@ -1424,10 +1514,10 @@ void ValueWidget(int i, float w, float k) {
             break;
         }
         case NUMBER: {
-            int ffb = FfbIndex(it.value);
-            if (ffb >= 0 && !FfbSetting(ffb)) {
+            int ext = ExtIndex(it.value);
+            if (ext >= 0 && !ExtSetting(ext)) {
                 ImGui::AlignTextToFramePadding();
-                ImGui::TextDisabled("No FFB mod");
+                ImGui::TextDisabled("%s", kExtMods[kExt[ext].mod].missing);
                 break;
             }
             float& val = *(float*)it.value;
@@ -1723,10 +1813,10 @@ void Ui_Frame() {
     if (!dev) return;
     Physics_Frame();
     // The FFB mod's soft lock sits at the steering lock.
-    if (float* at = FfbSetting(FFB_SOFTLOCKAT))
+    if (float* at = ExtSetting(FFB_SOFTLOCKAT))
         *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / g_cfg.wheelRotation, 0.05f, 1.0f);
     // ... and hides the controllers from the game ([Controls] GameController=0).
-    if (float* gc = FfbSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
+    if (float* gc = ExtSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
     UpdateMenu(Input_Get(), st.driving);
     if (!st.driving) return;

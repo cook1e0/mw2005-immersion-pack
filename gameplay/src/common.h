@@ -62,6 +62,7 @@ struct Config {
     float wheelRotation = 900.0f;   // the wheel's rotation set in its driver, degrees lock to lock
     float steeringLock = 540.0f;    // wheel rotation (lock to lock) that gives full steering in game
     float steerDeadzone = 0.0f;     // ignored travel around the centre, fraction of full steering
+    float steerLinearity = 1.0f;    // steering response curve exponent: 1 = linear, >1 = finer near the centre
     float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
     bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works
 

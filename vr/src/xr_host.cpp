@@ -44,6 +44,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
         }
         switch (shm->cmd) {
         case kBridgeInit: {
+            shm->hostProtocolVersion = kBridgeProtocolVersion;
+            if (shm->protocolVersion != kBridgeProtocolVersion) {
+                Log("host: protocol mismatch; install the VR plugin and host from the same build");
+                shm->result = 0;
+                break;
+            }
             LUID luid = {shm->luidLow, shm->luidHigh};
             shm->result = Xr_Init(luid);
             Xr_RecommendedSize(&shm->recW, &shm->recH);
@@ -68,6 +74,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
             break;
         }
         case kBridgeEndFrame:
+            g_cfg.hudDistance = shm->hudDistance;
+            g_cfg.hudWidth = shm->hudWidth;
+            g_cfg.hudHeight = shm->hudHeight;
+            g_cfg.screenDistance = shm->screenDistance;
+            g_cfg.screenWidth = shm->screenWidth;
             Xr_EndFrame((LayerMode)shm->mode, shm->tanX, shm->tanY, shm->withHud != 0);
             frames++;
             break;

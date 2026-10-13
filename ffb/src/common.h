@@ -33,7 +33,9 @@ struct Config {
     float engineVibration = 0.02f;  // idle/engine buzz
     float brakeLockVibration = 0.12f;
     float menuSpring = 0.25f;       // centring spring when not driving (menus, pause, cutscenes)
-    float centerSpring = 0.15f;     // centring spring while driving, on top of the tyre forces
+    float centerSpring = 0.25f;     // centring spring while driving at CenterSpringSpeed and above
+    float centerSpringParked = 0.3f; // fraction of it at standstill (rises linearly with speed)
+    float centerSpringSpeed = 150.0f; // km/h where the centring spring reaches full strength
     float softLock = 0.8f;          // push-back past the steering lock
     float gameController = 1.0f;    // 0 = the game reads controllers as untouched (gameplay mod's
                                     // [Controls] GameController; live from its F4 menu)

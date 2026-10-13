@@ -15,6 +15,7 @@
 #include <d3d9.h>
 #include "d3d9device_gen.h"
 #include <stdio.h>
+#include <string.h>
 #include <algorithm>
 #include <intrin.h>
 
@@ -57,6 +58,7 @@ static CreateDevice_t oCreateDevice;
 // ---------------------------------------------------------------------------
 static IDirect3DDevice9Ex* s_dev;
 static bool s_xr;
+static bool s_active;                     // this copy runs the mod (see DllMain)
 static IDirect3DTexture9* s_eyeTex[3];    // left, right, HUD (shared with D3D11)
 static IDirect3DSurface9* s_eyeSurf[3];
 static IDirect3DSurface9* s_hudRT;        // HUD is drawn here (matches the back buffer's MSAA)
@@ -330,8 +332,8 @@ static void OnPresent() {
             s_dumpRequested--;
             DumpEyes();
         }
-        Game_EndOfFrame();
     }
+    Game_EndOfFrame();
 }
 
 static void ConvertPool(D3DPOOL& pool, DWORD& usage, bool texture) {
@@ -613,6 +615,27 @@ DWORD WINAPI Proxy_D3DPERF_GetStatus() {
 // Marker: lets an .asi copy of this mod see that the d3d9.dll proxy is installed too.
 int WINAPI Proxy_NfsmwVr_Loaded() { return 1; }
 
+// For the gameplay mod's F4 menu (found by these exports, like the FFB mod's NfsmwFfb_Setting).
+// Live [VR] values: HudWidth, HudDistance, HudHeight, ScreenWidth, ScreenDistance. Null if
+// unknown, or in a copy that isn't the one running (an .asi next to the d3d9.dll proxy).
+float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
+    if (!s_active || !name) return nullptr;
+    if (!strcmp(name, "HudWidth")) return &g_cfg.hudWidth;
+    if (!strcmp(name, "HudDistance")) return &g_cfg.hudDistance;
+    if (!strcmp(name, "HudHeight")) return &g_cfg.hudHeight;
+    if (!strcmp(name, "ScreenWidth")) return &g_cfg.screenWidth;
+    if (!strcmp(name, "ScreenDistance")) return &g_cfg.screenDistance;
+    return nullptr;
+}
+
+// Same as the recentre key. 0 when no headset session is running.
+int __cdecl Proxy_NfsmwVr_Recenter() {
+    if (!s_active || !s_xr) return 0;
+    Xr_Recenter();
+    Log("d3d9: recentred from the gameplay mod's menu");
+    return 1;
+}
+
 } // extern "C"
 
 static LONG CALLBACK CrashLogger(EXCEPTION_POINTERS* ep) {
@@ -673,6 +696,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         LoadConfig();
         if (g_cfg.enabled && !LoadedAsProxy(inst) && !PatchImport()) g_cfg.enabled = false;
         if (g_cfg.enabled) {
+            s_active = true;
             Game_InstallHooks();
             Cockpit_Install();
         }
