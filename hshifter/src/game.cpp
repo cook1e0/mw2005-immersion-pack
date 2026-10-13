@@ -26,7 +26,11 @@
 // impact goes through DamageVehicle::OnImpact (a vtable slot), where the speed change it causes
 // (impact force / mass) is turned into damage and written to that total. Props (smackables:
 // cones, barrels, signs) do no damage. The game resets the total with the engine (ResetDamage:
-// safehouse, race restart). At 100% the car is destroyed like a blown engine.
+// safehouse, race restart). At 100% the car is destroyed like a blown engine. A damaged engine
+// loses power, like a hot one (GetEngineTorque).
+//
+// Popped tires: spike strips call ISpikeable::Puncture (DamageRacer), the tire goes flat 0.5 s later
+// and the chassis reports it to the suspension. The handicap itself is in physics.cpp.
 #include "game.h"
 #include "common.h"
 #include "input.h"
@@ -66,6 +70,8 @@ constexpr uintptr_t kResetDamageRacer = 0x69C930;   // void DamageRacer::ResetDa
 constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
 constexpr uintptr_t kSlotOnImpact = 0x8AD378;     // DamageRacer vtable: DamageVehicle::OnImpact
 constexpr uintptr_t kOnImpact = 0x69C030;
+constexpr uintptr_t kISpikeableHandle = 0x68CC70;  // ISpikeable::_IHandle; vtbl[1] GetTireDamage, [3] Puncture
+constexpr uintptr_t kPuncture = 0x69C730;           // void DamageRacer::Puncture(unsigned wheel) (ISpikeable this)
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
 constexpr uintptr_t kEventNew = 0x627400;          // void* Event::operator new(size_t) (queued, game thread)
 constexpr uintptr_t kEMissShift = 0x6226F0;        // EMissShift::EMissShift(HSIMABLE, float), as in drag races
@@ -177,6 +183,8 @@ struct {
     bool totaledBlocked = false;// ... in free roam, and we blocked its controls
     double totaledMsg = 0;      // when the free roam "totaled" message was last shown
     bool wearLogged = false;    // last logged WearApplies
+    uint32_t pops = 0;          // DebugPopTires presses seen
+    bool popPending = false;    // the menu asked to pop the tires
 } s;
 
 bool Fresh() { return Now() - s.seen < 0.5; }
@@ -184,6 +192,8 @@ bool IsBlown(uint8_t* eng);
 const char* VehicleName(uint8_t* eng);
 void BlowEngine(uint8_t* eng);
 void AddDamage(uint8_t* eng, float add, float impact);
+void PopTires(uint8_t* eng);
+float PlayerDamage(uint8_t* eng);
 
 uint8_t* PlayerEngine(void* ip) {
     uint8_t* vehicle = Field<uint8_t*>((uint8_t*)ip, kIP_Vehicle);
@@ -531,6 +541,11 @@ void PlayerEngineStep(uint8_t* eng) {
         s.hits = in.hits;
         AddDamage(eng, 0.1f, 0.0f);
     }
+    if (in.pops != s.pops || s.popPending) {
+        s.pops = in.pops;
+        s.popPending = false;
+        PopTires(eng);
+    }
     if (in.blows != s.blows) {
         s.blows = in.blows;
         Log("engine: debug blow");
@@ -573,12 +588,18 @@ bool __fastcall Hook_UseRevLimiter(uint8_t* eng) {
     return true;
 }
 
+// Fraction of torque left when `level` (heat or damage, 0..1) is past `start`, losing `loss` at 1.
+float PowerLeft(float level, float start, float loss) {
+    if (level <= start) return 1.0f;
+    return 1.0f - Clamp((level - start) / (1.0f - start), 0.0f, 1.0f) * loss;
+}
+
 float __fastcall Hook_GetEngineTorque(uint8_t* eng, void*, float rpm) {
     float torque = ((EngineTorque_t)kGetEngineTorque)(eng, rpm);
-    if (torque > 0.0f && WearApplies(eng) && s.heat > g_cfg.powerLossStart) {
-        float t = (s.heat - g_cfg.powerLossStart) / (1.0f - g_cfg.powerLossStart);
-        torque *= 1.0f - Clamp(t, 0.0f, 1.0f) * g_cfg.powerLoss;
-    }
+    if (torque <= 0.0f) return torque;
+    if (WearApplies(eng)) torque *= PowerLeft(s.heat, g_cfg.powerLossStart, g_cfg.powerLoss);
+    if (g_cfg.damage && eng == s.engine && Fresh() && !IsDragster(eng))
+        torque *= PowerLeft(PlayerDamage(eng), g_cfg.damageLossStart, g_cfg.damageLoss);
     return torque;
 }
 
@@ -638,6 +659,20 @@ void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float*
     float add = (dv_ms - g_cfg.damageMinImpact) * 0.01f * g_cfg.damageStrength;
     if (g_cfg.logInputs) Log("damage: impact %.1f m/s (speed %.1f, mass %.0f)%s", dv_ms, speed, mass, add > 0 ? "" : " ignored");
     if (add > 0.0f) AddDamage(s.engine, add, dv_ms);
+}
+
+// --- popped tires ----------------------------------------------------------------------------
+// Testing: the game's own puncture on all four wheels, as a spike strip does it.
+void PopTires(uint8_t* eng) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    void* list = owner ? Field<void*>(owner, 4) : nullptr;
+    void* spike = list ? ((IListFind_t)kIListFind)(list, (void*)kISpikeableHandle) : nullptr;
+    if (!spike || Vtbl(spike)[3] != (void*)kPuncture) {
+        Log("tires: debug pop unavailable (no racer damage model)");
+        return;
+    }
+    for (unsigned w = 0; w < 4; w++) ((void(__thiscall*)(void*, unsigned))kPuncture)(spike, w);
+    Log("tires: debug pop (all four)");
 }
 
 bool __fastcall Hook_CanDoGameBreaker(void* player) {
@@ -778,6 +813,8 @@ void* Game_PlayerInterface(void* handle) {
 }
 
 void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
+
+void Game_PopTires() { s.popPending = true; }
 
 bool Game_Install() {
     // Every address we check must lie inside the host image (also true for patched v1.3 exes

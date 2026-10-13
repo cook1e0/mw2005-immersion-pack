@@ -213,7 +213,7 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // LINK switches between the main page and the fine tuning page (BF_TUNING items).
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
-enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR };
+enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4 };
 struct Item {
     Kind kind;
@@ -237,6 +237,7 @@ const Item kItems[] = {
     {HEADER, "DAMAGE AND HUD", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "SHIFTER AND PHYSICS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -260,6 +261,7 @@ const Item kItems[] = {
     BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
     BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
     BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
+    BINDING("Pop tires (testing)", "Tires", "DebugPopTires", debugPopTires, 0),
     BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
     BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
     BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
@@ -278,6 +280,11 @@ const Item kItems[] = {
     {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", BF_TUNING},
     {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", BF_TUNING},
     {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
+    {NUMBER, "Power loss from", "Damage", "PowerLossStart", &g_cfg.damageLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
+    {NUMBER, "Power lost at full damage", "Damage", "PowerLoss", &g_cfg.damageLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
+    {HEADER, "POPPED TIRES", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
+    {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.1f, 1, "%.1fx", BF_TUNING},
+    {ACTION, "Pop all four tires (testing)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {HEADER, "PHYSICS (1 = GAME DEFAULT)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {CAR, "Settings for this car only", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
@@ -368,6 +375,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return s_menu.page == 0 ? ">" : "<";
+    if (it.kind == ACTION) return "Go";
     if (it.kind == BIND) {
         if (index == s_menu.capture) return "Press a key, button or pedal...";
         std::string s;
@@ -455,6 +463,11 @@ void Change(int index, int dir) {
     } else if (it.kind == LINK) {
         SetPage(1 - s_menu.page);
         return;
+    } else if (it.kind == ACTION) {
+        if (dir < 0) return;
+        Game_PopTires();
+        Note("Tires popped (repair: safehouse, race restart or DebugRepair)");
+        return;
     } else if (it.kind == CAR) {
         if (!*Physics_Car()) return;
         Physics_SetOwnSettings(!Physics_OwnSettings());
@@ -471,7 +484,7 @@ void Change(int index, int dir) {
 
 void Save() {
     for (const Item& it : kItems) {
-        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR) continue;
+        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR || it.kind == ACTION) continue;
         char buf[32];
         std::string text;
         if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
@@ -574,6 +587,7 @@ void DrawMenu(int W, int H, float k) {
     else if (cur.kind == BIND)
         hint = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " +
                MenuKeyName() + ": close";
+    else if (cur.kind == ACTION) hint = "Right: do it    " + MenuKeyName() + ": close";
     else if (cur.kind == LINK) hint = "Left/Right: " + std::string(s_menu.page == 0 ? "open" : "back") + "    " + MenuKeyName() + ": close";
     else hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
     bool noted = Now() - s_menu.noteTime < 3.0 && s_menu.capture < 0;

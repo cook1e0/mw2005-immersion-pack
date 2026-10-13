@@ -13,6 +13,7 @@ struct InputSnapshot {
     uint32_t blows = 0;         // ... of [Engine] DebugBlow
     uint32_t repairs = 0;       // ... of [Engine] DebugRepair
     uint32_t hits = 0;          // ... of [Damage] DebugDamage
+    uint32_t pops = 0;          // ... of [Tires] DebugPopTires
     uint32_t menu = 0;          // ... of [UI] Menu
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 };

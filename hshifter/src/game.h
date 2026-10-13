@@ -29,3 +29,6 @@ void* Game_PlayerInterface(void* handle);
 
 // Blocks the car's controls while the tuning menu is open. Game thread only.
 void Game_SetMenuOpen(bool open);
+
+// Pops all four of the player's tires on the next engine step (testing). Game thread only.
+void Game_PopTires();

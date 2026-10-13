@@ -137,6 +137,12 @@ void LoadConfig() {
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
     c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
+    c.damageLossStart = Clamp(ReadFloat("Damage", "PowerLossStart", c.damageLossStart), 0.0f, 0.99f);
+    c.damageLoss = Clamp(ReadFloat("Damage", "PowerLoss", c.damageLoss), 0.0f, 1.0f);
+
+    c.poppedTires = ReadInt("Tires", "PoppedTires", 1) != 0;
+    c.tireHandicap = Clamp(ReadFloat("Tires", "Handicap", c.tireHandicap), 0.0f, 3.0f);
+    c.debugPopTires = ReadStr("Tires", "DebugPopTires", "");
 
     c.hudMeter = ReadInt("HUD", "Meter", 1) != 0;
     c.speedbreaker = ReadInt("HUD", "Speedbreaker", 0) != 0;

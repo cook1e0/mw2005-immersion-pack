@@ -16,6 +16,13 @@
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
 //
+// Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
+// ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
+// runs over a spike strip can barely move. That branch is replaced by a call: for the player's
+// car (with [Tires] PoppedTires) the tire keeps its brakes and loses part of its traction, with a
+// light brake drag for the flat tire's rolling resistance, both scaled by Handicap. Other cars
+// get the game's values.
+//
 // Per car: a [Car.<vehicle name>] section in the ini holds a car's own slider values; the
 // [Physics] values apply to every car without one.
 #include "common.h"
@@ -34,13 +41,23 @@ constexpr uintptr_t kDriftRearTable = 0x8F8FB0;     // Table DriftRearFrictionTa
 constexpr uintptr_t kDriftStabTable = 0x938210;     // tGraph DriftStabilizerTable: {x, y}* +0, count +4
 constexpr uintptr_t kISuspensionHandle = 0x404040;
 constexpr uintptr_t kIRigidBodyHandle = 0x4039F0;
+constexpr uintptr_t kBlownTire = 0x6A9ECA;          // TuneWheelParams: blown tire branch (44 bytes, to 0x6A9EF6)
+constexpr int kBlownTireLen = 0x2C;
 
 constexpr int kSR_Tranny = 0xDC;                    // SuspensionRacer: transmission layout (+0x70 TORQUE_SPLIT)
 constexpr int kTR_TorqueSplit = 0x70;
 constexpr int kRB_Specs = 0x84;                     // RigidBody: rigidbodyspecs layout (+0xF0 GRAVITY)
+constexpr int kTire_Brake = 0xC8;                   // SuspensionRacer::Tire: brake 0..1
+constexpr int kTire_EBrake = 0xCC;                  // ... handbrake 0..1
+constexpr int kTire_Traction = 0xEC;                // ... traction scale for this step
+
+// Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
+constexpr float kPoppedTraction = 0.45f;
+constexpr float kPoppedDrag = 0.06f;
 
 typedef void(__thiscall* Simulate_t)(void* obj, float dT);
 Simulate_t s_origSusp, s_origRB;
+bool s_playerSusp;      // the player's suspension is simulating
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -119,8 +136,11 @@ bool Stock() {
 }
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
-    if (!g.ok || !g_cfg.physics || Stock() || !Owns(susp, Game_PlayerInterface((void*)kISuspensionHandle))) {
+    bool player = Owns(susp, Game_PlayerInterface((void*)kISuspensionHandle));
+    s_playerSusp = player;
+    if (!player || !g.ok || !g_cfg.physics || Stock()) {
         s_origSusp(susp, dT);
+        s_playerSusp = false;
         return;
     }
     static uint8_t* logged;
@@ -133,6 +153,22 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Apply(susp, sv);
     s_origSusp(susp, dT);
     Restore(sv);
+    s_playerSusp = false;
+}
+
+// Called from TuneWheelParams for each blown tire, in place of the game's code.
+void __cdecl Hook_BlownTire(uint8_t* tire) {
+    float& brake = Field<float>(tire, kTire_Brake);
+    float& traction = Field<float>(tire, kTire_Traction);
+    if (!s_playerSusp || !g_cfg.poppedTires) {
+        Field<float>(tire, kTire_EBrake) = 0.0f;
+        brake = 1.0f;
+        traction *= 0.3f;
+        return;
+    }
+    float k = g_cfg.tireHandicap;
+    brake = std::max(brake, std::min(kPoppedDrag * k, 1.0f));
+    traction *= 1.0f - std::min(kPoppedTraction * k, 0.95f);
 }
 
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
@@ -179,6 +215,40 @@ void* Detour(uintptr_t at, size_t stolen, void* hook) {
     VirtualProtect((void*)at, stolen, old, &old);
     FlushInstructionCache(GetCurrentProcess(), (void*)at, stolen);
     return tramp;
+}
+
+void InstallBlownTire() {
+    // mov eax,[edx]; mov [eax+0xCC],0; mov eax,[edx]; mov [eax+0xC8],1.0; mov eax,[edx];
+    // fld [eax+0xEC]; fmul [0.3]; fstp [eax+0xEC]
+    if (!Expect(kBlownTire, {0x8B, 0x02, 0xC7, 0x80, 0xCC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8B, 0x02,
+                             0xC7, 0x80, 0xC8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0x3F, 0x8B, 0x02, 0xD9, 0x80,
+                             0xEC, 0x00, 0x00, 0x00, 0xD8, 0x0D, 0x58, 0x4B, 0x89, 0x00, 0xD9, 0x98, 0xEC, 0x00,
+                             0x00, 0x00})) {
+        Log("physics: popped tires unavailable");
+        g_cfg.poppedTires = false;
+        return;
+    }
+    // ecx (wheel index) and edx (tire pointer slot) live across the call; the x87 stack is empty.
+    uint8_t code[kBlownTireLen];
+    memset(code, 0x90, sizeof(code));
+    uint8_t* p = code;
+    *p++ = 0x51;                                        // push ecx
+    *p++ = 0x52;                                        // push edx
+    *p++ = 0xFF; *p++ = 0x32;                           // push dword [edx]  (the Tire*)
+    *p++ = 0xE8;                                        // call Hook_BlownTire
+    *(int32_t*)p = (int32_t)((uintptr_t)&Hook_BlownTire - (kBlownTire + (p + 4 - code)));
+    p += 4;
+    *p++ = 0x83; *p++ = 0xC4; *p++ = 0x04;              // add esp,4
+    *p++ = 0x5A;                                        // pop edx
+    *p++ = 0x59;                                        // pop ecx
+    *p++ = 0xE9;                                        // jmp past the original code
+    *(int32_t*)p = (int32_t)((kBlownTire + kBlownTireLen) - (kBlownTire + (p + 4 - code)));
+    DWORD old;
+    VirtualProtect((void*)kBlownTire, sizeof(code), PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)kBlownTire, code, sizeof(code));
+    VirtualProtect((void*)kBlownTire, sizeof(code), old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)kBlownTire, sizeof(code));
+    Log("physics: popped tires %s (handicap %.2f)", g_cfg.poppedTires ? "drivable" : "as in the game", g_cfg.tireHandicap);
 }
 
 // --- per car ---------------------------------------------------------------------------------
@@ -272,6 +342,7 @@ void Physics_Install() {
     }
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
+    InstallBlownTire();
     Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, torque split x%.2f, "
         "gravity %.2f%s)", g_cfg.physics ? "on" : "off", g_cfg.tractionControl * 100, g_cfg.stability * 100,
         g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.torqueSplit, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
