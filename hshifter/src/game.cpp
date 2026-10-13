@@ -13,6 +13,13 @@
 // state with ClutchStiffness scaled by the pedal, so the game's own physics handle slip, launches
 // and free revving. Once the pedal is up and the slip is small, the clutch is handed back to the
 // game fully engaged.
+//
+// Engine wear: the drag race engine (EngineDragster) heats up above the redline, loses power when
+// hot and blows at full heat. The same model runs here for the player's EngineRacer in every
+// mode: heat is tracked in OnTaskSimulate, torque is scaled in GetEngineTorque and the rev
+// limiter can be lifted (UseRevLimiter), the last two through EngineRacer's vtable. A blown
+// engine uses the game's own IEngineDamage::Blow, which cuts the throttle and fires EEngineBlown
+// (in a race the racer is knocked out). Drag races keep the game's own model.
 #include "game.h"
 #include "common.h"
 #include "input.h"
@@ -34,6 +41,14 @@ constexpr uintptr_t kGetGearRatio = 0x691AC0;       // float EngineRacer::GetGea
 constexpr uintptr_t kVtblRacerTrans = 0x8AB720;     // EngineRacer's ITransmission vtable
 constexpr uintptr_t kVtblDragsterTrans = 0x8ABFC8;  // EngineDragster's ITransmission vtable
 constexpr uintptr_t kClutchStiffness = 0x8F8D9C;    // float ClutchStiffness = 20
+constexpr uintptr_t kSlotUseRevLimiter = 0x8AB78C;  // EngineRacer vtable: bool UseRevLimiter()
+constexpr uintptr_t kUseRevLimiter = 0x6A05E0;
+constexpr uintptr_t kSlotEngineTorque = 0x8AB7A8;   // EngineRacer vtable: float GetEngineTorque(float rpm)
+constexpr uintptr_t kGetEngineTorque = 0x691D40;
+constexpr uintptr_t kSlotRepair = 0x8AB6B4;         // EngineRacer IEngineDamage vtable: void Repair()
+constexpr uintptr_t kRepair = 0x691AA0;
+constexpr uintptr_t kBlow = 0x6A06E0;               // bool EngineRacer::Blow() (IEngineDamage this)
+constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool)
 
 // InputPlayer (the "this" of DoShifting / DoAutoReverse)
 constexpr int kIP_Vehicle = 0x7C;                   // owner; +4 holds its interface list
@@ -47,6 +62,12 @@ constexpr int kER_TransmissionVelocity = 0xF4;      // gearbox input mapped to e
 constexpr int kER_EngineLayout = 0x14C;             // Attrib engine: +0x58 RED_LINE, +0x5C IDLE
 constexpr int kER_TranyLayout = 0x160;              // Attrib transmission: +0x80 FINAL_GEAR
 constexpr int kER_Clutch = 0x198;
+constexpr int kER_Owner = 0x34;                     // ISimable: vtbl+0x20 GetPlayer, +4 interface list
+constexpr int kER_Vehicle = 0x48;                   // IVehicle: vtbl+0x20 IsStaging
+constexpr int kER_EngineDamage = 0x78;              // IEngineDamage sub-object (+0x12C mBlown)
+constexpr int kER_RPM = 0x180;
+constexpr int kER_Blown = 0x1A4;
+// Attrib engine layout (kER_EngineLayout): +0x54 MAX_RPM, +0x58 RED_LINE
 
 enum GearID { G_REVERSE = 0, G_NEUTRAL = 1, G_FIRST = 2 };
 
@@ -66,6 +87,11 @@ typedef float(__thiscall* GetDiffAngVel_t)(void* engine, bool locked);
 typedef float(__thiscall* GetGearRatio_t)(void* engine, unsigned gear);
 typedef int(__thiscall* TransGetGear_t)(void* trans);
 typedef bool(__thiscall* TransShift_t)(void* trans, int gear);
+typedef bool(__thiscall* Bool_t)(void* obj);
+typedef void*(__thiscall* Ptr_t)(void* obj);
+typedef void(__thiscall* Void_t)(void* obj);
+typedef float(__thiscall* EngineTorque_t)(void* engine, float rpm);
+typedef void(__thiscall* BlockInput_t)(void* input, bool block);
 
 DoShifting_t s_origDoShifting = (DoShifting_t)kDoShifting;
 DoAutoReverse_t s_origDoAutoReverse = (DoAutoReverse_t)kDoAutoReverse;
@@ -97,9 +123,16 @@ struct {
     bool forcing = false;       // clutch state is currently ours
     bool hEnabled = true;       // toggled in game
     uint32_t toggles = 0;
+    uint32_t blows = 0, repairs = 0;
+    float heat = 0.0f;          // 0..1, the player engine blows at 1
+    int heatStep = 0;           // last logged quarter of heat
+    bool blown = false;         // last seen blown state (log changes)
+    bool autoShift = true;      // the game's automatic gearbox drives the player's car
 } s;
 
 bool Fresh() { return Now() - s.seen < 0.5; }
+bool IsBlown(uint8_t* eng);
+void BlowEngine(uint8_t* eng);
 
 uint8_t* PlayerEngine(void* ip) {
     uint8_t* vehicle = Field<uint8_t*>((uint8_t*)ip, kIP_Vehicle);
@@ -198,7 +231,10 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         s.engine = eng;
         s.lastGear = -100;
         s.forcing = false;
-        if (eng) Log("player engine at %p", eng);
+        s.heat = 0.0f;
+        s.heatStep = 0;
+        s.blown = eng && IsBlown(eng);
+        if (eng) Log("player engine at %p%s", eng, s.blown ? " (blown)" : "");
     }
     if (!eng) {
         s.hActive = s.clutchActive = false;
@@ -231,12 +267,122 @@ void __fastcall Hook_DoAutoReverse(void* ip, void*, float gas, float brake) {
     s_origDoAutoReverse(ip, gas, brake);
 }
 
+// Called by the player's EngineRacer::DoShifting every step.
 bool __fastcall Hook_IsAutomaticShift(void* input) {
-    if (s.hActive && Fresh()) return false;
-    return s_origIsAutomaticShift(input);
+    bool automatic = !(s.hActive && Fresh()) && s_origIsAutomaticShift(input);
+    s.autoShift = automatic;
+    return automatic;
 }
 
-void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
+// --- engine wear ---------------------------------------------------------------------------
+bool IsDragster(uint8_t* eng) { return *(uintptr_t*)(eng + kER_Transmission) == kVtblDragsterTrans; }
+bool IsBlown(uint8_t* eng) { return Field<bool>(eng, kER_Blown); }
+
+// Our model runs for the local player's EngineRacer only (drag races bring their own), and only
+// with manual shifting: the automatic gearbox over-revs on its own in wheelspin.
+bool WearApplies(uint8_t* eng) {
+    return g_cfg.engineWear && eng == s.engine && Fresh() && !s.autoShift && !IsDragster(eng);
+}
+
+bool IsStaging(uint8_t* eng) {
+    void* vehicle = Field<void*>(eng, kER_Vehicle);
+    return vehicle && ((Bool_t)Vtbl(vehicle)[0x20 / 4])(vehicle);
+}
+
+bool InSpeedBreaker(uint8_t* eng) {
+    void* owner = Field<void*>(eng, kER_Owner);
+    void* player = owner ? ((Ptr_t)Vtbl(owner)[0x20 / 4])(owner) : nullptr;
+    return player && ((Bool_t)Vtbl(player)[0x40 / 4])(player);
+}
+
+void BlowEngine(uint8_t* eng) {
+    s.heat = 1.0f;
+    if (((Bool_t)kBlow)(eng + kER_EngineDamage)) Log("engine: BLOWN");
+}
+
+// The game blocks the player's input when the engine blows (EEngineBlown).
+void BlockPlayerInput(uint8_t* eng, bool block) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    void* list = owner ? Field<void*>(owner, 4) : nullptr;
+    void* input = list ? ((IListFind_t)kIListFind)(list, (void*)kIInputPlayerHandle) : nullptr;
+    if (input) ((BlockInput_t)Vtbl(input)[1])(input, block);
+}
+
+// Runs every step for the player's engine, also while blown (input blocked, so no FetchInput).
+void PlayerEngineStep(uint8_t* eng) {
+    InputSnapshot in = Input_Get();
+    if (in.repairs != s.repairs) {
+        s.repairs = in.repairs;
+        Log("engine: debug repair");
+        ((Void_t)kRepair)(eng + kER_EngineDamage);
+        BlockPlayerInput(eng, false);
+        s.heat = 0.0f;
+        s.heatStep = 0;
+    }
+    if (in.blows != s.blows) {
+        s.blows = in.blows;
+        Log("engine: debug blow");
+        BlowEngine(eng);
+    }
+    bool blown = IsBlown(eng);
+    if (blown != s.blown) {
+        s.blown = blown;
+        if (!blown) Log("engine: no longer blown");
+    }
+    if (blown) s.heat = 1.0f;
+}
+
+void UpdateWear(uint8_t* eng, float dT) {
+    if (IsBlown(eng)) return;
+    // Like EngineDragster::ComputeEngineHeat: frozen at the start line and in the speedbreaker.
+    if (dT <= 0.0f || IsStaging(eng) || InSpeedBreaker(eng)) return;
+    uint8_t* layout = Field<uint8_t*>(eng, kER_EngineLayout);
+    if (!layout) return;
+    float maxRpm = Field<float>(layout, 0x54), redline = Field<float>(layout, 0x58);
+    float rpm = Field<float>(eng, kER_RPM);
+    // The limiter holds the engine at the redline, so count "on the limiter" as over it.
+    float rate = -g_cfg.coolDown;
+    if (rpm >= redline * 0.99f) {
+        float over = maxRpm > redline ? Clamp((rpm - redline) / (maxRpm - redline), 0.0f, 1.0f) : 0.0f;
+        rate = g_cfg.heatUp + (g_cfg.heatUpMax - g_cfg.heatUp) * over;
+    }
+    s.heat = Clamp(s.heat + rate * dT, 0.0f, 1.0f);
+    int step = (int)(s.heat * 4.0f);
+    if (step != s.heatStep) {
+        if (step > s.heatStep) Log("engine: heat %d%% (rpm %.0f, redline %.0f, max %.0f)", step * 25, rpm, redline, maxRpm);
+        s.heatStep = step;
+    }
+    if (s.heat >= 1.0f) BlowEngine(eng);
+}
+
+bool __fastcall Hook_UseRevLimiter(uint8_t* eng) {
+    if (WearApplies(eng) && !g_cfg.revLimiter && !IsStaging(eng)) return false;
+    return true;
+}
+
+float __fastcall Hook_GetEngineTorque(uint8_t* eng, void*, float rpm) {
+    float torque = ((EngineTorque_t)kGetEngineTorque)(eng, rpm);
+    if (torque > 0.0f && WearApplies(eng) && s.heat > g_cfg.powerLossStart) {
+        float t = (s.heat - g_cfg.powerLossStart) / (1.0f - g_cfg.powerLossStart);
+        torque *= 1.0f - Clamp(t, 0.0f, 1.0f) * g_cfg.powerLoss;
+    }
+    return torque;
+}
+
+// Logged with the caller so we can see which game paths give the player a fresh engine.
+void __fastcall Hook_Repair(uint8_t* damage) {
+    uint8_t* eng = damage - kER_EngineDamage;
+    if (eng == s.engine) {
+        Log("engine: repaired by game (caller %p, was %s, heat %.2f)", __builtin_return_address(0),
+            IsBlown(eng) ? "blown" : "ok", s.heat);
+        s.heat = 0.0f;
+        s.heatStep = 0;
+    }
+    ((Void_t)kRepair)(damage);
+}
+
+// --- clutch ----------------------------------------------------------------------------------
+void ClutchSimulate(uint8_t* eng, float dT) {
     if (eng != s.engine || !s.clutchActive || !Fresh()) {
         if (eng == s.engine) s.forcing = false;
         s_origEngineSimulate(eng, dT);
@@ -267,6 +413,13 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
     *stiffness = s_baseStiffness * 4.0f * e * g_cfg.strength;
     s_origEngineSimulate(eng, dT);
     *stiffness = saved;
+}
+
+void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
+    ClutchSimulate(eng, dT);
+    if (eng != s.engine) return;
+    PlayerEngineStep(eng);
+    if (WearApplies(eng)) UpdateWear(eng, dT);
 }
 
 // --- patching ----------------------------------------------------------------------------
@@ -339,6 +492,18 @@ bool Game_Install() {
            && ExpectPtr(kVtblDragsterTrans + 4, 0x6A0590)
            && ExpectPtr(kVtblDragsterTrans + 12, 0x6AF440);
     if (!ok) return false;
+    bool wear = ExpectPtr(kSlotUseRevLimiter, kUseRevLimiter)
+             && ExpectPtr(kSlotEngineTorque, kGetEngineTorque)
+             && ExpectPtr(kSlotRepair, kRepair)
+             && ExpectPtr(kSlotRepair - 12, kBlow)
+             && Expect(kUseRevLimiter, {0xB0, 0x01, 0xC3})
+             && Expect(kGetEngineTorque, {0x8B, 0x44, 0x24, 0x04, 0x56, 0x8B, 0xF1})
+             && Expect(kRepair, {0x33, 0xC0, 0x89, 0x81, 0x30, 0x01, 0x00, 0x00, 0x88, 0x81, 0x2C, 0x01, 0x00, 0x00})
+             && Expect(kBlow + 0x19, {0x8A, 0x86, 0x2C, 0x01, 0x00, 0x00});
+    if (!wear) {
+        Log("engine wear unavailable");
+        g_cfg.engineWear = false;
+    }
 
     float k = *(float*)kClutchStiffness;
     if (k > 0.0f && k < 1000.0f) s_baseStiffness = k;
@@ -355,6 +520,16 @@ bool Game_Install() {
     const uint8_t nop = 0x90;
     Write(kIsAutomaticShift + 5, &nop, 1);
     WriteRel(kEngineSimulate, 0xE9, (void*)&Hook_EngineSimulate);
+    if (wear) {
+        void* p = (void*)&Hook_UseRevLimiter;
+        Write(kSlotUseRevLimiter, &p, 4);
+        p = (void*)&Hook_GetEngineTorque;
+        Write(kSlotEngineTorque, &p, 4);
+        p = (void*)&Hook_Repair;
+        Write(kSlotRepair, &p, 4);
+        Log("engine wear %s (rev limiter %s, heat +%.2f..%.2f/s, -%.2f/s)", g_cfg.engineWear ? "on" : "off",
+            g_cfg.revLimiter ? "on" : "off", g_cfg.heatUp, g_cfg.heatUpMax, g_cfg.coolDown);
+    }
     Log("hooks installed (clutch stiffness %.1f)", s_baseStiffness);
     return true;
 }

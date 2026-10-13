@@ -7,7 +7,7 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle;
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair;
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -47,6 +47,8 @@ static void ParseAll() {
     }
     parse("Neutral", g_cfg.neutral, s_neutral);
     parse("Toggle", g_cfg.toggle, s_toggle);
+    parse("DebugBlow", g_cfg.debugBlow, s_blow);
+    parse("DebugRepair", g_cfg.debugRepair, s_repair);
 
     s_cal.resize(s_clutch.size());
     for (size_t i = 0; i < s_clutch.size(); i++) {
@@ -134,7 +136,7 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false;
+    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false;
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
     float logPedal = -1;
@@ -217,6 +219,8 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (g_cfg.latching) stick = latched;
 
         bool toggleDown = AnyDown(s_toggle, focus);
+        bool blowDown = AnyDown(s_blow, focus);
+        bool repairDown = AnyDown(s_repair, focus);
 
         EnterCriticalSection(&s_lock);
         s_snap.clutchBound = clutchBound;
@@ -224,8 +228,12 @@ static DWORD WINAPI InputThread(LPVOID) {
         s_snap.shifterBound = shifterBound;
         s_snap.stickGear = stick;
         if (toggleDown && !prevToggle) s_snap.toggles++;
+        if (blowDown && !prevBlow) s_snap.blows++;
+        if (repairDown && !prevRepair) s_snap.repairs++;
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
+        prevBlow = blowDown;
+        prevRepair = repairDown;
 
         if (g_cfg.logInputs && now - lastLog > 0.1 && (stick != logGear || fabsf(pedal - logPedal) > 0.05f)) {
             lastLog = now;

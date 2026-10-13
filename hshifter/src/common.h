@@ -60,6 +60,17 @@ struct Config {
     bool  keepShiftDelay = false;   // keep the game's shift delay even when the clutch was used
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
 
+    // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
+    bool  engineWear = true;
+    bool  revLimiter = false;       // keep the rev limiter (heat then builds while bouncing off it)
+    float heatUp = 0.20f;           // heat per second at the redline (1 = blown)
+    float heatUpMax = 0.50f;        // ... at max rpm (over-revving without the limiter)
+    float coolDown = 0.10f;         // heat lost per second below the redline
+    float powerLossStart = 0.5f;    // heat where the engine starts losing power
+    float powerLoss = 0.5f;         // fraction of torque lost at full heat
+    std::string debugBlow;          // binding that blows the engine (testing)
+    std::string debugRepair;        // binding that repairs it (testing)
+
     // [General]
     std::string toggle;             // binding that switches between H-pattern and the game's sequential shifting
     bool  logInputs = false;

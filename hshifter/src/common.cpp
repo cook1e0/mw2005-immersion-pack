@@ -114,4 +114,14 @@ void LoadConfig() {
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
+
+    c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
+    c.revLimiter = ReadInt("Engine", "RevLimiter", 0) != 0;
+    c.heatUp = Clamp(ReadFloat("Engine", "HeatUp", c.heatUp), 0.0f, 100.0f);
+    c.heatUpMax = Clamp(ReadFloat("Engine", "HeatUpMaxRPM", c.heatUpMax), 0.0f, 100.0f);
+    c.coolDown = Clamp(ReadFloat("Engine", "CoolDown", c.coolDown), 0.0f, 100.0f);
+    c.powerLossStart = Clamp(ReadFloat("Engine", "PowerLossStart", c.powerLossStart), 0.0f, 0.99f);
+    c.powerLoss = Clamp(ReadFloat("Engine", "PowerLoss", c.powerLoss), 0.0f, 1.0f);
+    c.debugBlow = ReadStr("Engine", "DebugBlow", "");
+    c.debugRepair = ReadStr("Engine", "DebugRepair", "");
 }

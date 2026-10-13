@@ -11,6 +11,11 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Clutch required to shift** (optional): moving the stick into a gate without the clutch leaves
   the box in neutral until you press the clutch. Optional rev-matched clutchless shifts.
 - Reverse is refused while rolling forward (and forward gears while rolling backward).
+- **Engine wear** (optional, on by default): the drag race engine model in every mode. There's no
+  rev limiter, so the engine can be revved past the redline. Above the redline it heats up, a hot
+  engine loses power, and at full heat it blows. A blown engine is dead: in free roam, use *Jump to
+  Safe House* from the pause menu; in a race you're out ("Blown Engine") and have to restart.
+  Only with manual shifting (H-shifter or the game's Manual transmission).
 - Works next to the force feedback (`dinput8.dll`) and VR (`d3d9.dll`) mods. This one loads as
   `dsound.dll`.
 
@@ -45,6 +50,9 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Shifter] RequireClutch / ClutchToShift` | need the clutch (and how far down) to engage a gear |
 | `[Shifter] RevMatchRPM` | allow clutchless shifts within this many rpm of the new gear |
 | `[Shifter] Latching` | gear stays selected after its button is released (keyboard, button boxes) |
+| `[Engine] EngineWear / RevLimiter` | engine heat and blow-ups on/off; keep the rev limiter |
+| `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it |
+| `[Engine] PowerLossStart / PowerLoss` | heat where power starts dropping, and how much is lost at full heat |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
 
 Binding syntax: `joy0:b12` (button), `joy0:s0` / `joy0:-rz` (axis), `joy0:pov0:up` (hat),
@@ -68,6 +76,14 @@ code doesn't match.
   `ClutchStiffness` (0x8F8D9C). That stiffness is scaled by the pedal for the duration of the call.
   With the pedal up and engine and gearbox speeds matched, the clutch is handed back to the game
   fully engaged.
+- Engine wear follows `EngineDragster::ComputeEngineHeat` (heat frozen at the start line and in
+  the speedbreaker) but runs on the player's `EngineRacer`, from the same `OnTaskSimulate` detour.
+  EngineRacer's vtable slots `UseRevLimiter` (0x8AB78C, lifted for the player) and
+  `GetEngineTorque` (0x8AB7A8, power loss) are replaced. At full heat it calls the game's own
+  `IEngineDamage::Blow` (0x6A06E0, on the sub-object at +0x78), which cuts the throttle and fires
+  `EEngineBlown`: the game blocks the player's input and, in a race, knocks the racer out.
+  `Repair` (0x8AB6B4) is wrapped to log who repairs the engine; race restarts do it through
+  `DamageRacer::ResetDamage`. Drag races keep the game's model.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a
   proxy in the game folder) polled at ~500 Hz on its own thread.
 
