@@ -18,6 +18,7 @@
 #include "d3d9hook.h"
 #include "xr.h"
 #include "vrmath.h"
+#include "cockpit.h"
 #include <string.h>
 #include <algorithm>
 #include <stdio.h>
@@ -231,6 +232,7 @@ void __cdecl hkRenderScene() {
     {
         M4 V;
         memcpy(&V, saved + kCamMatrix, sizeof(V));
+        if (Cockpit_ApplySeat(V)) memcpy(base + kCamMatrix, &V, sizeof(V));
         if (s_levelEnabled && (g_cfg.levelRoll > 0 || g_cfg.levelPitch > 0)) {
             V = LevelCamera(V, kWorldUp, g_cfg.levelRoll, g_cfg.levelPitch);
             memcpy(base + kCamMatrix, &V, sizeof(V));
@@ -315,7 +317,10 @@ void Game_RenderedFov(float* tanX, float* tanY) {
     *tanY = s_tanY;
 }
 
-void Game_EndOfFrame() { s_stereoFrame = false; }
+void Game_EndOfFrame() {
+    s_stereoFrame = false;
+    Cockpit_EndFrame();
+}
 
 void Game_ToggleLevel() {
     s_levelEnabled = !s_levelEnabled;

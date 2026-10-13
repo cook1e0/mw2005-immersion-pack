@@ -86,6 +86,16 @@ void LoadConfig() {
     c.spectatorSmoothing = ReadFloat(ini, "SpectatorSmoothing", c.spectatorSmoothing);
     c.spectatorFollowHead = ReadInt(ini, "SpectatorFollowHead", c.spectatorFollowHead) != 0;
     c.spectatorWidth = ReadInt(ini, "SpectatorWidth", c.spectatorWidth);
+    c.seat = ReadInt(ini, "Seat", c.seat) != 0;
+    c.hideHead = ReadInt(ini, "HideHead", c.hideHead) != 0;
+    c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
+    c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
+    c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);
+    c.keySeatLeft = ReadInt(ini, "KeySeatLeft", c.keySeatLeft);
+    c.keySeatRight = ReadInt(ini, "KeySeatRight", c.keySeatRight);
+    c.keySeatUp = ReadInt(ini, "KeySeatUp", c.keySeatUp);
+    c.keySeatDown = ReadInt(ini, "KeySeatDown", c.keySeatDown);
+    c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);
     Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f fakeHmd=%d",
         c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.fakeHmd);
 }
