@@ -60,4 +60,4 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
 - `tools/ffbtool.exe`: lists controllers. `ffbtool test` nudges the wheel right/left and reports
   which way it moved.
 - `tools/dis.py`, `tools/vtbl.py`: disassembly and vtable dumps with names, using the symbol map
-  in `../nfsmw-vr/re`.
+  in `../vr/re`.

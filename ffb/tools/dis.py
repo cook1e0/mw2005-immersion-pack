@@ -1,7 +1,9 @@
 """Print disassembly of a function from speed.asm with symbolized call/jmp/data targets.
 usage: python dis.py <addr|name-substring> [maxlines]"""
 import re, sys, bisect, os
-RE = os.path.join(os.path.dirname(__file__), '..', '..', 'nfsmw-vr', 're')
+_HERE = os.path.dirname(__file__)
+RE = next((p for p in (os.path.join(_HERE, '..', '..', 'vr', 're'), os.path.join(_HERE, '..', '..', 'nfsmw-vr', 're'))
+           if os.path.isdir(p)), os.path.join(_HERE, '..', '..', 'vr', 're'))
 syms = {}
 for fn in ('funcs13.txt', 'data13.txt'):
     for line in open(os.path.join(RE, fn), encoding='utf-8', errors='replace'):
