@@ -1,0 +1,61 @@
+// Shared declarations for the NFSMW force feedback mod.
+#pragma once
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define DIRECTINPUT_VERSION 0x0800
+#include <windows.h>
+#include <dinput.h>
+#include <stdint.h>
+
+// ---------------------------------------------------------------------------
+// Logging (nfsmw_ffb.log next to speed.exe)
+// ---------------------------------------------------------------------------
+void LogInit();
+void Log(const char* fmt, ...);
+
+// ---------------------------------------------------------------------------
+// Configuration (nfsmw_ffb.ini next to speed.exe)
+// ---------------------------------------------------------------------------
+struct Config {
+    bool  enabled = true;           // false = pure passthrough (game's own FFB untouched)
+    bool  nativeFfb = false;        // true = let the game's own effects through, disable ours
+    float gain = 1.0f;              // master strength
+    float satGain = 0.75f;          // self-aligning torque (main steering weight)
+    float satPeakAngle = 6.0f;      // front slip angle (deg) where aligning torque peaks
+    float driftAlign = 0.25f;       // residual pull toward the direction of travel while sliding
+    float damperLow = 0.35f;        // damper at standstill
+    float damperHigh = 0.12f;       // damper at speed
+    float friction = 0.06f;         // constant friction
+    float standstillFriction = 0.35f; // extra friction (tyre scrub) when parked
+    float roadGain = 0.5f;          // kicks from front suspension movement (bumps, kerbs)
+    float collisionGain = 0.8f;     // jolt on impacts
+    float engineVibration = 0.02f;  // idle/engine buzz
+    float brakeLockVibration = 0.12f;
+    float menuSpring = 0.25f;       // centring spring when not driving (menus, pause, cutscenes)
+    float minForce = 0.0f;          // wheel deadband compensation (0..0.2)
+    bool  invertForce = false;      // flip constant-force direction
+    int   steerAxis = 0;            // 0=X 1=Y 2=Z 3=RX 4=RY 5=RZ 6=Slider0
+    int   updateHz = 200;
+    // [Calibration] - written by the mod, 0 = unknown (re-detect)
+    int   forceSign = 0;            // constant-force sign that turns the wheel right
+    int   slipSign = 0;             // game slip-angle sign vs. physical right
+    int   rightSign = 0;            // game body "right guess" vs. physical right
+    bool  logTelemetry = false;
+};
+extern Config g_cfg;
+void LoadConfig();
+void SaveCalibration(int slipSign, int rightSign, int forceSign);
+
+// Directory containing speed.exe (with trailing backslash).
+const char* GameDir();
+
+// Seconds since an arbitrary epoch (QPC).
+double Now();
+
+template <class T> static inline T Clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static inline float Smoothstep(float a, float b, float x) {
+    float t = Clamp((x - a) / (b - a), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+static inline float Sign(float v) { return v > 0.0f ? 1.0f : (v < 0.0f ? -1.0f : 0.0f); }

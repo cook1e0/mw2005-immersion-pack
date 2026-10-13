@@ -1,0 +1,281 @@
+#include "dinput_wrap.h"
+#include "ffb.h"
+#include <string.h>
+
+CRITICAL_SECTION g_diLock;
+
+struct Lock {
+    Lock() { EnterCriticalSection(&g_diLock); }
+    ~Lock() { LeaveCriticalSection(&g_diLock); }
+};
+
+const GUID& SteerAxisGuid() {
+    static const GUID* axes[] = {&GUID_XAxis, &GUID_YAxis, &GUID_ZAxis, &GUID_RxAxis,
+                                 &GUID_RyAxis, &GUID_RzAxis, &GUID_Slider};
+    return *axes[g_cfg.steerAxis];
+}
+
+// While our engine owns the wheel, the game's own effects go to this no-op object.
+struct StubEffect : public IDirectInputEffect {
+    LONG refs = 1;
+    GUID guid;
+    explicit StubEffect(REFGUID g) : guid(g) {}
+    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override {
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputEffect)) {
+            AddRef();
+            *ppv = this;
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHOD_(ULONG, AddRef)() override { return InterlockedIncrement(&refs); }
+    STDMETHOD_(ULONG, Release)() override {
+        LONG r = InterlockedDecrement(&refs);
+        if (!r) delete this;
+        return r;
+    }
+    STDMETHOD(Initialize)(HINSTANCE, DWORD, REFGUID) override { return DI_OK; }
+    STDMETHOD(GetEffectGuid)(LPGUID g) override { *g = guid; return DI_OK; }
+    STDMETHOD(GetParameters)(LPDIEFFECT, DWORD) override { return DI_OK; }
+    STDMETHOD(SetParameters)(LPCDIEFFECT, DWORD) override { return DI_OK; }
+    STDMETHOD(Start)(DWORD, DWORD) override { return DI_OK; }
+    STDMETHOD(Stop)() override { return DI_OK; }
+    STDMETHOD(GetEffectStatus)(LPDWORD s) override { if (s) *s = 0; return DI_OK; }
+    STDMETHOD(Download)() override { return DI_OK; }
+    STDMETHOD(Unload)() override { return DI_OK; }
+    STDMETHOD(Escape)(LPDIEFFESCAPE) override { return DI_OK; }
+};
+
+static bool OwnFfb() { return g_cfg.enabled && !g_cfg.nativeFfb; }
+
+static void SetAutoCenterOff(IDirectInputDevice8A* d) {
+    DIPROPDWORD p = {};
+    p.diph.dwSize = sizeof(p);
+    p.diph.dwHeaderSize = sizeof(p.diph);
+    p.diph.dwHow = DIPH_DEVICE;
+    p.dwData = DIPROPAUTOCENTER_OFF;
+    d->SetProperty(DIPROP_AUTOCENTER, &p.diph);
+}
+
+// ---------------------------------------------------------------------------
+// DeviceWrap
+// ---------------------------------------------------------------------------
+HRESULT DeviceWrap::QueryInterface(REFIID riid, void** ppv) {
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInputDevice8A)) {
+        AddRef();
+        *ppv = this;
+        return S_OK;
+    }
+    return real->QueryInterface(riid, ppv);
+}
+ULONG DeviceWrap::AddRef() { return InterlockedIncrement(&refs); }
+ULONG DeviceWrap::Release() {
+    LONG r = InterlockedDecrement(&refs);
+    if (!r) {
+        Lock l;
+        Ffb_UnregisterDevice(this);
+        real->Release();
+        Log("dinput: released '%s'", name);
+        delete this;
+    }
+    return r;
+}
+HRESULT DeviceWrap::GetCapabilities(LPDIDEVCAPS a) { Lock l; return real->GetCapabilities(a); }
+HRESULT DeviceWrap::EnumObjects(LPDIENUMDEVICEOBJECTSCALLBACKA a, LPVOID b, DWORD c) { return real->EnumObjects(a, b, c); }
+HRESULT DeviceWrap::GetProperty(REFGUID a, LPDIPROPHEADER b) { Lock l; return real->GetProperty(a, b); }
+HRESULT DeviceWrap::SetProperty(REFGUID a, LPCDIPROPHEADER b) {
+    Lock l;
+    if (OwnFfb() && &a == &DIPROP_AUTOCENTER) {
+        // The game must not re-enable the wheel's built-in centring spring.
+        DIPROPDWORD p = *(const DIPROPDWORD*)b;
+        p.dwData = DIPROPAUTOCENTER_OFF;
+        return real->SetProperty(a, &p.diph);
+    }
+    if (OwnFfb() && &a == &DIPROP_FFGAIN) return DI_OK;
+    return real->SetProperty(a, b);
+}
+HRESULT DeviceWrap::Acquire() {
+    Lock l;
+    HRESULT hr = real->Acquire();
+    if (hr == DI_OK) {
+        if (!acquired) Log("dinput: '%s' acquired (exclusive=%d)", name, exclusive);
+        acquired = true;
+        acquireGen++;
+    } else if (hr == S_FALSE) {
+        acquired = true;
+    } else {
+        acquired = false;
+    }
+    return hr;
+}
+HRESULT DeviceWrap::Unacquire() {
+    Lock l;
+    if (acquired) Log("dinput: '%s' unacquired", name);
+    acquired = false;
+    return real->Unacquire();
+}
+HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
+    Lock l;
+    HRESULT hr = real->GetDeviceState(a, b);
+    if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
+    return hr;
+}
+HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DWORD d) {
+    Lock l;
+    HRESULT hr = real->GetDeviceData(a, b, c, d);
+    if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
+    return hr;
+}
+HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
+    Lock l;
+    HRESULT hr = real->SetDataFormat(f);
+    if (SUCCEEDED(hr) && f) {
+        dataSize = f->dwDataSize;
+        axisOfs = -1;
+        const GUID& want = SteerAxisGuid();
+        for (DWORD i = 0; i < f->dwNumObjs; ++i) {
+            const DIOBJECTDATAFORMAT& o = f->rgodf[i];
+            if (o.pguid && IsEqualGUID(*o.pguid, want) && (o.dwType & DIDFT_AXIS)) {
+                axisOfs = (LONG)o.dwOfs;
+                break;
+            }
+        }
+        Log("dinput: '%s' data format size=%lu objs=%lu steerAxisOfs=%ld", name, f->dwDataSize, f->dwNumObjs, axisOfs);
+        if (OwnFfb()) SetAutoCenterOff(real);
+    }
+    return hr;
+}
+HRESULT DeviceWrap::SetEventNotification(HANDLE a) { Lock l; return real->SetEventNotification(a); }
+HRESULT DeviceWrap::SetCooperativeLevel(HWND w, DWORD flags) {
+    Lock l;
+    hwnd = w;
+    if (!OwnFfb()) {
+        HRESULT hr = real->SetCooperativeLevel(w, flags);
+        exclusive = SUCCEEDED(hr) && (flags & DISCL_EXCLUSIVE);
+        return hr;
+    }
+    // Force feedback requires exclusive access.
+    DWORD want = (flags & ~DISCL_NONEXCLUSIVE) | DISCL_EXCLUSIVE;
+    HRESULT hr = real->SetCooperativeLevel(w, want);
+    if (FAILED(hr)) {
+        Log("dinput: '%s' exclusive cooperative level refused (0x%08lX), using game flags 0x%lX", name, hr, flags);
+        hr = real->SetCooperativeLevel(w, flags);
+        exclusive = SUCCEEDED(hr) && (flags & DISCL_EXCLUSIVE);
+    } else {
+        exclusive = true;
+    }
+    Log("dinput: '%s' SetCooperativeLevel(hwnd=%p, game=0x%lX) -> exclusive=%d", name, w, flags, exclusive);
+    SetAutoCenterOff(real);
+    return hr;
+}
+HRESULT DeviceWrap::GetObjectInfo(LPDIDEVICEOBJECTINSTANCEA a, DWORD b, DWORD c) { return real->GetObjectInfo(a, b, c); }
+HRESULT DeviceWrap::GetDeviceInfo(LPDIDEVICEINSTANCEA a) { return real->GetDeviceInfo(a); }
+HRESULT DeviceWrap::RunControlPanel(HWND a, DWORD b) { return real->RunControlPanel(a, b); }
+HRESULT DeviceWrap::Initialize(HINSTANCE a, DWORD b, REFGUID c) { return real->Initialize(a, b, c); }
+HRESULT DeviceWrap::CreateEffect(REFGUID a, LPCDIEFFECT b, LPDIRECTINPUTEFFECT* c, LPUNKNOWN d) {
+    if (OwnFfb()) {
+        *c = new StubEffect(a);
+        return DI_OK;
+    }
+    Lock l;
+    return real->CreateEffect(a, b, c, d);
+}
+HRESULT DeviceWrap::EnumEffects(LPDIENUMEFFECTSCALLBACKA a, LPVOID b, DWORD c) { return real->EnumEffects(a, b, c); }
+HRESULT DeviceWrap::GetEffectInfo(LPDIEFFECTINFOA a, REFGUID b) { return real->GetEffectInfo(a, b); }
+HRESULT DeviceWrap::GetForceFeedbackState(LPDWORD a) { Lock l; return real->GetForceFeedbackState(a); }
+HRESULT DeviceWrap::SendForceFeedbackCommand(DWORD a) {
+    if (OwnFfb()) return DI_OK;  // a game RESET/STOPALL would kill our effects
+    Lock l;
+    return real->SendForceFeedbackCommand(a);
+}
+HRESULT DeviceWrap::EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK a, LPVOID b, DWORD c) {
+    if (OwnFfb()) return DI_OK;
+    return real->EnumCreatedEffectObjects(a, b, c);
+}
+HRESULT DeviceWrap::Escape(LPDIEFFESCAPE a) { Lock l; return real->Escape(a); }
+HRESULT DeviceWrap::Poll() {
+    Lock l;
+    HRESULT hr = real->Poll();
+    if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
+    return hr;
+}
+HRESULT DeviceWrap::SendDeviceData(DWORD a, LPCDIDEVICEOBJECTDATA b, LPDWORD c, DWORD d) { Lock l; return real->SendDeviceData(a, b, c, d); }
+HRESULT DeviceWrap::EnumEffectsInFile(LPCSTR a, LPDIENUMEFFECTSINFILECALLBACK b, LPVOID c, DWORD d) { return real->EnumEffectsInFile(a, b, c, d); }
+HRESULT DeviceWrap::WriteEffectToFile(LPCSTR a, DWORD b, LPDIFILEEFFECT c, DWORD d) { return real->WriteEffectToFile(a, b, c, d); }
+HRESULT DeviceWrap::BuildActionMap(LPDIACTIONFORMATA a, LPCSTR b, DWORD c) { return real->BuildActionMap(a, b, c); }
+HRESULT DeviceWrap::SetActionMap(LPDIACTIONFORMATA a, LPCSTR b, DWORD c) { Lock l; return real->SetActionMap(a, b, c); }
+HRESULT DeviceWrap::GetImageInfo(LPDIDEVICEIMAGEINFOHEADERA a) { return real->GetImageInfo(a); }
+
+// ---------------------------------------------------------------------------
+// IDirectInput8A wrapper
+// ---------------------------------------------------------------------------
+struct DInputWrap : public IDirectInput8A {
+    IDirectInput8A* real;
+    LONG refs = 1;
+    explicit DInputWrap(IDirectInput8A* r) : real(r) {}
+
+    STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override {
+        if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_IDirectInput8A)) {
+            AddRef();
+            *ppv = this;
+            return S_OK;
+        }
+        return real->QueryInterface(riid, ppv);
+    }
+    STDMETHOD_(ULONG, AddRef)() override { return InterlockedIncrement(&refs); }
+    STDMETHOD_(ULONG, Release)() override {
+        LONG r = InterlockedDecrement(&refs);
+        if (!r) {
+            real->Release();
+            delete this;
+        }
+        return r;
+    }
+    STDMETHOD(CreateDevice)(REFGUID guid, LPDIRECTINPUTDEVICE8A* out, LPUNKNOWN outer) override {
+        HRESULT hr = real->CreateDevice(guid, out, outer);
+        if (FAILED(hr) || !*out) return hr;
+        IDirectInputDevice8A* dev = *out;
+        DIDEVICEINSTANCEA info = {};
+        info.dwSize = sizeof(info);
+        dev->GetDeviceInfo(&info);
+        DIDEVCAPS caps = {};
+        caps.dwSize = sizeof(caps);
+        dev->GetCapabilities(&caps);
+        bool ffb = (caps.dwFlags & DIDC_FORCEFEEDBACK) != 0;
+        Log("dinput: CreateDevice '%s' type=0x%lX axes=%lu ffb=%d", info.tszProductName, info.dwDevType, caps.dwAxes, ffb);
+        if (!ffb || !g_cfg.enabled) return hr;
+        DeviceWrap* w = new DeviceWrap(dev);
+        strncpy(w->name, info.tszProductName, sizeof(w->name) - 1);
+        {
+            Lock l;
+            Ffb_RegisterDevice(w);
+        }
+        *out = w;
+        return hr;
+    }
+    STDMETHOD(EnumDevices)(DWORD a, LPDIENUMDEVICESCALLBACKA b, LPVOID c, DWORD d) override { return real->EnumDevices(a, b, c, d); }
+    STDMETHOD(GetDeviceStatus)(REFGUID a) override { return real->GetDeviceStatus(a); }
+    STDMETHOD(RunControlPanel)(HWND a, DWORD b) override { return real->RunControlPanel(a, b); }
+    STDMETHOD(Initialize)(HINSTANCE a, DWORD b) override { return real->Initialize(a, b); }
+    STDMETHOD(FindDevice)(REFGUID a, LPCSTR b, LPGUID c) override { return real->FindDevice(a, b, c); }
+    STDMETHOD(EnumDevicesBySemantics)(LPCSTR a, LPDIACTIONFORMATA b, LPDIENUMDEVICESBYSEMANTICSCBA c, LPVOID d, DWORD e) override {
+        return real->EnumDevicesBySemantics(a, b, c, d, e);
+    }
+    STDMETHOD(ConfigureDevices)(LPDICONFIGUREDEVICESCALLBACK a, LPDICONFIGUREDEVICESPARAMSA b, DWORD c, LPVOID d) override {
+        return real->ConfigureDevices(a, b, c, d);
+    }
+};
+
+HRESULT WrapDirectInput(REFIID riid, void** ppv) {
+    if (!IsEqualIID(riid, IID_IDirectInput8A)) {
+        Log("dinput: DirectInput8Create for a non-ANSI interface, not wrapped");
+        return S_OK;
+    }
+    IDirectInput8A* real = (IDirectInput8A*)*ppv;
+    real->AddRef();
+    Ffb_SetDirectInput(real);
+    *ppv = new DInputWrap(real);
+    Log("dinput: IDirectInput8A wrapped");
+    return S_OK;
+}

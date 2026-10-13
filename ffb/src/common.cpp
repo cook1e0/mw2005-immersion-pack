@@ -1,0 +1,107 @@
+#include "common.h"
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+
+Config g_cfg;
+
+static char s_gameDir[MAX_PATH];
+static FILE* s_log;
+static CRITICAL_SECTION s_logLock;
+
+const char* GameDir() {
+    if (!s_gameDir[0]) {
+        GetModuleFileNameA(nullptr, s_gameDir, MAX_PATH);
+        char* slash = strrchr(s_gameDir, '\\');
+        if (slash) slash[1] = 0;
+    }
+    return s_gameDir;
+}
+
+double Now() {
+    static LARGE_INTEGER freq;
+    if (!freq.QuadPart) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return (double)t.QuadPart / (double)freq.QuadPart;
+}
+
+void LogInit() {
+    InitializeCriticalSection(&s_logLock);
+    char path[MAX_PATH];
+    snprintf(path, sizeof(path), "%snfsmw_ffb.log", GameDir());
+    s_log = fopen(path, "w");
+}
+
+void Log(const char* fmt, ...) {
+    if (!s_log) return;
+    EnterCriticalSection(&s_logLock);
+    SYSTEMTIME t;
+    GetLocalTime(&t);
+    fprintf(s_log, "[%02d:%02d:%02d.%03d] ", t.wHour, t.wMinute, t.wSecond, t.wMilliseconds);
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(s_log, fmt, ap);
+    va_end(ap);
+    fputc('\n', s_log);
+    fflush(s_log);
+    LeaveCriticalSection(&s_logLock);
+}
+
+static char s_ini[MAX_PATH];
+
+static float ReadFloat(const char* sec, const char* key, float def) {
+    char buf[64], defs[64];
+    snprintf(defs, sizeof(defs), "%g", def);
+    GetPrivateProfileStringA(sec, key, defs, buf, sizeof(buf), s_ini);
+    return (float)atof(buf);
+}
+
+static int ReadInt(const char* sec, const char* key, int def) {
+    return (int)GetPrivateProfileIntA(sec, key, def, s_ini);
+}
+
+void LoadConfig() {
+    snprintf(s_ini, sizeof(s_ini), "%snfsmw_ffb.ini", GameDir());
+    Config& c = g_cfg;
+    const char* s = "FFB";
+    c.enabled = ReadInt(s, "Enabled", c.enabled) != 0;
+    c.nativeFfb = ReadInt(s, "NativeFFB", c.nativeFfb) != 0;
+    c.gain = ReadFloat(s, "Gain", c.gain);
+    c.satGain = ReadFloat(s, "SelfAligningTorque", c.satGain);
+    c.satPeakAngle = ReadFloat(s, "SlipAnglePeak", c.satPeakAngle);
+    c.driftAlign = ReadFloat(s, "DriftAlign", c.driftAlign);
+    c.damperLow = ReadFloat(s, "DamperLowSpeed", c.damperLow);
+    c.damperHigh = ReadFloat(s, "DamperHighSpeed", c.damperHigh);
+    c.friction = ReadFloat(s, "Friction", c.friction);
+    c.standstillFriction = ReadFloat(s, "StandstillFriction", c.standstillFriction);
+    c.roadGain = ReadFloat(s, "RoadFeel", c.roadGain);
+    c.collisionGain = ReadFloat(s, "Collisions", c.collisionGain);
+    c.engineVibration = ReadFloat(s, "EngineVibration", c.engineVibration);
+    c.brakeLockVibration = ReadFloat(s, "BrakeLockVibration", c.brakeLockVibration);
+    c.menuSpring = ReadFloat(s, "MenuSpring", c.menuSpring);
+    c.minForce = ReadFloat(s, "MinForce", c.minForce);
+    c.invertForce = ReadInt(s, "InvertForce", c.invertForce) != 0;
+    c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
+    c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 30, 1000);
+    c.logTelemetry = ReadInt(s, "LogTelemetry", c.logTelemetry) != 0;
+    c.forceSign = Clamp(ReadInt("Calibration", "ForceSign", 0), -1, 1);
+    c.slipSign = Clamp(ReadInt("Calibration", "SlipSign", 0), -1, 1);
+    c.rightSign = Clamp(ReadInt("Calibration", "RightSign", 0), -1, 1);
+    Log("config: enabled=%d native=%d gain=%.2f sat=%.2f peak=%.1f drift=%.2f damper=%.2f/%.2f "
+        "friction=%.2f/%.2f road=%.2f coll=%.2f eng=%.3f lock=%.2f menu=%.2f min=%.2f invert=%d axis=%d hz=%d "
+        "cal(force=%d slip=%d right=%d)",
+        c.enabled, c.nativeFfb, c.gain, c.satGain, c.satPeakAngle, c.driftAlign, c.damperLow, c.damperHigh,
+        c.friction, c.standstillFriction, c.roadGain, c.collisionGain, c.engineVibration, c.brakeLockVibration,
+        c.menuSpring, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign);
+}
+
+void SaveCalibration(int slipSign, int rightSign, int forceSign) {
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", forceSign);
+    WritePrivateProfileStringA("Calibration", "ForceSign", buf, s_ini);
+    snprintf(buf, sizeof(buf), "%d", slipSign);
+    WritePrivateProfileStringA("Calibration", "SlipSign", buf, s_ini);
+    snprintf(buf, sizeof(buf), "%d", rightSign);
+    WritePrivateProfileStringA("Calibration", "RightSign", buf, s_ini);
+}
