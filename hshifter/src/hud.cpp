@@ -8,7 +8,7 @@
 //
 // The heat overlay is a clone of that arc (FEObject::Clone), inserted right after it in its parent
 // group so it draws on top, tinted red and rotated by the heat above HeatFrom. The clock icon
-// (SPEEDBREAKER_METER_ICON_GROUP) gets a car texture from the pursuit HUD. Both arcs pulse while
+// (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. Both arcs pulse while
 // heat or damage is at Warn or above. The HUD package owns the clone and frees it with the rest
 // of the package; a new HUD (or a clone that is gone from its list) gets a new one.
 #include "hud.h"
@@ -143,7 +143,7 @@ struct {
 } s;
 
 uint32_t PickIcon() {
-    const char* names[] = {g_cfg.hudIcon.c_str(), "COPS_ICON", "COPS_DAMAGED_ICON", "HIDE_CAR_ICON"};
+    const char* names[] = {g_cfg.hudIcon.c_str(), "INGAME_ICON_PLAYERCAR", "COPS_ICON", "HIDE_CAR_ICON"};
     for (const char* n : names) {
         if (!*n) continue;
         uint32_t h = ((StringHash_t)kStringHash)(n);

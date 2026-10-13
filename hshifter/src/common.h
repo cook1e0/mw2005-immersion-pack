@@ -58,6 +58,7 @@ struct Config {
     float revMatchRpm = 0.0f;       // >0: allow clutchless shifts within this many rpm
     bool  blockWrongDirection = true; // no reverse while rolling forward (and vice versa)
     bool  keepShiftDelay = false;   // keep the game's shift delay even when the clutch was used
+    bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
 
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
@@ -77,14 +78,16 @@ struct Config {
     bool  damage = true;
     float damageMinImpact = 8.0f;   // impacts below this speed change (m/s) do no damage
     float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
+    bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
+    float smokeFrom = 0.75f;        // ... from this much damage
 
     // [HUD] the speedbreaker meter shows car damage, with engine heat overlaid in red
     bool  hudMeter = true;
     bool  speedbreaker = false;     // the game's speedbreaker (its meter is taken over)
-    std::string hudIcon = "COPS_ICON"; // texture replacing the speedbreaker clock
+    std::string hudIcon = "INGAME_ICON_PLAYERCAR"; // texture replacing the speedbreaker clock
     float hudHeatFrom = 0.5f;       // heat where the red overlay starts filling
     float hudWarn = 0.75f;          // heat or damage at which the meter flashes
-    float hudDepth = 1.0f;          // overlay z offset; FEng draws in ascending z, so + is on top
+    float hudDepth = -1.0f;         // overlay z offset from the arc; - is nearer (in front)
 
     // [Physics] the player car's driving aids, grip and gravity (1 = the game's own)
     bool  physics = true;

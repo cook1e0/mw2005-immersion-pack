@@ -33,6 +33,7 @@
 #include "ui.h"
 #include "hud.h"
 #include "physics.h"
+#include "vfx.h"
 #include <math.h>
 
 namespace {
@@ -65,6 +66,8 @@ constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; v
 constexpr uintptr_t kSlotOnImpact = 0x8AD378;     // DamageRacer vtable: DamageVehicle::OnImpact
 constexpr uintptr_t kOnImpact = 0x69C030;
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
+constexpr uintptr_t kEventNew = 0x627400;          // void* Event::operator new(size_t) (queued, game thread)
+constexpr uintptr_t kEMissShift = 0x6226F0;        // EMissShift::EMissShift(HSIMABLE, float), as in drag races
 constexpr uintptr_t kRaceStatus = 0x91E000;         // GRaceStatus* GRaceStatus::fObj; +0x1960 mPlayMode (0 = roaming)
 constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
 constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
@@ -165,6 +168,7 @@ struct {
     bool totaled = false;       // the player's car is destroyed (health 0)
     bool totaledBlocked = false;// ... in free roam, and we blocked its controls
     double totaledMsg = 0;      // when the free roam "totaled" message was last shown
+    bool wearLogged = false;    // last logged WearApplies
 } s;
 
 bool Fresh() { return Now() - s.seen < 0.5; }
@@ -214,6 +218,14 @@ bool RevMatched(uint8_t* eng, int gear) {
     return diffRpm <= g_cfg.revMatchRpm;
 }
 
+// The drag race "missed shift": gearbox crunch and an exhaust pop.
+void MissShift(uint8_t* eng) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    if (!owner) return;
+    void* ev = ((void*(__cdecl*)(size_t))kEventNew)(0x10);
+    if (ev) ((void(__thiscall*)(void*, void*, float))kEMissShift)(ev, Field<void*>(owner, 8), 0.0f);
+}
+
 void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     void* trans = eng + kER_Transmission;
     int cur = TransGear(trans);
@@ -243,7 +255,10 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     if (refuse) {
         // The stick has left the old gate, so the box is in neutral until the gear goes in.
         if (cur != G_NEUTRAL) TransShift(trans, G_NEUTRAL);
-        if (s.refused != want) Log("shift: %s refused (%s)", GearName(want), refuse);
+        if (s.refused != want) {
+            Log("shift: %s refused (%s)", GearName(want), refuse);
+            if (g_cfg.grind && refuse[0] == 'c') MissShift(eng);   // "clutch not pressed"
+        }
         s.refused = want;
     } else if (TransShift(trans, want)) {
         // With the clutch already down, the game's simulated clutch kick is redundant.
@@ -588,7 +603,13 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
     ClutchSimulate(eng, dT);
     if (eng != s.engine) return;
     PlayerEngineStep(eng);
-    if (WearApplies(eng)) UpdateWear(eng, dT);
+    bool wear = WearApplies(eng);
+    if (wear != s.wearLogged) {
+        s.wearLogged = wear;
+        Log("engine wear %s (setting %d, input fresh %d, automatic %d, drag %d)", wear ? "active" : "inactive",
+            g_cfg.engineWear, Fresh(), s.autoShift, IsDragster(eng));
+    }
+    if (wear) UpdateWear(eng, dT);
 }
 
 // The overlay is drawn after the game's HUD, so the VR mod puts it on its HUD panel.
@@ -748,6 +769,7 @@ bool Game_Install() {
     }
     Hud_Install();
     Physics_Install();
+    Vfx_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());

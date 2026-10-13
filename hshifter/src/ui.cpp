@@ -208,7 +208,8 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 
 // --- tuning menu -------------------------------------------------------------------------
 // BIND items hold a binding list (std::string in g_cfg). Right adds a binding: the next key,
-// button, hat direction or pedal pressed is appended. Left removes the last one.
+// button, hat direction or pedal pressed is appended. Left unbinds the action (the menu's own
+// controls go back to their defaults, so they can't be lost).
 // LINK switches between the main page and the fine tuning page (BF_TUNING items).
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4 };
@@ -233,10 +234,12 @@ const Item kItems[] = {
     {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "DAMAGE AND HUD", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "SHIFTER AND PHYSICS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
     {LINK, "Fine tuning", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -268,6 +271,7 @@ const Item kItems[] = {
     {HEADER, "CAR DAMAGE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", BF_TUNING},
     {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", BF_TUNING},
+    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.0f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
     {HEADER, "PHYSICS (1 = GAME DEFAULT)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {NUMBER, "Stability control", "Physics", "Stability", &g_cfg.stability, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
@@ -407,19 +411,22 @@ void FinishCapture(const std::string& binding, int axisRest) {
     Log("ui: %s = %s", it.key, field.c_str());
 }
 
-void RemoveLast(const Item& it) {
+// The same field in a default Config.
+const std::string& DefaultBinding(const Item& it) {
+    static const Config def;
+    return *(const std::string*)((const char*)&def + ((const char*)it.value - (const char*)&g_cfg));
+}
+
+void Unbind(const Item& it) {
     std::string& field = *(std::string*)it.value;
-    std::vector<std::string> list = SplitBindings(field);
-    if (list.empty()) return;
-    if ((it.flags & BF_REQUIRED) && list.size() == 1) {
-        Note(std::string(it.label) + " needs a binding: add another one first");
+    std::string value = (it.flags & BF_REQUIRED) ? DefaultBinding(it) : std::string();
+    if (SplitBindings(field) == SplitBindings(value)) {
+        Note(std::string(it.label) + (value.empty() ? ": nothing to unbind" : ": already the default"));
         return;
     }
-    std::string gone = list.back();
-    list.pop_back();
-    Input_SetBinding(field, JoinBindings(list));
+    Input_SetBinding(field, value);
     s_menu.dirty = true;
-    Note(std::string(it.label) + ": removed " + gone);
+    Note(std::string(it.label) + (value.empty() ? ": unbound" : ": back to default"));
     Log("ui: %s = %s", it.key, field.c_str());
 }
 
@@ -441,7 +448,7 @@ void Change(int index, int dir) {
         return;
     } else if (it.kind == BIND) {
         if (dir > 0) StartCapture(index);
-        else RemoveLast(it);
+        else Unbind(it);
         return;
     } else {
         return;
@@ -550,7 +557,9 @@ void DrawMenu(int W, int H, float k) {
     const Item& cur = kItems[s_menu.sel];
     std::string hint;
     if (s_menu.capture >= 0) hint = MenuKeyName() + ": cancel";
-    else if (cur.kind == BIND) hint = "Right: add binding    Left: remove last    " + MenuKeyName() + ": close";
+    else if (cur.kind == BIND)
+        hint = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " +
+               MenuKeyName() + ": close";
     else if (cur.kind == LINK) hint = "Left/Right: " + std::string(s_menu.page == 0 ? "open" : "back") + "    " + MenuKeyName() + ": close";
     else hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
     bool noted = Now() - s_menu.noteTime < 3.0 && s_menu.capture < 0;

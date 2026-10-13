@@ -113,6 +113,7 @@ void LoadConfig() {
     c.revMatchRpm = Clamp(ReadFloat("Shifter", "RevMatchRPM", 0.0f), 0.0f, 3000.0f);
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
+    c.grind = ReadInt("Shifter", "Grind", 1) != 0;
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
@@ -130,6 +131,8 @@ void LoadConfig() {
     c.damage = ReadInt("Damage", "Damage", 1) != 0;
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
+    c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
+    c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.0f, 1.0f);
 
     c.hudMeter = ReadInt("HUD", "Meter", 1) != 0;
     c.speedbreaker = ReadInt("HUD", "Speedbreaker", 0) != 0;
