@@ -32,6 +32,7 @@
 #include "input.h"
 #include "ui.h"
 #include "hud.h"
+#include "physics.h"
 #include <math.h>
 
 namespace {
@@ -668,6 +669,14 @@ HudStatus Game_Hud() {
     return h;
 }
 
+void* Game_PlayerInterface(void* handle) {
+    if (!s.engine || Now() - s.simSeen > 0.5) return nullptr;
+    uint8_t* owner = Field<uint8_t*>(s.engine, kER_Owner);
+    if (!owner || !handle) return owner;
+    void* list = Field<void*>(owner, 4);
+    return list ? ((IListFind_t)kIListFind)(list, handle) : nullptr;
+}
+
 void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
 
 bool Game_Install() {
@@ -738,6 +747,7 @@ bool Game_Install() {
         }
     }
     Hud_Install();
+    Physics_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());

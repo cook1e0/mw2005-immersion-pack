@@ -86,6 +86,16 @@ struct Config {
     float hudWarn = 0.75f;          // heat or damage at which the meter flashes
     float hudDepth = 1.0f;          // overlay z offset; FEng draws in ascending z, so + is on top
 
+    // [Physics] the player car's driving aids, grip and gravity (1 = the game's own)
+    bool  physics = true;
+    float tractionControl = 0.25f;  // traction control strength
+    float stability = 0.25f;        // yaw control and drift stabiliser strength
+    float driftAssist = 0.5f;       // how much rear grip is lowered in a slide
+    float grip = 1.0f;              // overall tire grip
+    float gripBalance = 0.0f;       // + moves grip to the front axle, - to the rear
+    float gravity = 1.0f;
+    bool  gravityAll = false;       // gravity applies to every car, not only the player's
+
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD
     float gaugeX = 0.85f;           // gauge centre, fraction of the screen

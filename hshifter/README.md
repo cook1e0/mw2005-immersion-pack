@@ -19,6 +19,9 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Damage / heat meter**: the speedbreaker meter next to the tachometer shows car damage, with a
   car icon instead of the clock. Engine heat above 50% fills the same bar in red, and the meter
   pulses at 75% heat or damage. The speedbreaker itself is off by default.
+- **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
+  drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
+  front/rear grip balance and gravity. Only your car is affected (gravity optionally all cars).
 - **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
@@ -57,6 +60,8 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Engine] Totaled` | 0 = a blown engine shows "Blown Engine" instead of totaling the car |
 | `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size, damage per hit |
 | `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
+| `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
+| `[Physics] Grip / GripBalance / Gravity` | tire grip, grip moved to front (+) or rear (-), gravity in g |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
 
@@ -111,3 +116,8 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
   speedbreaker charge. The heat overlay is a clone of the meter's masked arc
   (`FEMultiImage::Clone`) added to the HUD package next to it; the clock icon gets the
   `COPS_ICON` texture. `LocalPlayer::CanDoGameBreaker` (0x6EDC90) turns the speedbreaker off.
+- Physics sliders: `SuspensionRacer::OnTaskSimulate` (0x6B1DD0) is detoured. For the player's
+  car, `Tweak_GlobalGripScale`, `Tweak_TractionFowardSlip` (traction control), `MaxYawBonus` and
+  `DriftStabilizerTable` (stability), `DriftRearFrictionTable` (drift assist) and the tires'
+  `GRIP_SCALE` per axle are swapped for the slider values during the call and restored after.
+  Gravity: `RigidBody::OnBeginFrame` (0x6A7050) scales `rigidbodyspecs.GRAVITY` the same way.

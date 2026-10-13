@@ -138,6 +138,15 @@ void LoadConfig() {
     c.hudWarn = Clamp(ReadFloat("HUD", "Warn", c.hudWarn), 0.0f, 1.0f);
     c.hudDepth = ReadFloat("HUD", "Depth", c.hudDepth);
 
+    c.physics = ReadInt("Physics", "Physics", 1) != 0;
+    c.tractionControl = Clamp(ReadFloat("Physics", "TractionControl", c.tractionControl), 0.0f, 1.0f);
+    c.stability = Clamp(ReadFloat("Physics", "Stability", c.stability), 0.0f, 1.0f);
+    c.driftAssist = Clamp(ReadFloat("Physics", "DriftAssist", c.driftAssist), 0.0f, 1.0f);
+    c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
+    c.gripBalance = Clamp(ReadFloat("Physics", "GripBalance", c.gripBalance), -0.5f, 0.5f);
+    c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
+    c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
+
     c.gauge = ReadInt("UI", "Gauge", 0) != 0;
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);
     c.gaugeY = Clamp(ReadFloat("UI", "GaugeY", c.gaugeY), 0.0f, 1.0f);

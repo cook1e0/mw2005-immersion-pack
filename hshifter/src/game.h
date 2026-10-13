@@ -23,5 +23,9 @@ struct HudStatus {
 };
 HudStatus Game_Hud();
 
+// The local player's car as a COM object: the interface for `handle` (an _IHandle function's
+// address), or the car's ISimable for nullptr. Null when not driving. Game thread only.
+void* Game_PlayerInterface(void* handle);
+
 // Blocks the car's controls while the tuning menu is open. Game thread only.
 void Game_SetMenuOpen(bool open);
