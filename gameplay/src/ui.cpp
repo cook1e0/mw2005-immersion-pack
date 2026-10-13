@@ -214,9 +214,10 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // controls go back to their defaults, so they can't be lost).
 // Pages: the main page lists the categories (LINK items); each PAGE item starts a page and holds
 // the items after it, up to the next PAGE. A LINK opens the page whose title is in its `section`.
+// RESET puts the page's settings (not its bindings) back to their defaults, after a second press.
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
-enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE };
+enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16 };
 
 // Force feedback settings: the FFB mod's (dinput8.dll) [FFB] values, changed live through its
@@ -272,6 +273,7 @@ struct Item {
 #define HEADER_(label) {HEADER, label, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define LINK_(label, page) {LINK, label, page, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define BACK_ LINK_("< Back", kMainPage)
+#define RESET_ {RESET, "Reset this page to defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 
 constexpr const char* kMainPage = "TUNING";
 
@@ -305,12 +307,14 @@ const Item kItems[] = {
     BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
+    RESET_,
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
     {NUMBER, "Strength", "FFB", "Gain", &s_ffb[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ffb[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ffb[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
     BACK_,
@@ -327,6 +331,7 @@ const Item kItems[] = {
     {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
     {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
+    RESET_,
 
     PAGE_("GEAR BINDINGS"),
     BACK_,
@@ -354,6 +359,7 @@ const Item kItems[] = {
     {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat", 0},
     {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Engine smoke from", "Engine", "SmokeFrom", &g_cfg.heatSmokeFrom, 0.1f, 1.0f, 0.05f, 100, "%.0f%% heat", 0},
+    RESET_,
 
     PAGE_("DAMAGE AND TIRES"),
     BACK_,
@@ -369,6 +375,7 @@ const Item kItems[] = {
     HEADER_("POPPED TIRES"),
     {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
+    RESET_,
 
     PAGE_("PHYSICS"),
     BACK_,
@@ -382,6 +389,7 @@ const Item kItems[] = {
     {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
+    RESET_,
 
     PAGE_("TRAFFIC AND HUD"),
     BACK_,
@@ -391,6 +399,7 @@ const Item kItems[] = {
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
+    RESET_,
 
     PAGE_("MENU AND TESTING"),
     BACK_,
@@ -424,6 +433,8 @@ struct {
     double captureStart = 0;
     std::string note;               // short feedback under the list
     double noteTime = -1e9;
+    int resetArmed = -1;            // RESET item pressed once (press again to confirm)
+    double resetTime = 0;
 } s_menu;
 
 // Sound moments for a missed shift: the totaled car's engine failure, and the two the engine
@@ -549,6 +560,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
     if (it.kind == ACTION) return "Go";
+    if (it.kind == RESET) return s_menu.resetArmed >= 0 && Now() - s_menu.resetTime < 3.0 ? "Sure?" : "Reset";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
     if (it.kind == BIND) {
         if (index == s_menu.capture) return it.flags & BF_STEER ? "Turn the wheel..." : "Press a key, button or pedal...";
@@ -643,6 +655,71 @@ void Unbind(const Item& it) {
     Log("ui: %s = %s", it.key, field.c_str());
 }
 
+// The default of a setting, from a default Config (or the FFB mod's defaults). False for items
+// without one (bindings, actions, per-mod values outside g_cfg).
+bool DefaultOf(const Item& it, float* f, bool* b, uint32_t* u) {
+    static const Config def;
+    const char* base = (const char*)&g_cfg;
+    const char* p = (const char*)it.value;
+    if (it.kind == NUMBER) {
+        static const float ffbDefaults[] = {1.0f, 0.15f, 0.8f};
+        int ffb = FfbIndex(it.value);
+        if (ffb >= 0 && ffb < 3) {
+            *f = ffbDefaults[ffb];
+            return true;
+        }
+    }
+    if (!p || p < base || p >= base + sizeof(Config)) return false;
+    const char* d = (const char*)&def + (p - base);
+    if (it.kind == NUMBER) *f = *(const float*)d;
+    else if (it.kind == TOGGLE) *b = *(const bool*)d;
+    else if (it.kind == SOUND) *u = *(const uint32_t*)d;
+    else return false;
+    return true;
+}
+
+// The setting differs from its default.
+bool Changed(const Item& it) {
+    float f;
+    bool b;
+    uint32_t u;
+    if (!DefaultOf(it, &f, &b, &u)) return false;
+    if (it.kind == NUMBER) return fabsf(*(float*)it.value - f) > it.step * 0.25f;
+    if (it.kind == TOGGLE) return *(bool*)it.value != b;
+    return *(uint32_t*)it.value != u;
+}
+
+void AfterNumberChange(const Item& it);
+
+// Puts one setting back to its default. True if it changed.
+bool ResetItem(const Item& it) {
+    float f;
+    bool b;
+    uint32_t u;
+    if (!Changed(it) || !DefaultOf(it, &f, &b, &u)) return false;
+    if (it.kind == NUMBER) {
+        int ffb = FfbIndex(it.value);
+        if (ffb >= 0 && !FfbSetting(ffb)) return false;
+        *(float*)it.value = f;
+        AfterNumberChange(it);
+    } else if (it.kind == TOGGLE) {
+        *(bool*)it.value = b;
+    } else {
+        *(uint32_t*)it.value = u;
+    }
+    s_menu.dirty = true;
+    return true;
+}
+
+// Every setting on the page holding item `index`.
+int ResetPage(int index) {
+    int page = index;
+    while (page > 0 && kItems[page].kind != PAGE) page--;
+    int n = 0;
+    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) n += ResetItem(kItems[i]);
+    return n;
+}
+
 // After a number changed (bindings or mouse): pass FFB values on, keep pairs consistent.
 void AfterNumberChange(const Item& it) {
     int ffb = FfbIndex(it.value);
@@ -691,6 +768,23 @@ void Change(int index, int dir) {
         Game_PopTires();
         Note("Tires popped (repair: safehouse, race restart or DebugRepair)");
         return;
+    } else if (it.kind == RESET) {
+        if (dir < 0) {
+            s_menu.resetArmed = -1;
+            GoBack();
+            return;
+        }
+        if (s_menu.resetArmed != index || Now() - s_menu.resetTime > 3.0) {
+            s_menu.resetArmed = index;
+            s_menu.resetTime = Now();
+            Note("Press again to reset this page's settings (bindings are kept)");
+            return;
+        }
+        s_menu.resetArmed = -1;
+        int n = ResetPage(index);
+        Note(n ? std::to_string(n) + (n == 1 ? " setting" : " settings") + " back to default" : "Already at the defaults");
+        Log("ui: page reset, %d settings", n);
+        return;
     } else if (it.kind == CAR) {
         if (!*Physics_Car()) return;
         Physics_SetOwnSettings(!Physics_OwnSettings());
@@ -707,7 +801,7 @@ void Change(int index, int dir) {
 
 void Save() {
     for (const Item& it : kItems) {
-        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR || it.kind == ACTION || it.kind == PAGE) continue;
+        if (it.kind == HEADER || it.kind == LINK || it.kind == CAR || it.kind == ACTION || it.kind == PAGE || it.kind == RESET) continue;
         char buf[32];
         std::string text;
         if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
@@ -967,6 +1061,7 @@ const struct {
 const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
+    if (it.kind == RESET) return "Puts every setting on this page back to its default. Bindings are kept.";
     if (it.kind == LINK) return it.section == kMainPage ? "Back to the categories." : "";
     for (auto& h : kHelp)
         if (h.value == it.value) return h.text;
@@ -976,25 +1071,18 @@ const char* HelpText(const Item& it) {
 
 // "Default: ..." for settings with a default in Config (or the FFB mod's defaults).
 std::string DefaultText(const Item& it) {
-    static const Config def;
-    if (it.kind != NUMBER && it.kind != TOGGLE) return "";
-    const char* base = (const char*)&g_cfg;
-    const char* p = (const char*)it.value;
-    float ffbDefaults[] = {1.0f, 0.15f, 0.8f};
-    int ffb = FfbIndex(it.value);
+    float f;
+    bool b;
+    uint32_t u;
+    if (!DefaultOf(it, &f, &b, &u)) return "";
     char buf[64];
     if (it.kind == TOGGLE) {
-        if (p < base || p >= base + sizeof(Config)) return "";
-        bool v = *(const bool*)((const char*)&def + (p - base));
-        if (it.value == &g_cfg.sequential) return v ? "Default: Sequential" : "Default: H-pattern";
-        return v ? "Default: On" : "Default: Off";
+        if (it.value == &g_cfg.sequential) return b ? "Default: Sequential" : "Default: H-pattern";
+        return b ? "Default: On" : "Default: Off";
     }
-    float v;
-    if (ffb >= 0 && ffb < 3) v = ffbDefaults[ffb];
-    else if (p >= base && p < base + sizeof(Config)) v = *(const float*)((const char*)&def + (p - base));
-    else return "";
-    if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Default: Off";
-    snprintf(buf, sizeof(buf), it.fmt, v * it.show);
+    if (it.kind == SOUND) return "Default: " + SoundName(u);
+    if (it.value == &g_cfg.revMatchRpm && f <= 0.0f) return "Default: Off";
+    snprintf(buf, sizeof(buf), it.fmt, f * it.show);
     return std::string("Default: ") + buf;
 }
 
@@ -1320,6 +1408,16 @@ void ValueWidget(int i, float w, float k) {
             }
             break;
         }
+        case RESET: {
+            bool armed = s_menu.resetArmed == i && Now() - s_menu.resetTime < 3.0;
+            if (armed) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.75f, 0.25f, 0.1f, 1.0f));
+            if (ImGui::Button(armed ? "Click again to reset" : "Reset", ImVec2(w * (armed ? 0.75f : 0.4f), 0))) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            if (armed) ImGui::PopStyleColor();
+            break;
+        }
         case ACTION:
             if (ImGui::Button("Go", ImVec2(w * 0.4f, 0))) {
                 s_menu.sel = i;
@@ -1370,6 +1468,26 @@ void DrawPage(int page, bool focused, float k) {
         }
         float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) / 2;
         dl->AddText(ImVec2(p0.x + 12 * k, ty), sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
+        if (Changed(it)) {
+            // Reset to default: a circular arrow just left of the value.
+            float s = ImGui::GetFrameHeight();
+            ImVec2 b0(p0.x + fullW - valueW - 12 * k - s, p0.y + (rowH - s) / 2);
+            ImGui::SetCursorScreenPos(b0);
+            if (ImGui::InvisibleButton("reset", ImVec2(s, s))) {
+                s_menu.sel = i;
+                if (ResetItem(it)) Note(std::string(it.label) + ": back to default");
+            }
+            bool hot = ImGui::IsItemHovered();
+            if (hot) ImGui::SetTooltip("Reset to default (%s)", DefaultText(it).substr(9).c_str());
+            ImU32 col = hot ? kAccent : IM_COL32(150, 150, 160, 255);
+            ImVec2 c(b0.x + s / 2, b0.y + s / 2);
+            float r = s * 0.28f, th = std::max(1.5f, 1.6f * k);
+            dl->PathArcTo(c, r, 3.14159f * 0.15f, 3.14159f * 1.75f, 16);
+            dl->PathStroke(col, 0, th);
+            ImVec2 tip(c.x + r * cosf(3.14159f * 0.15f), c.y + r * sinf(3.14159f * 0.15f));
+            float a = s * 0.16f;
+            dl->AddTriangleFilled(ImVec2(tip.x - a, tip.y - a * 0.2f), ImVec2(tip.x + a, tip.y - a * 0.2f), ImVec2(tip.x, tip.y + a), col);
+        }
         ImGui::SetCursorScreenPos(ImVec2(p0.x + fullW - valueW - 6 * k, p0.y + (rowH - ImGui::GetFrameHeight()) / 2));
         ValueWidget(i, valueW, k);
         ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
@@ -1504,7 +1622,7 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
         else if (onMain) keys = "Up/Down: category    Right: open    " + m + ": close";
         else if (cur.kind == LINK) keys = "Left/Right: back to the categories    " + m + ": close";
         else if (cur.kind == BIND) keys = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " + m + ": close";
-        else if (cur.kind == ACTION) keys = "Right: do it    Left: back    " + m + ": close";
+        else if (cur.kind == ACTION || cur.kind == RESET) keys = "Right: do it    Left: back    " + m + ": close";
         else keys = "Up/Down: select    Left/Right: change    " + m + ": close";
         ImGui::PushFont(s_im.small);
         ImGui::TextDisabled("%s", keys.c_str());
