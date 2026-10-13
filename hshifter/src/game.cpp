@@ -168,6 +168,7 @@ struct {
     float pedal = 0.0f;
     int lastGear = -100;        // gear we last left the gearbox in (-100 = unknown)
     int refused = -100;         // gear we last refused to engage (log once)
+    bool missed = false;        // ... for lack of clutch: it stays refused until the stick leaves the gate
     bool forcing = false;       // clutch state is currently ours
     uint32_t toggles = 0;
     uint32_t ups = 0, downs = 0;    // ShiftUp / ShiftDown presses seen
@@ -275,8 +276,10 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     }
     if (want == cur) {
         s.refused = -100;
+        s.missed = false;
         return;
     }
+    if (want != s.refused) s.missed = false;
 
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
     const char* refuse = nullptr;
@@ -285,6 +288,8 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
             refuse = "clutch not pressed";
         else if (g_cfg.blockWrongDirection && WrongDirection(eng, want))
             refuse = "car rolling the other way";
+        else if (s.missed && g_cfg.reselectAfterMiss && !g_cfg.latching)   // a latched key can't be re-selected
+            refuse = "missed shift, select the gear again";
     }
     if (refuse) {
         // The stick has left the old gate, so the box is in neutral until the gear goes in.
@@ -293,12 +298,14 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
             Log("shift: %s refused (%s)", GearName(want), refuse);
             if (g_cfg.grind && refuse[0] == 'c') MissShift(eng);   // "clutch not pressed"
         }
+        if (refuse[0] == 'c') s.missed = true;
         s.refused = want;
     } else if (TransShift(trans, want)) {
         // With the clutch already down, the game's simulated clutch kick is redundant.
         if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
         Log("shift: %s -> %s (clutch %.2f)", GearName(cur), GearName(want), in.clutchPedal);
         s.refused = -100;
+        s.missed = false;
     }
     s.lastGear = TransGear(trans);
 }

@@ -60,6 +60,7 @@ struct Config {
     float shiftPedal = 0.60f;       // pedal travel that counts as "clutch pressed"
     float revMatchRpm = 0.0f;       // >0: allow clutchless shifts within this many rpm
     bool  blockWrongDirection = true; // no reverse while rolling forward (and vice versa)
+    bool  reselectAfterMiss = true; // a gear refused for lack of clutch needs the stick out of its gate and back
     bool  keepShiftDelay = false;   // keep the game's shift delay even when the clutch was used
     bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
     uint32_t grindSound = 0xBC2DFA2F; // ... with this sound moment (the totaled car's engine failure), 0 = none

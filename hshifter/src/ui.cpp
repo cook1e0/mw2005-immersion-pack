@@ -267,6 +267,7 @@ const Item kItems[] = {
     {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Re-select gear after a miss", "Shifter", "ReselectAfterMiss", &g_cfg.reselectAfterMiss, 0, 0, 0, 0, nullptr, 0},
     {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},

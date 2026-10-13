@@ -115,6 +115,7 @@ void LoadConfig() {
     c.shiftPedal = Clamp(ReadFloat("Shifter", "ClutchToShift", c.shiftPedal), 0.0f, 1.0f);
     c.revMatchRpm = Clamp(ReadFloat("Shifter", "RevMatchRPM", 0.0f), 0.0f, 3000.0f);
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
+    c.reselectAfterMiss = ReadInt("Shifter", "ReselectAfterMiss", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
     c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xBC2DFA2F").c_str(), nullptr, 0);
