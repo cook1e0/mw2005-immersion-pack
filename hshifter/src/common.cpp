@@ -122,6 +122,7 @@ void LoadConfig() {
     c.coolDown = Clamp(ReadFloat("Engine", "CoolDown", c.coolDown), 0.0f, 100.0f);
     c.powerLossStart = Clamp(ReadFloat("Engine", "PowerLossStart", c.powerLossStart), 0.0f, 0.99f);
     c.powerLoss = Clamp(ReadFloat("Engine", "PowerLoss", c.powerLoss), 0.0f, 1.0f);
+    c.totaled = ReadInt("Engine", "Totaled", 1) != 0;
     c.debugBlow = ReadStr("Engine", "DebugBlow", "");
     c.debugRepair = ReadStr("Engine", "DebugRepair", "");
 

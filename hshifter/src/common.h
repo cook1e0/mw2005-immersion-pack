@@ -68,6 +68,7 @@ struct Config {
     float coolDown = 0.10f;         // heat lost per second below the redline
     float powerLossStart = 0.5f;    // heat where the engine starts losing power
     float powerLoss = 0.5f;         // fraction of torque lost at full heat
+    bool  totaled = true;           // a blown engine totals the car (crash camera, "Totaled")
     std::string debugBlow;          // binding that blows the engine (testing)
     std::string debugRepair;        // binding that repairs it (testing)
 

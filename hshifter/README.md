@@ -14,8 +14,8 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Engine wear** (optional, on by default): the drag race engine model in every mode. There's no
   rev limiter, so the engine can be revved past the redline. Above the redline it heats up, a hot
   engine loses power, and at full heat it blows. A blown engine is dead: in free roam, use *Jump to
-  Safe House* from the pause menu; in a race you're out ("Blown Engine") and have to restart; in a
-  pursuit you get busted. Only starting or restarting an event (or a new car from the safehouse)
+  Safe House* from the pause menu; in a race the car is totaled (crash camera, "Totaled", as when
+  you crash in a drag race) and you have to restart; in a pursuit you get busted. Only starting or restarting an event (or a new car from the safehouse)
   repairs it; the car reset doesn't.
   Only with manual shifting (H-shifter or the game's Manual transmission).
 - Works next to the force feedback (`dinput8.dll`) and VR (`d3d9.dll`) mods. This one loads as

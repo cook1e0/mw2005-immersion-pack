@@ -49,6 +49,9 @@ constexpr uintptr_t kGetEngineTorque = 0x691D40;
 constexpr uintptr_t kSlotRepair = 0x8AB6B4;         // EngineRacer IEngineDamage vtable: void Repair()
 constexpr uintptr_t kRepair = 0x691AA0;
 constexpr uintptr_t kBlow = 0x6A06E0;               // bool EngineRacer::Blow() (IEngineDamage this)
+constexpr uintptr_t kIDamageableHandle = 0x405000;  // IDamageable::_IHandle; vtbl[4] ResetDamage, vtbl[7] Destroy
+constexpr uintptr_t kDestroy = 0x69C540;            // void DamageVehicle::Destroy() (IDamageable this)
+constexpr uintptr_t kResetDamageRacer = 0x69C930;   // void DamageRacer::ResetDamage()
 constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
 constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
 constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
@@ -303,9 +306,28 @@ bool InSpeedBreaker(uint8_t* eng) {
     return player && ((Bool_t)Vtbl(player)[0x40 / 4])(player);
 }
 
+void* PlayerDamageable(uint8_t* eng) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    void* list = owner ? Field<void*>(owner, 4) : nullptr;
+    void* damage = list ? ((IListFind_t)kIListFind)(list, (void*)kIDamageableHandle) : nullptr;
+    // Only the racer damage model we know (DamageRacer / DamageVehicle).
+    return damage && Vtbl(damage)[7] == (void*)kDestroy && Vtbl(damage)[4] == (void*)kResetDamageRacer ? damage : nullptr;
+}
+
+// Totaled: the engine is marked blown without EEngineBlown, and the car is destroyed the way a
+// drag race crash does it (IDamageable::Destroy -> EVehicleDestroyed: the racer is totaled,
+// controls blocked, totaled camera and race-over message). Otherwise the game's own Blow.
 void BlowEngine(uint8_t* eng) {
     s.heat = 1.0f;
-    if (((Bool_t)kBlow)(eng + kER_EngineDamage)) Log("engine: BLOWN");
+    if (IsBlown(eng)) return;
+    void* damage = g_cfg.totaled ? PlayerDamageable(eng) : nullptr;
+    if (damage) {
+        Field<bool>(eng, kER_Blown) = true;
+        ((Void_t)kDestroy)(damage);
+        Log("engine: BLOWN (car totaled)");
+    } else if (((Bool_t)kBlow)(eng + kER_EngineDamage)) {
+        Log("engine: BLOWN");
+    }
 }
 
 void* PlayerInput(uint8_t* eng) {
@@ -345,7 +367,9 @@ void PlayerEngineStep(uint8_t* eng) {
     if (in.repairs != s.repairs) {
         s.repairs = in.repairs;
         Log("engine: debug repair");
-        ((Void_t)kRepair)(eng + kER_EngineDamage);
+        void* damage = PlayerDamageable(eng);
+        if (damage) ((Void_t)Vtbl(damage)[4])(damage);   // ResetDamage, repairs the engine too
+        else ((Void_t)kRepair)(eng + kER_EngineDamage);
         BlockPlayerInput(eng, false);
         s.heat = 0.0f;
         s.heatStep = 0;
@@ -548,7 +572,9 @@ bool Game_Install() {
              && Expect(kUseRevLimiter, {0xB0, 0x01, 0xC3})
              && Expect(kGetEngineTorque, {0x8B, 0x44, 0x24, 0x04, 0x56, 0x8B, 0xF1})
              && Expect(kRepair, {0x33, 0xC0, 0x89, 0x81, 0x30, 0x01, 0x00, 0x00, 0x88, 0x81, 0x2C, 0x01, 0x00, 0x00})
-             && Expect(kBlow + 0x19, {0x8A, 0x86, 0x2C, 0x01, 0x00, 0x00});
+             && Expect(kBlow + 0x19, {0x8A, 0x86, 0x2C, 0x01, 0x00, 0x00})
+             && Expect(kDestroy + 0x19, {0xD9, 0x46, 0x3C})
+             && Expect(kResetDamageRacer, {0x56, 0x8B, 0xF1, 0xE8});
     if (!wear) {
         Log("engine wear unavailable");
         g_cfg.engineWear = false;
