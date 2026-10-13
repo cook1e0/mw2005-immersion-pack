@@ -4,7 +4,7 @@ Native OpenXR VR mod for *Need for Speed: Most Wanted* (2005, PC) with full ster
 
 ## Requirements
 
-- `speed.exe` **v1.3** (6,029,312 bytes)
+- `speed.exe` **v1.3**
 - An OpenXR runtime with **32-bit** support. Virtual Desktop (VDXR) is tested.
 
 ## Install
@@ -38,13 +38,12 @@ The game window shows a stabilised version of the headset view, including the fl
 
 - Rain and some post-processing effects run slightly faster than normal, because the scene is rendered twice per frame.
 - The rear-view mirror is part of the flat HUD panel.
-- The crash camera of a totaled car (drag race crashes) is skipped in the headset; the view stays in the car.
 
 ## How it works
 
 `d3d9.dll` is a proxy that upgrades the game's device to D3D9Ex and shares the eye images with a D3D11 device that submits them to OpenXR. No OpenXR loader DLL is needed.
 
-Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Before each run, the player camera moves to that eye's pose, and the view's matrices are rebuilt with the headset's FOV. Culling, shadows, reflections and post-FX are therefore correct per eye. Everything drawn after the scene (HUD, menus) is redirected to a transparent layer shown as a floating panel.
+Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Before each run, the player camera moves to that eye's pose, and the view's matrices are rebuilt with the headset's FOV. Culling, shadows, reflections and post-FX are therefore correct per eye. Everything drawn after the scene (HUD, menus) is redirected to a transparent layer shown as a floating panel. The totaled crash camera is skipped so the view stays in the car.
 
 ## Building
 

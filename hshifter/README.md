@@ -11,15 +11,11 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Clutch required to shift** (optional): moving the stick into a gate without the clutch leaves
   the box in neutral until you press the clutch. Optional rev-matched clutchless shifts.
 - Reverse is refused while rolling forward (and forward gears while rolling backward).
-- **Engine wear** (optional, on by default): the drag race engine model in every mode. There's no
-  rev limiter, so the engine can be revved past the redline. Above the redline it heats up, a hot
-  engine loses power, and at full heat it blows. A blown engine is dead: in free roam, use *Jump to
-  Safe House* from the pause menu; in a race the car is totaled (crash camera, "Totaled", as when
-  you crash in a drag race) and you have to restart; in a pursuit you get busted. Only starting or restarting an event (or a new car from the safehouse)
-  repairs it; the car reset doesn't.
-  Only with manual shifting (H-shifter or the game's Manual transmission).
-- Works next to the force feedback (`dinput8.dll`) and VR (`d3d9.dll`) mods. This one loads as
-  `dsound.dll`.
+- **Engine wear** (optional): no rev limiter. Above the redline the engine heats up, loses power
+  when hot, and blows at full heat. A blown engine totals the car in a race; in free roam, use
+  *Jump to Safe House* from the pause menu. Manual shifting only.
+- **Tuning menu**: F4 while driving. Engine wear, shifter and clutch settings, changed live and
+  saved to the ini. Works with a wheel's d-pad and shows on the HUD panel in VR.
 
 ## Install
 
@@ -35,9 +31,8 @@ It asks you to press the clutch and put the stick in each gear, and writes the b
 `nfsmw_hshifter.ini`. `hshiftertool list` and `hshiftertool monitor` show the attached controllers
 and live input values. To uninstall, delete `dsound.dll`.
 
-In game, play as usual. The in-game Automatic/Manual setting doesn't matter while the shifter is
-active. `Toggle=` (e.g. `key:F9`) switches between the H-shifter and the game's sequential
-shifting while driving, and the clutch keeps working either way.
+The game's Automatic/Manual setting doesn't matter while the shifter is active. `Toggle=` (e.g.
+`key:F9`) switches between the H-shifter and the game's sequential shifting while driving.
 
 ## Settings
 
@@ -53,6 +48,8 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Engine] EngineWear / RevLimiter` | engine heat and blow-ups on/off; keep the rev limiter |
 | `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it |
 | `[Engine] PowerLossStart / PowerLoss` | heat where power starts dropping, and how much is lost at full heat |
+| `[Engine] Totaled` | 0 = a blown engine shows "Blown Engine" instead of totaling the car |
+| `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
 
 Binding syntax: `joy0:b12` (button), `joy0:s0` / `joy0:-rz` (axis), `joy0:pov0:up` (hat),
@@ -76,19 +73,17 @@ code doesn't match.
   `ClutchStiffness` (0x8F8D9C). That stiffness is scaled by the pedal for the duration of the call.
   With the pedal up and engine and gearbox speeds matched, the clutch is handed back to the game
   fully engaged.
-- Engine wear follows `EngineDragster::ComputeEngineHeat` (heat frozen at the start line and in
-  the speedbreaker) but runs on the player's `EngineRacer`, from the same `OnTaskSimulate` detour.
-  EngineRacer's vtable slots `UseRevLimiter` (0x8AB78C, lifted for the player) and
-  `GetEngineTorque` (0x8AB7A8, power loss) are replaced. At full heat it calls the game's own
-  `IEngineDamage::Blow` (0x6A06E0, on the sub-object at +0x78), which cuts the throttle and fires
-  `EEngineBlown`: the game blocks the player's input and, in a race, knocks the racer out.
-  `Repair` (0x8AB6B4) is wrapped to log who repairs the engine; race restarts do it through
-  `DamageRacer::ResetDamage`. Drag races keep the game's model.
+- Engine wear follows `EngineDragster::ComputeEngineHeat` but runs on the player's `EngineRacer`,
+  from the same `OnTaskSimulate` detour. EngineRacer's vtable slots `UseRevLimiter` (0x8AB78C) and
+  `GetEngineTorque` (0x8AB7A8, power loss) are replaced. At full heat the engine is marked blown
+  and the car destroyed through `IDamageable::Destroy`, as a drag race crash does. Drag races keep
+  the game's model.
+- The tuning menu is drawn after the game's HUD (eDisplayFrame, 0x6E75A7) as untextured quads with
+  a GDI-rasterised font, so the VR mod puts it on its HUD panel.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a
   proxy in the game folder) polled at ~500 Hz on its own thread.
 
-Based on the dbalatoni13/nfsmw decompilation (credits to Brawltendo for `EngineRacer`). Its sources
-and the game's disassembly aren't included here; keep local copies in `re/` (git-ignored).
+Based on the dbalatoni13/nfsmw decompilation (`EngineRacer` by Brawltendo).
 
 ## Building
 
@@ -99,4 +94,4 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
 - Nothing grinds audibly when a shift is refused; the box just stays in neutral.
-- The mod hasn't been tested with a physical wheel/shifter yet (only keyboard bindings in game).
+- Not yet tested with a physical wheel and shifter, only keyboard bindings.

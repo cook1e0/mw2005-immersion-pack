@@ -1,20 +1,15 @@
 # NFS Most Wanted (2005) force feedback mod
 
-Physics-based steering force feedback for `speed.exe` v1.3 (6,029,312 bytes), driven from the
-game's own tyre model instead of its weak built-in effects.
+Physics-based steering force feedback for `speed.exe` v1.3, driven from the game's own tyre model
+instead of its weak built-in effects.
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dinput8.dll` and `nfsmw_ffb.ini` next
-to `speed.exe` (`ffbtool.exe` is optional, see below). `dinput8.dll` can also be renamed to
-`nfsmw_ffb.asi` for an ASI loader; it then redirects the game's `DirectInput8Create` import itself.
-Remove `dinput8.dll` to uninstall.
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
+and copy `dinput8.dll` and `nfsmw_ffb.ini` next to `speed.exe`. `dinput8.dll` also works renamed to
+`nfsmw_ffb.asi` with an ASI loader. To uninstall, delete it.
 
-To build it yourself: MSYS2 with the mingw32 toolchain, `./build.sh` (`./build.sh install` copies
-into `C:\Games\NFSMW`, or `$NFSMW_DIR`).
-
-In game, pick your wheel as the controller as usual. The in-game "rumble/force feedback" option
-does not matter.
+In game, pick your wheel as the controller. The in-game force feedback option doesn't matter.
 
 ## What you feel
 
@@ -59,5 +54,10 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
   damper, friction and sine effects.
 - `tools/ffbtool.exe`: lists controllers. `ffbtool test` nudges the wheel right/left and reports
   which way it moved.
-- `tools/dis.py`, `tools/vtbl.py`: disassembly and vtable dumps with names, using the symbol map
-  in `../vr/re`.
+- `tools/dis.py`, `tools/vtbl.py`: disassembly and vtable dumps with names (need a v1.3 symbol
+  map in `vr/re/`, not included).
+
+## Building
+
+MSYS2 with the mingw32 toolchain: `./build.sh` (`./build.sh install` copies into `C:\Games\NFSMW`,
+or `$NFSMW_DIR`).

@@ -1,8 +1,7 @@
 # NFS Most Wanted (2005) mods
 
 Mods for *Need for Speed: Most Wanted* (2005, PC, `speed.exe` v1.3) aimed at sim-style driving:
-VR, force feedback, and a real H-pattern gearbox with a clutch. Each one loads through a
-different proxy DLL, so they can be installed together or on their own.
+VR, force feedback, and a real H-pattern gearbox with a clutch. Install any of them, or all three.
 
 | Mod | Folder | Loads as | What it does |
 |---|---|---|---|
@@ -13,7 +12,6 @@ different proxy DLL, so they can be installed together or on their own.
 ## Install
 
 1. Download `nfsmw05-mod.zip` from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest).
-   No building needed.
 2. Copy the files of the mods you want next to `speed.exe`:
 
    | Mod | Files |
@@ -26,24 +24,13 @@ different proxy DLL, so they can be installed together or on their own.
    to bind the clutch and each gear.
 4. VR: connect your headset before launching the game.
 
-To uninstall a mod, delete its DLL. Settings are in the `.ini` files, and each mod writes a `.log`
-next to `speed.exe`. Each folder's README covers its settings and how it works.
-
-## Highlights
-
-- **Engine wear** (H-shifter mod): the drag race engine model in every mode. No rev limiter,
-  over-revving heats the engine, a hot engine loses power, and at full heat it blows: the car is
-  totaled in races, dead in free roam until you jump to a safehouse, busted in a pursuit.
-- **Tuning menu** (H-shifter mod, F4 while driving): engine wear, shifter and clutch settings
-  live in game, usable with a wheel's d-pad. Drawn with the HUD, so it is on the VR HUD panel in
-  the headset.
-- In VR, the totaled crash camera is skipped so the view stays in the car.
+To uninstall a mod, delete its DLL. Settings are in the `.ini` files; each mod writes a `.log`
+next to `speed.exe`.
 
 ## Requirements
 
-- `speed.exe` v1.3. Copies with an extra appended PE section (some no-CD / widescreen patched
-  exes) work too: the mods check the code at every hook site, not the file size.
-- VR: an OpenXR runtime with 32-bit support (Virtual Desktop's VDXR is tested).
+- `speed.exe` v1.3
+- VR: an OpenXR runtime with 32-bit support (Virtual Desktop's VDXR is tested)
 
 ## Building
 
@@ -54,7 +41,7 @@ next to `speed.exe`. Each folder's README covers its settings and how it works.
 ## Credits
 
 - [dbalatoni13/nfsmw](https://github.com/dbalatoni13/nfsmw): the decompilation and its v1.3
-  symbol map made the hook points practical to find (and Brawltendo's `EngineRacer` work).
+  symbol map (`EngineRacer` by Brawltendo).
 - [Sh2dow/NFS.CameraMod](https://github.com/Sh2dow/NFS.CameraMod): camera addresses for v1.3.
 
 ## License
