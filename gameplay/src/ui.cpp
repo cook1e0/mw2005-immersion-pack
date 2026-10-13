@@ -14,6 +14,7 @@
 #include "input.h"
 #include "physics.h"
 #include <d3d9.h>
+#include <psapi.h>
 #include <float.h>
 #include "imgui.h"
 #include <math.h>
@@ -221,25 +222,35 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32 };
 
-// Force feedback settings: the FFB mod's (dinput8.dll) [FFB] values, changed live through its
+// Force feedback settings: the FFB mod's [FFB] values, changed live through its
 // NfsmwFfb_Setting export and saved to nfsmw_ffb.ini. Older FFB builds only export the Gain.
 const char* const kFfbKeys[] = {"Gain", "CenterSpring", "SoftLock", "SoftLockAt", "GameController"};
 enum { FFB_GAIN, FFB_CENTER, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_COUNT };
 float s_ffb[FFB_COUNT] = {1.0f, 0.15f, 0.8f, 1.0f, 1.0f};
+
+// The FFB mod is dinput8.dll as a proxy or any name as an .asi: find it by its export.
+static HMODULE FindFfbModule() {
+    HMODULE mods[512];
+    DWORD bytes = 0;
+    if (!EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes)) return GetModuleHandleA("dinput8.dll");
+    for (DWORD k = 0; k < bytes / sizeof(HMODULE) && k < 512; k++)
+        if (GetProcAddress(mods[k], "NfsmwFfb_Gain")) return mods[k];
+    return nullptr;
+}
 
 float* FfbSetting(int i) {
     static float* p[FFB_COUNT];
     static bool looked;
     if (!looked) {
         looked = true;
-        HMODULE m = GetModuleHandleA("dinput8.dll");
+        HMODULE m = FindFfbModule();
         FARPROC get = m ? GetProcAddress(m, "NfsmwFfb_Setting") : nullptr;
         FARPROC gain = m ? GetProcAddress(m, "NfsmwFfb_Gain") : nullptr;
         for (int k = 0; k < FFB_COUNT; k++)
             p[k] = get ? ((float* (__cdecl*)(const char*))get)(kFfbKeys[k]) : nullptr;
         if (!p[FFB_GAIN] && gain) p[FFB_GAIN] = ((float* (__cdecl*)())gain)();
         if (!g_cfg.gameController && !p[FFB_GAMECONTROLLER])
-            Log("ui: GameController=0 needs the force feedback mod's dinput8.dll; the game still reads the controller");
+            Log("ui: GameController=0 needs the force feedback mod; the game still reads the controller");
         Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
     }
     return p[i];

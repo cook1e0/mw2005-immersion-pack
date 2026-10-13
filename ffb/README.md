@@ -6,8 +6,9 @@ instead of its weak built-in effects.
 ## Install
 
 Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
-and copy `dinput8.dll` and `nfsmw_ffb.ini` next to `speed.exe`. `dinput8.dll` also works renamed to
-`nfsmw_ffb.asi` with an ASI loader. To uninstall, delete it.
+and copy `nfsmw_ffb.asi` into the `scripts` folder next to `speed.exe` (with the zip's `dinput8.dll`,
+Ultimate ASI Loader, next to `speed.exe`) and `nfsmw_ffb.ini` next to `speed.exe`. Without a loader,
+rename `nfsmw_ffb.asi` to `dinput8.dll` and put it next to `speed.exe`. To uninstall, delete it.
 
 In game, pick your wheel as the controller. The in-game force feedback option doesn't matter.
 

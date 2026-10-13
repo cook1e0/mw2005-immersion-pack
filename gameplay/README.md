@@ -37,7 +37,7 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   own input, so the game's controller settings aren't needed. *Steering lock* sets how much of
   the wheel's rotation gives full lock in game (e.g. 540 of 900 degrees); the force feedback mod
   adds a soft lock there. *Game's own controller input: Off* makes the game ignore the
-  controllers completely, its menus included (needs the force feedback mod's `dinput8.dll`;
+  controllers completely, its menus included (needs the force feedback mod;
   the keyboard keeps working).
 - **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic, and
   the force feedback mod's strength (if it is installed), changed
@@ -46,10 +46,12 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll` and `nfsmw_gameplay.ini`
-next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `nfsmw_gameplay.asi` into the `scripts` folder
+next to `speed.exe` (with the zip's `dinput8.dll`, Ultimate ASI Loader, next to `speed.exe`) and
+`nfsmw_gameplay.ini` next to `speed.exe`. Without a loader, rename `nfsmw_gameplay.asi` to
+`dsound.dll` and put it next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
 the clutch and each gear under CONTROLS: select one, press Right, then press the pedal or put the
-stick in that gear. To uninstall, delete `dsound.dll`.
+stick in that gear. To uninstall, delete `nfsmw_gameplay.asi` (or `dsound.dll`).
 
 The game's Automatic/Manual setting doesn't matter while the shifter is active. `Toggle=` (e.g.
 `key:F9`) switches between the H-shifter and the game's sequential shifting while driving.

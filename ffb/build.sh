@@ -14,7 +14,9 @@ g++ -std=c++17 -O2 -Wall -m32 -static -static-libgcc -static-libstdc++ \
 echo "built build/dinput8.dll build/ffbtool.exe"
 if [ "$1" = "install" ]; then
     GAME="${NFSMW_DIR:-/c/Games/NFSMW}"
-    cp build/dinput8.dll "$GAME/"
+    # Into whichever layout is installed: scripts/nfsmw_ffb.asi (ASI loader) or dinput8.dll
+    if [ -f "$GAME/scripts/nfsmw_ffb.asi" ]; then cp build/dinput8.dll "$GAME/scripts/nfsmw_ffb.asi"
+    else cp build/dinput8.dll "$GAME/"; fi
     [ -f "$GAME/nfsmw_ffb.ini" ] || cp nfsmw_ffb.ini "$GAME/"
     echo "installed to $GAME"
 fi

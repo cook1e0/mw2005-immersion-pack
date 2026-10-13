@@ -1,4 +1,4 @@
-// d3d9.dll proxy.
+// d3d9.dll proxy (or an .asi plugin that redirects the game's Direct3DCreate9 import).
 //
 // * Upgrades the game's IDirect3D9 / device to the Ex versions so render targets
 //   can be shared with the D3D11 device that feeds OpenXR (no CPU copies).
@@ -20,6 +20,8 @@
 // ---------------------------------------------------------------------------
 // Real d3d9.dll
 // ---------------------------------------------------------------------------
+// As the d3d9.dll proxy this is System32's; as an .asi it is whatever the game's
+// import resolved to (System32's or another wrapper's), set by PatchImport.
 static HMODULE s_real;
 template <typename T> static T Real(const char* name) {
     if (!s_real) {
@@ -544,6 +546,9 @@ DWORD WINAPI Proxy_D3DPERF_GetStatus() {
     return f ? f() : 0;
 }
 
+// Marker: lets an .asi copy of this mod see that the d3d9.dll proxy is installed too.
+int WINAPI Proxy_NfsmwVr_Loaded() { return 1; }
+
 } // extern "C"
 
 static LONG CALLBACK CrashLogger(EXCEPTION_POINTERS* ep) {
@@ -563,13 +568,46 @@ static LONG CALLBACK CrashLogger(EXCEPTION_POINTERS* ep) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+static bool LoadedAsProxy(HINSTANCE inst) {
+    char path[MAX_PATH];
+    GetModuleFileNameA(inst, path, MAX_PATH);
+    const char* name = strrchr(path, '\\');
+    return _stricmp(name ? name + 1 : path, "d3d9.dll") == 0;
+}
+
+// .asi mode: redirect the game's D3D9.dll!Direct3DCreate9 IAT slot to the proxy export.
+static bool PatchImport() {
+    void** slot = (void**)0x8904A8;
+    HMODULE target = nullptr;
+    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCSTR)*slot, &target) ||
+        GetProcAddress(target, "Direct3DCreate9") != *slot) {
+        Log("asi mode: Direct3DCreate9 import not found (not speed.exe v1.3?), VR inactive");
+        return false;
+    }
+    s_real = target;
+    DWORD old;
+    VirtualProtect(slot, 4, PAGE_READWRITE, &old);
+    *slot = (void*)&Proxy_Direct3DCreate9;
+    VirtualProtect(slot, 4, old, &old);
+    char path[MAX_PATH];
+    GetModuleFileNameA(target, path, MAX_PATH);
+    Log("asi mode: redirected Direct3DCreate9 import (real d3d9: %s)", path);
+    return true;
+}
+
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(inst);
+        // Installed both as d3d9.dll and as an .asi: the proxy runs, this copy stays out of the
+        // way (and out of the log the proxy already has open).
+        HMODULE proxy = GetModuleHandleA("d3d9.dll");
+        if (!LoadedAsProxy(inst) && proxy && GetProcAddress(proxy, "NfsmwVr_Loaded")) return TRUE;
         LogInit();
         Log("NFSMW VR mod loaded");
         AddVectoredExceptionHandler(0, CrashLogger);
         LoadConfig();
+        if (g_cfg.enabled && !LoadedAsProxy(inst) && !PatchImport()) g_cfg.enabled = false;
         if (g_cfg.enabled) {
             Game_InstallHooks();
             Cockpit_Install();

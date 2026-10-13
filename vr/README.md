@@ -9,10 +9,12 @@ Native OpenXR VR mod for *Need for Speed: Most Wanted* (2005, PC) with full ster
 
 ## Install
 
-1. Copy `d3d9.dll`, `nfsmw_vr_host.exe` and `nfsmw_vr.ini` into the game folder, next to `speed.exe`.
+1. With [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) (`dinput8.dll`, in the release zip)
+   next to `speed.exe`, copy `nfsmw_vr.asi` into the `scripts` folder and `nfsmw_vr_host.exe` and `nfsmw_vr.ini`
+   next to `speed.exe`. Without a loader, rename `nfsmw_vr.asi` to `d3d9.dll` and put it next to `speed.exe`.
 2. Connect your headset, then launch the game.
 
-To uninstall, delete the three files. If something goes wrong, check `nfsmw_vr.log` in the game folder.
+To uninstall, delete `nfsmw_vr.asi` (or `d3d9.dll`), `nfsmw_vr_host.exe` and `nfsmw_vr.ini`. If something goes wrong, check `nfsmw_vr.log` in the game folder.
 
 ## Runtimes
 
@@ -33,7 +35,7 @@ picks the way to reach it by itself:
 2. Make sure `nfsmw_vr_host.exe` is next to `speed.exe`.
 3. Start SteamVR with your headset connected, then launch the game.
 
-SteamVR only has a 64-bit OpenXR runtime, so `d3d9.dll` starts `nfsmw_vr_host.exe`, a small 64-bit
+SteamVR only has a 64-bit OpenXR runtime, so the mod starts `nfsmw_vr_host.exe`, a small 64-bit
 helper that runs the OpenXR session and hands the game's eye images to SteamVR. It closes with the
 game and writes `nfsmw_vr_host.log`. SteamVR lists the game as "nfsmw_vr_host".
 
@@ -92,7 +94,7 @@ The game window shows a stabilised version of the headset view, including the fl
 
 ## How it works
 
-`d3d9.dll` is a proxy that upgrades the game's device to D3D9Ex and shares the eye images with a D3D11 device that submits them to OpenXR. No OpenXR loader DLL is needed.
+The mod wraps `Direct3DCreate9` (as the `d3d9.dll` proxy, or as an `.asi` by redirecting the game's import of it), upgrades the game's device to D3D9Ex and shares the eye images with a D3D11 device that submits them to OpenXR. No OpenXR loader DLL is needed.
 
 For runtimes without a 32-bit version, the same OpenXR code is built as the 64-bit `nfsmw_vr_host.exe`. The game starts it and forwards each frame's calls (wait for the frame, eye poses, submit) over shared memory. The eye textures are D3D9Ex shared handles, which the helper opens directly, so no image is copied through the CPU.
 
@@ -100,7 +102,7 @@ Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Be
 
 ## Building
 
-Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` and `bin\nfsmw_vr_host.exe`.
+Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` (released as `nfsmw_vr.asi`) and `bin\nfsmw_vr_host.exe`.
 
 ## Credits
 

@@ -14,11 +14,13 @@ done
 g++ $FLAGS $IMGUI -shared -o build/dsound.dll \
     src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/hud.cpp src/physics.cpp src/vfx.cpp src/traffic.cpp src/ui.cpp src/controls.cpp \
     build/imgui/imgui.o build/imgui/imgui_draw.o build/imgui/imgui_tables.o build/imgui/imgui_widgets.o \
-    src/dsound.def -ldxguid -lwinmm -lgdi32 -Wl,--enable-stdcall-fixup -Wl,--kill-at -s
+    src/dsound.def -ldxguid -lwinmm -lgdi32 -lpsapi -Wl,--enable-stdcall-fixup -Wl,--kill-at -s
 echo "built build/dsound.dll"
 if [ "$1" = "install" ]; then
     GAME="${NFSMW_DIR:-/c/Games/NFSMW}"
-    cp build/dsound.dll "$GAME/"
+    # Into whichever layout is installed: scripts/nfsmw_gameplay.asi (ASI loader) or dsound.dll
+    if [ -f "$GAME/scripts/nfsmw_gameplay.asi" ]; then cp build/dsound.dll "$GAME/scripts/nfsmw_gameplay.asi"
+    else cp build/dsound.dll "$GAME/"; fi
     [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/"
     echo "installed to $GAME"
 fi

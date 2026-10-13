@@ -9,3 +9,4 @@ EXPORTS
     D3DPERF_QueryRepeatFrame=Proxy_D3DPERF_QueryRepeatFrame
     D3DPERF_SetOptions=Proxy_D3DPERF_SetOptions
     D3DPERF_GetStatus=Proxy_D3DPERF_GetStatus
+    NfsmwVr_Loaded=Proxy_NfsmwVr_Loaded

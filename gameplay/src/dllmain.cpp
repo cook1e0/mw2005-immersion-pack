@@ -29,6 +29,9 @@ FORWARD(9, DirectSoundFullDuplexCreate)
 FORWARD(10, DirectSoundCreate8)
 FORWARD(11, DirectSoundCaptureCreate8)
 
+// Marker: lets an .asi copy of this mod see that the dsound.dll proxy is installed too.
+extern "C" int __cdecl NfsmwGameplay_Loaded() { return 1; }
+
 static bool LoadedAs(HINSTANCE self, const char* file) {
     char path[MAX_PATH];
     GetModuleFileNameA(self, path, MAX_PATH);
@@ -60,6 +63,10 @@ static void MigrateOldIni() {
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     if (reason != DLL_PROCESS_ATTACH) return TRUE;
     DisableThreadLibraryCalls(inst);
+    // Installed both as dsound.dll and as an .asi: the proxy runs, this copy stays out of the
+    // way (and out of the log the proxy already has open).
+    HMODULE proxy = GetModuleHandleA("dsound.dll");
+    if (!LoadedAs(inst, "dsound.dll") && proxy && GetProcAddress(proxy, "NfsmwGameplay_Loaded")) return TRUE;
     LogInit();
     Log("NFSMW gameplay mod, built " __DATE__ " " __TIME__);
     if (LoadedAs(inst, "dsound.dll") && !LoadRealDsound()) {
