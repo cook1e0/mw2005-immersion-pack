@@ -213,8 +213,30 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // LINK switches between the main page and the fine tuning page (BF_TUNING items).
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
-enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION };
+enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND };
 enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4 };
+
+// Force feedback strength: the FFB mod's (dinput8.dll) [FFB] Gain, changed live through its
+// NfsmwFfb_Gain export and saved to nfsmw_ffb.ini.
+float s_ffbGain = 1.0f;
+float* FfbGain() {
+    static float* p;
+    static bool looked;
+    if (!looked) {
+        looked = true;
+        HMODULE m = GetModuleHandleA("dinput8.dll");
+        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Gain") : nullptr;
+        p = f ? ((float* (__cdecl*)())f)() : nullptr;
+        Log("ui: force feedback mod %s", p ? "found" : "not loaded");
+    }
+    return p;
+}
+
+std::string FfbIniPath() {
+    std::string path = IniPath();
+    size_t slash = path.find_last_of("\\/");
+    return path.substr(0, slash + 1) + "nfsmw_ffb.ini";
+}
 struct Item {
     Kind kind;
     const char* label;
@@ -245,7 +267,10 @@ const Item kItems[] = {
     {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
+    {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
+    {NUMBER, "Force feedback strength", "FFB", "Gain", &s_ffbGain, 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {LINK, "Fine tuning", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
     BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
@@ -280,10 +305,11 @@ const Item kItems[] = {
     {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", BF_TUNING},
     {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", BF_TUNING},
     {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
+    {NUMBER, "Engine smoke trail", "Damage", "SmokeTrail", &g_cfg.smokeTrail, 0.0f, 1.0f, 0.05f, 100, "%.0f%% of car speed", BF_TUNING},
     {NUMBER, "Power loss from", "Damage", "PowerLossStart", &g_cfg.damageLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% damage", BF_TUNING},
     {NUMBER, "Power lost at full damage", "Damage", "PowerLoss", &g_cfg.damageLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {HEADER, "POPPED TIRES", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
-    {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.1f, 1, "%.1fx", BF_TUNING},
+    {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", BF_TUNING},
     {ACTION, "Pop all four tires (testing)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {HEADER, "PHYSICS (1 = GAME DEFAULT)", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {CAR, "Settings for this car only", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
@@ -318,6 +344,26 @@ struct {
     std::string note;               // short feedback under the list
     double noteTime = -1e9;
 } s_menu;
+
+// Sound moments for a missed shift: the totaled car's engine failure, and the two the engine
+// sound plays once when its engine state changes (SFXCTL_Engine::UpdateParams, states 1 and 2).
+const struct {
+    uint32_t moment;
+    const char* name;
+} kGrindSounds[] = {
+    {0xC565AC30, "Totaled"},
+    {0xBC2DFA2F, "Engine state 1"},
+    {0xBAE41D1B, "Engine state 2"},
+};
+
+std::string SoundName(uint32_t moment) {
+    if (!moment) return "Off";
+    for (auto& s : kGrindSounds)
+        if (s.moment == moment) return s.name;
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%08X", moment);
+    return buf;
+}
 
 // The items on the current page, in order.
 std::vector<int> PageRows() {
@@ -376,6 +422,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return s_menu.page == 0 ? ">" : "<";
     if (it.kind == ACTION) return "Go";
+    if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
     if (it.kind == BIND) {
         if (index == s_menu.capture) return "Press a key, button or pedal...";
         std::string s;
@@ -385,6 +432,7 @@ std::string ValueText(const Item& it, int index) {
         if (s.size() > 28) s = s.substr(0, 25) + "...";
         return s;
     }
+    if (it.value == &s_ffbGain && !FfbGain()) return "No FFB mod";
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
@@ -453,8 +501,10 @@ void Change(int index, int dir) {
         bool& b = *(bool*)it.value;
         b = !b;
     } else if (it.kind == NUMBER) {
+        if (it.value == &s_ffbGain && !FfbGain()) return;
         float& v = *(float*)it.value;
         v = Clamp(roundf((v + dir * it.step) / it.step) * it.step, it.lo, it.hi);
+        if (it.value == &s_ffbGain) *FfbGain() = v;
         // Keep the bite point ordered: start (released side) above end.
         if (g_cfg.biteStart < g_cfg.biteEnd + 0.05f) {
             if (it.value == &g_cfg.biteStart) g_cfg.biteEnd = std::max(0.0f, g_cfg.biteStart - 0.05f);
@@ -463,6 +513,14 @@ void Change(int index, int dir) {
     } else if (it.kind == LINK) {
         SetPage(1 - s_menu.page);
         return;
+    } else if (it.kind == SOUND) {
+        // Cycle through the candidates, playing each one.
+        uint32_t& v = *(uint32_t*)it.value;
+        int n = (int)(sizeof(kGrindSounds) / sizeof(kGrindSounds[0])), cur = n - 1;
+        for (int i = 0; i < n; i++)
+            if (kGrindSounds[i].moment == v) cur = i;
+        v = kGrindSounds[(cur + dir + n) % n].moment;
+        Game_PlayMoment(v);
     } else if (it.kind == ACTION) {
         if (dir < 0) return;
         Game_PopTires();
@@ -489,7 +547,12 @@ void Save() {
         std::string text;
         if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
         else if (it.kind == NUMBER) snprintf(buf, sizeof(buf), "%g", *(float*)it.value), text = buf;
+        else if (it.kind == SOUND) snprintf(buf, sizeof(buf), "0x%08X", *(uint32_t*)it.value), text = buf;
         else text = *(std::string*)it.value;
+        if (it.value == &s_ffbGain) {
+            if (FfbGain()) WritePrivateProfileStringA(it.section, it.key, text.c_str(), FfbIniPath().c_str());
+            continue;
+        }
         std::string section = Physics_IsPerCar(it.value) ? Physics_Section() : it.section;
         WritePrivateProfileStringA(section.c_str(), it.key, text.c_str(), IniPath());
     }
@@ -511,6 +574,7 @@ void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
     Log("ui: menu %s", open ? "opened" : "closed");
+    if (open && FfbGain()) s_ffbGain = *FfbGain();
     if (!open) {
         CancelCapture();
         if (s_menu.dirty) {

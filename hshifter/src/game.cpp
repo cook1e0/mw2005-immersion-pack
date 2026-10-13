@@ -38,6 +38,7 @@
 #include "hud.h"
 #include "physics.h"
 #include "vfx.h"
+#include "traffic.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -814,6 +815,10 @@ void* Game_PlayerInterface(void* handle) {
 
 void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
 
+void Game_PlayMoment(uint32_t moment) {
+    if (moment) PlayMoment(moment);
+}
+
 void Game_PopTires() { s.popPending = true; }
 
 bool Game_Install() {
@@ -886,6 +891,7 @@ bool Game_Install() {
     Hud_Install();
     Physics_Install();
     Vfx_Install();
+    Traffic_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());

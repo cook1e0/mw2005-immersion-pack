@@ -1,6 +1,7 @@
 // Hooks into speed.exe v1.3: gear selection (InputPlayer), clutch and engine wear (EngineRacer),
 // and a HUD draw hook for the overlay.
 #pragma once
+#include <stdint.h>
 
 // Verifies the code at every hook site and installs the hooks. Returns false (and patches
 // nothing) if the executable is not the expected version.
@@ -32,3 +33,5 @@ void Game_SetMenuOpen(bool open);
 
 // Pops all four of the player's tires on the next engine step (testing). Game thread only.
 void Game_PopTires();
+// Plays a sound moment (game thread), e.g. to preview [Shifter] GrindSound.
+void Game_PlayMoment(uint32_t moment);

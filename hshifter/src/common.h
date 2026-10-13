@@ -84,13 +84,15 @@ struct Config {
     float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
+    float trafficDensity = 1.0f;    // multiplies the traffic spawn rate (0 = no traffic)
+    float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep
     float damageLossStart = 0.3f;   // damage where the engine starts losing power
     float damageLoss = 0.4f;        // fraction of torque lost at full damage
 
     // [Tires] spike strips pop tires like in NFS Carbon: the car stays drivable, with less grip
     // and some drag, instead of the game's locked-up wheels
     bool  poppedTires = true;
-    float tireHandicap = 1.0f;      // multiplies the grip loss and drag of a popped tire
+    float tireHandicap = 0.35f;     // multiplies the grip loss and drag of a popped tire
     std::string debugPopTires;      // binding that pops all four tires (testing)
 
     // [HUD] the speedbreaker meter shows car damage, with engine heat overlaid in red
