@@ -10,6 +10,7 @@
 #include "game.h"
 #include "xr.h"
 #include "spectator.h"
+#include "cockpit.h"
 
 #include <d3d9.h>
 #include "d3d9device_gen.h"
@@ -269,6 +270,7 @@ static void OnPresent() {
     if (KeyPressed(g_cfg.keyToggle)) Game_ToggleStereo();
     if (KeyPressed(g_cfg.keyLevel)) Game_ToggleLevel();
     if (KeyPressed(g_cfg.keyDump)) s_dumpRequested = g_cfg.dumpFrames > 0 ? g_cfg.dumpFrames : 1;
+    Cockpit_Keys();
 
     if (s_xr) {
         bool stereo = Game_StereoThisFrame(), captured = false;
@@ -568,7 +570,10 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         Log("NFSMW VR mod loaded");
         AddVectoredExceptionHandler(0, CrashLogger);
         LoadConfig();
-        if (g_cfg.enabled) Game_InstallHooks();
+        if (g_cfg.enabled) {
+            Game_InstallHooks();
+            Cockpit_Install();
+        }
     }
     return TRUE;
 }

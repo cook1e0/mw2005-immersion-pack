@@ -4,11 +4,19 @@
 // DamageEffect (the smoke cop cars trail) at health <= 0.5, EngineBlownEffect for a blown engine.
 // The player's cars have no DamageEffect, so the code that loads that key is patched: for the
 // car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage), the
-// key becomes the cop cars' DamageEffect (read from the copmidsize car data, or taken from the
+// key becomes the cop cars' DamageEffect (also once engine heat reaches [Engine] SmokeFrom) (read from the copmidsize car data, or taken from the
 // first car seen with one). The car's own EngineBlownEffect is only a fallback: it is the drag
 // race smoke for a car that has stopped, and stays where it started instead of trailing the car.
+//
+// Particles take a fraction (the emitter data's VelocityInherit, 0.5 for the cop smoke) of the
+// velocity UpdateEffects passes. For the player's car that vector falls well short of how fast
+// the car really moves, so at speed the particles were left behind the chase camera and the
+// smoke only showed once the car stopped.
+// The player's smoke effect update is wrapped: its particles get [Damage] SmokeTrail of the
+// car's render-space velocity (from its render matrix's movement) instead.
 #include "vfx.h"
 #include "common.h"
+#include "game.h"
 
 namespace {
 
@@ -26,7 +34,21 @@ typedef void*(__cdecl* FindCollection_t)(uint32_t cls, uint32_t key);
 typedef void*(__thiscall* GetData_t)(void* collection, uint32_t attrib, uint32_t index);
 typedef uint32_t(__cdecl* StringToKey_t)(const char*);
 
+constexpr uintptr_t kSmokeUpdateCall = 0x75645D;    // UpdateEffects: call Effect::Update for the DamageEffect
+constexpr uintptr_t kEffectUpdate = 0x744A50;       // VehicleRenderConn::Effect::Update(mtx, key, dt, intensity, vel)
+constexpr uintptr_t kGroupNumParticles = 0x503A90;  // unsigned EmitterGroup::GetNumParticles()
+constexpr int kEffect_Group = 0x50;                 // Effect: EmitterGroup*
+constexpr int kEffect_Key = 0x54;                   // Effect: emittergroup key of the group
+constexpr int kGroup_Emitters = 0x08;               // EmitterGroup: list of Emitters (the list node is the Emitter)
+constexpr int kEmitter_Inherit = 0x60;              // Emitter: inherited velocity (bVector3)
+constexpr int kEmitter_Data = 0x7C;                 // Emitter: EmitterDataAttribWrapper*, +8 = attribute layout
+constexpr int kData_InheritLocal = 0xE0;            // layout: nonzero = no velocity inheritance
+constexpr int kData_Inherit = 0xEC;                 // layout: VelocityInherit
+
+typedef void(__thiscall* EffectUpdate_t)(void* eff, const void* mtx, uint32_t key, float dt, float intensity, const float* vel);
+
 uint32_t s_copKey = 0;
+bool s_playerSmoke;                                 // the DamageEffect update about to run is the player's smoke
 
 // The cop cars' DamageEffect from the car data, so it is known before any cop shows up.
 uint32_t CopSmokeKey() {
@@ -58,9 +80,12 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
         }
         return key;
     }
+    s_playerSmoke = false;
     if (!g_cfg.damageSmoke) return key;
     float health = *(float*)(pkt + kPkt_Health);
-    if (health > 1.0f - g_cfg.smokeFrom) return 0;
+    bool hot = g_cfg.heatSmokeFrom < 1.0f && Game_Hud().heat >= g_cfg.heatSmokeFrom;
+    if (health > 1.0f - g_cfg.smokeFrom && !hot) return 0;
+    s_playerSmoke = true;
     uint32_t cop = CopSmokeKey();
     uint32_t k = key ? key : cop ? cop : blownKey;
     static uint32_t logged;
@@ -69,6 +94,47 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
         Log("vfx: engine smoke on (health %.2f, effect %08X)", health, k);
     }
     return k;
+}
+
+// Replaces UpdateEffects' call of Effect::Update for the DamageEffect. Before the group spawns
+// particles, each emitter's inherited velocity is set so that, after the game scales it by the
+// emitter's VelocityInherit, particles leave with SmokeTrail of the car's velocity.
+static void __fastcall SmokeUpdate(void* eff, void*, const float* mtx, uint32_t key, float dt, float intensity, const float* vel) {
+    uint8_t* group = *(uint8_t**)((uint8_t*)eff + kEffect_Group);
+    if (s_playerSmoke && vel && mtx && group && key == *(uint32_t*)((uint8_t*)eff + kEffect_Key)) {
+        // The car's velocity in render space, from its render matrix's movement (the game's
+        // vector is in simulation space, whose axes differ).
+        static float lastPos[3];
+        static double lastTime;
+        static float v[3];
+        double now = Now();
+        float rdt = (float)(now - lastTime);
+        if (rdt > 0.001f && rdt < 0.2f)
+            for (int a = 0; a < 3; a++) v[a] = v[a] * 0.5f + (mtx[12 + a] - lastPos[a]) / rdt * 0.5f;
+        else if (rdt >= 0.2f)
+            v[0] = v[1] = v[2] = 0;
+        if (rdt > 0.001f || rdt < 0) {
+            memcpy(lastPos, mtx + 12, sizeof(lastPos));
+            lastTime = now;
+        }
+        uint8_t* head = group + kGroup_Emitters;
+        for (uint8_t* e = *(uint8_t**)head; e && e != head; e = *(uint8_t**)e) {
+            uint8_t* wrapper = *(uint8_t**)(e + kEmitter_Data);
+            uint8_t* data = wrapper ? *(uint8_t**)(wrapper + 8) : nullptr;
+            float inherit = data ? *(float*)(data + kData_Inherit) : 0.0f;
+            float k = inherit > 0.01f ? g_cfg.smokeTrail / inherit : 0.0f;
+            float* iv = (float*)(e + kEmitter_Inherit);
+            for (int a = 0; a < 3; a++) iv[a] = v[a] * k;
+        }
+        static double lastLog;
+        if (now - lastLog > 2.0) {
+            lastLog = now;
+            Log("vfx: smoke car velocity %.1f %.1f %.1f (game's %.1f %.1f %.1f), %u particles", v[0], v[1], v[2], vel[0],
+                vel[1], vel[2], ((unsigned(__thiscall*)(void*))kGroupNumParticles)(group));
+        }
+        vel = nullptr;  // keep these instead of the game's
+    }
+    ((EffectUpdate_t)kEffectUpdate)(eff, mtx, key, dt, intensity, vel);
 }
 
 // Replaces "mov ecx,[esp+0x18]; test ecx,ecx" (6 bytes) with a call; the flags are set on return.
@@ -103,5 +169,13 @@ void Vfx_Install() {
     memcpy((void*)kDamageKeyLoad, code, sizeof(code));
     VirtualProtect((void*)kDamageKeyLoad, sizeof(code), old, &old);
     FlushInstructionCache(GetCurrentProcess(), (void*)kDamageKeyLoad, sizeof(code));
-    Log("vfx: engine smoke from %.0f%% damage (%s)", g_cfg.smokeFrom * 100, g_cfg.damageSmoke ? "on" : "off");
+    int32_t cur = *(int32_t*)(kSmokeUpdateCall + 1);
+    if (*(uint8_t*)kSmokeUpdateCall == 0xE8 && kSmokeUpdateCall + 5 + cur == kEffectUpdate) {
+        int32_t r = (int32_t)((uintptr_t)&SmokeUpdate - (kSmokeUpdateCall + 5));
+        VirtualProtect((void*)kSmokeUpdateCall, 5, PAGE_EXECUTE_READWRITE, &old);
+        memcpy((void*)(kSmokeUpdateCall + 1), &r, 4);
+        VirtualProtect((void*)kSmokeUpdateCall, 5, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeUpdateCall, 5);
+    }
+    Log("vfx: engine smoke from %.0f%% damage, trail %.2f (%s)", g_cfg.smokeFrom * 100, g_cfg.smokeTrail, g_cfg.damageSmoke ? "on" : "off");
 }

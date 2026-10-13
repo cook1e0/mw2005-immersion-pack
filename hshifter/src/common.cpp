@@ -115,9 +115,10 @@ void LoadConfig() {
     c.shiftPedal = Clamp(ReadFloat("Shifter", "ClutchToShift", c.shiftPedal), 0.0f, 1.0f);
     c.revMatchRpm = Clamp(ReadFloat("Shifter", "RevMatchRPM", 0.0f), 0.0f, 3000.0f);
     c.blockWrongDirection = ReadInt("Shifter", "BlockWrongDirection", 1) != 0;
+    c.reselectAfterMiss = ReadInt("Shifter", "ReselectAfterMiss", 1) != 0;
     c.keepShiftDelay = ReadInt("Shifter", "KeepShiftDelay", 0) != 0;
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
-    c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xC565AC30").c_str(), nullptr, 0);
+    c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xBC2DFA2F").c_str(), nullptr, 0);
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
@@ -136,6 +137,9 @@ void LoadConfig() {
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
+    c.trafficDensity = Clamp(ReadFloat("Traffic", "Density", c.trafficDensity), 0.0f, 3.0f);
+    c.heatSmokeFrom = Clamp(ReadFloat("Engine", "SmokeFrom", c.heatSmokeFrom), 0.1f, 1.0f);
+    c.smokeTrail = Clamp(ReadFloat("Damage", "SmokeTrail", c.smokeTrail), 0.0f, 1.0f);
     c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
     c.damageLossStart = Clamp(ReadFloat("Damage", "PowerLossStart", c.damageLossStart), 0.0f, 0.99f);
     c.damageLoss = Clamp(ReadFloat("Damage", "PowerLoss", c.damageLoss), 0.0f, 1.0f);

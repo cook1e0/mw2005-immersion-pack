@@ -38,6 +38,7 @@
 #include "hud.h"
 #include "physics.h"
 #include "vfx.h"
+#include "traffic.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -70,6 +71,7 @@ constexpr uintptr_t kResetDamageRacer = 0x69C930;   // void DamageRacer::ResetDa
 constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
 constexpr uintptr_t kSlotOnImpact = 0x8AD378;     // DamageRacer vtable: DamageVehicle::OnImpact
 constexpr uintptr_t kOnImpact = 0x69C030;
+constexpr uintptr_t kGetTireDamage = 0x68CC80;     // eTireDamage DamageRacer::GetTireDamage(unsigned wheel)
 constexpr uintptr_t kISpikeableHandle = 0x68CC70;  // ISpikeable::_IHandle; vtbl[1] GetTireDamage, [3] Puncture
 constexpr uintptr_t kPuncture = 0x69C730;           // void DamageRacer::Puncture(unsigned wheel) (ISpikeable this)
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
@@ -166,6 +168,7 @@ struct {
     float pedal = 0.0f;
     int lastGear = -100;        // gear we last left the gearbox in (-100 = unknown)
     int refused = -100;         // gear we last refused to engage (log once)
+    bool missed = false;        // ... for lack of clutch: it stays refused until the stick leaves the gate
     bool forcing = false;       // clutch state is currently ours
     uint32_t toggles = 0;
     uint32_t ups = 0, downs = 0;    // ShiftUp / ShiftDown presses seen
@@ -273,8 +276,10 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     }
     if (want == cur) {
         s.refused = -100;
+        s.missed = false;
         return;
     }
+    if (want != s.refused) s.missed = false;
 
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
     const char* refuse = nullptr;
@@ -283,6 +288,8 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
             refuse = "clutch not pressed";
         else if (g_cfg.blockWrongDirection && WrongDirection(eng, want))
             refuse = "car rolling the other way";
+        else if (s.missed && g_cfg.reselectAfterMiss && !g_cfg.latching)   // a latched key can't be re-selected
+            refuse = "missed shift, select the gear again";
     }
     if (refuse) {
         // The stick has left the old gate, so the box is in neutral until the gear goes in.
@@ -291,12 +298,14 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
             Log("shift: %s refused (%s)", GearName(want), refuse);
             if (g_cfg.grind && refuse[0] == 'c') MissShift(eng);   // "clutch not pressed"
         }
+        if (refuse[0] == 'c') s.missed = true;
         s.refused = want;
     } else if (TransShift(trans, want)) {
         // With the clutch already down, the game's simulated clutch kick is redundant.
         if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
         Log("shift: %s -> %s (clutch %.2f)", GearName(cur), GearName(want), in.clutchPedal);
         s.refused = -100;
+        s.missed = false;
     }
     s.lastGear = TransGear(trans);
 }
@@ -662,6 +671,17 @@ void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float*
 }
 
 // --- popped tires ----------------------------------------------------------------------------
+// Tires with damage (ISpikeable::GetTireDamage: 0 = intact).
+int PoppedTires(uint8_t* eng) {
+    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
+    void* list = owner ? Field<void*>(owner, 4) : nullptr;
+    void* spike = list ? ((IListFind_t)kIListFind)(list, (void*)kISpikeableHandle) : nullptr;
+    if (!spike || Vtbl(spike)[1] != (void*)kGetTireDamage) return 0;
+    int n = 0;
+    for (unsigned w = 0; w < 4; w++) n += ((int(__thiscall*)(void*, unsigned))kGetTireDamage)(spike, w) != 0;
+    return n;
+}
+
 // Testing: the game's own puncture on all four wheels, as a spike strip does it.
 void PopTires(uint8_t* eng) {
     uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
@@ -801,6 +821,7 @@ HudStatus Game_Hud() {
         s.damageStep = (int)(h.damage * 10.0f + 0.001f);
     }
     h.heat = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine) ? s.heat : 0.0f;
+    h.poppedTires = PoppedTires(s.engine);
     return h;
 }
 
@@ -813,6 +834,10 @@ void* Game_PlayerInterface(void* handle) {
 }
 
 void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
+
+void Game_PlayMoment(uint32_t moment) {
+    if (moment) PlayMoment(moment);
+}
 
 void Game_PopTires() { s.popPending = true; }
 
@@ -886,6 +911,7 @@ bool Game_Install() {
     Hud_Install();
     Physics_Install();
     Vfx_Install();
+    Traffic_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());
