@@ -16,6 +16,7 @@
 #include "d3d9device_gen.h"
 #include <stdio.h>
 #include <algorithm>
+#include <intrin.h>
 
 // ---------------------------------------------------------------------------
 // Real d3d9.dll
@@ -61,6 +62,7 @@ static IDirect3DSurface9* s_eyeSurf[3];
 static IDirect3DSurface9* s_hudRT;        // HUD is drawn here (matches the back buffer's MSAA)
 static IDirect3DSurface9* s_backBuffer;   // held while the HUD phase is active
 static bool s_hudPhase, s_hudValid;
+static bool s_skipPostPass;               // another mod's full-screen pass on the HUD layer, until EndScene
 static int s_eyeW, s_eyeH;
 static bool s_eyeOk;
 static IDirect3DQuery9* s_fence;
@@ -157,6 +159,18 @@ void D3D_ResetForNextEye() {
     if (ds) ds->Release();
 }
 
+// True for a return address inside speed.exe (as opposed to another mod's DLL).
+static bool FromGame(void* addr) {
+    static uintptr_t end;
+    if (!end) {
+        uint8_t* base = (uint8_t*)GetModuleHandleA(nullptr);
+        IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+        end = (uintptr_t)base + nt->OptionalHeader.SizeOfImage;
+    }
+    uintptr_t a = (uintptr_t)addr;
+    return a >= (uintptr_t)GetModuleHandleA(nullptr) && a < end;
+}
+
 // Colour writes in the HUD phase include alpha (see DeviceWrap::SetRenderState).
 static DWORD HudColorWrite(DWORD mask) {
     return mask & (D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE)
@@ -187,6 +201,7 @@ static void EndHudPhase() {
     if (s_frameRT) s_frameRT->Release();
     if (s_frameDS) s_frameDS->Release();
     s_frameRT = s_frameDS = nullptr;
+    s_skipPostPass = false;
     if (!s_hudPhase) return;
     s_hudPhase = false;
     IDirect3DSurface9* cur = nullptr;
@@ -379,6 +394,42 @@ public:
     HRESULT STDMETHODCALLTYPE SetRenderTarget(DWORD index, IDirect3DSurface9* surf) override {
         if (s_hudPhase && index == 0 && surf == s_backBuffer) surf = s_hudRT;
         return real->SetRenderTarget(index, surf);
+    }
+
+    // Post-processing from other mods at the end of the frame (the widescreen fix's ConsoleGamma
+    // and SMAA) copies the current render target and draws it back full-screen. In a stereo frame
+    // that target is the transparent HUD layer: the pass would fill the HUD panel with black, and
+    // the eyes were captured before it anyway. Such a copy of the HUD layer by code outside
+    // speed.exe skips the draws that follow, up to EndScene. Flat frames (menus on the virtual
+    // screen, movies) keep the pass.
+    HRESULT STDMETHODCALLTYPE StretchRect(IDirect3DSurface9* src, CONST RECT* srcRect, IDirect3DSurface9* dst,
+                                          CONST RECT* dstRect, D3DTEXTUREFILTERTYPE filter) override {
+        if (s_hudPhase && src == s_hudRT && !s_skipPostPass && !FromGame(_ReturnAddress())) {
+            s_skipPostPass = true;
+            static bool logged;
+            if (!logged) Log("d3d9: skipping another mod's post-processing pass on the HUD layer (e.g. widescreen fix ConsoleGamma)");
+            logged = true;
+        }
+        return real->StretchRect(src, srcRect, dst, dstRect, filter);
+    }
+    HRESULT STDMETHODCALLTYPE EndScene() override {
+        s_skipPostPass = false;
+        return real->EndScene();
+    }
+    HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE type, UINT start, UINT count) override {
+        return s_skipPostPass ? D3D_OK : real->DrawPrimitive(type, start, count);
+    }
+    HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts, UINT start,
+                                                   UINT count) override {
+        return s_skipPostPass ? D3D_OK : real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+    }
+    HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
+        return s_skipPostPass ? D3D_OK : real->DrawPrimitiveUP(type, count, data, stride);
+    }
+    HRESULT STDMETHODCALLTYPE DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT minIndex, UINT verts, UINT count,
+                                                     CONST void* indices, D3DFORMAT fmt, CONST void* data,
+                                                     UINT stride) override {
+        return s_skipPostPass ? D3D_OK : real->DrawIndexedPrimitiveUP(type, minIndex, verts, count, indices, fmt, data, stride);
     }
 
     HRESULT STDMETHODCALLTYPE Present(CONST RECT* src, CONST RECT* dst, HWND wnd, CONST RGNDATA* dirty) override {
