@@ -16,8 +16,14 @@ struct DeviceWrap : public IDirectInputDevice8A {
     DWORD dataSize = 0;         // current data format size
     LONG  axisOfs = -1;         // offset of the steering axis inside the data format
     HWND  hwnd = nullptr;
+    bool  ffbDevice = true;     // false: wrapped only so its input can be hidden from the game
+    // While the game's controller input is off ([Controls] GameController=0 in the gameplay mod)
+    // the game reads this state instead: its first reading, buttons released, hats centred.
+    uint8_t* restState = nullptr;
+    DWORD restSize = 0;
 
     explicit DeviceWrap(IDirectInputDevice8A* r) : real(r) {}
+    bool OwnsFfb() const;
 
     // IUnknown
     STDMETHOD(QueryInterface)(REFIID riid, void** ppv) override;
@@ -57,6 +63,9 @@ struct DeviceWrap : public IDirectInputDevice8A {
 
 // Wraps the interface returned by the real DirectInput8Create when it is IDirectInput8A.
 HRESULT WrapDirectInput(REFIID riid, void** ppv);
+
+// The game's controller input is hidden (the gameplay mod's [Controls] GameController=0).
+bool GameInputHidden();
 
 // GUID of the axis selected by Config::steerAxis.
 const GUID& SteerAxisGuid();

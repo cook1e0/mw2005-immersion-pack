@@ -33,6 +33,13 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
   the front torque share and gravity, for all cars or per car. Only your car is affected
   (gravity optionally all cars).
+- **Wheel and pedals**: steering, accelerate, brake and the driving buttons (handbrake, nitrous,
+  speedbreaker, reset, camera, look back) are bound in the F4 menu and handed to the game as its
+  own input, so the game's controller settings aren't needed. *Steering lock* sets how much of
+  the wheel's rotation gives full lock in game (e.g. 540 of 900 degrees); the force feedback mod
+  adds a soft lock there. *Game's own controller input: Off* makes the game ignore the
+  controllers completely, its menus included (needs the force feedback mod's `dinput8.dll`;
+  the keyboard keeps working).
 - **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic, and
   the force feedback mod's strength (if it is installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
@@ -69,6 +76,9 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
 | `[Physics] Grip / TorqueSplit / Gravity` | tire grip, multiplier on the torque sent to the front wheels, gravity in g |
 | `[Car.<name>]` | a car's own physics values (set with *Settings for this car only* in the menu) |
+| `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
+| `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
+| `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |
 
@@ -98,6 +108,12 @@ code doesn't match.
   `GetEngineTorque` (0x8AB7A8, power loss) are replaced. At full heat the engine is marked blown
   and the car destroyed through `IDamageable::Destroy`, as a drag race crash does. Drag races keep
   the game's model.
+- Driving controls: `SimSystem::DoFetchInput` (0x6E8AC0) is redirected, and before each
+  `InputPlayer::FetchInput` the bound steering, pedals and buttons are queued into the player's
+  `ActionQueue` (+0x10) as the game's own actions (`ActionQueue::ReceiveAction`, 0x6440B0:
+  `{id, port, value}`, ids from the GAMEACTION_* table). On PC one `GameDevice` merges keyboard
+  and joystick, so `GameController=0` is done by the force feedback mod's DirectInput proxy, which
+  gives the game an untouched reading of every controller.
 - The tuning menu is drawn after the game's HUD (eDisplayFrame, 0x6E75A7) as untextured quads with
   a GDI-rasterised font, so the VR mod puts it on its HUD panel.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a

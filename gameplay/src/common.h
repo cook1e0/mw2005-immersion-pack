@@ -49,6 +49,19 @@ struct Config {
     float buttonPressTime = 0.08f;  // digital clutch (button/key): seconds to floor it
     float buttonReleaseTime = 0.45f;// ... and to let it out
 
+    // [Controls] driving controls read by this mod and fed to the game as its own actions, so the
+    // game's controller settings aren't needed (controls.cpp)
+    std::string steer;              // steering axis
+    std::string throttle, brake;    // pedal axes, buttons or keys
+    int   throttleRest = -1;        // raw axis value with the pedal up (-1 = the end opposite its travel)
+    int   brakeRest = -1;
+    std::string button[6];          // Button order (input.h): handbrake, nitrous, speedbreaker, reset, camera, look back
+    float wheelRotation = 900.0f;   // the wheel's rotation set in its driver, degrees lock to lock
+    float steeringLock = 540.0f;    // wheel rotation (lock to lock) that gives full steering in game
+    float steerDeadzone = 0.0f;     // ignored travel around the centre, fraction of full steering
+    float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
+    bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works
+
     // [Shifter]
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7
     std::string neutral;            // only used with Latching=1
@@ -134,5 +147,7 @@ struct Config {
     bool  logInputs = false;
 };
 extern Config g_cfg;
+// [Controls] ini keys of Config::button.
+extern const char* const kButtonKeys[6];
 void LoadConfig();
 const char* IniPath();

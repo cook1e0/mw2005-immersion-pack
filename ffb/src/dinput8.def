@@ -7,3 +7,4 @@ EXPORTS
     DllUnregisterServer = Proxy_DllUnregisterServer@0 PRIVATE
     GetdfDIJoystick = Proxy_GetdfDIJoystick@0
     NfsmwFfb_Gain
+    NfsmwFfb_Setting

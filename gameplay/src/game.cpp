@@ -39,6 +39,7 @@
 #include "physics.h"
 #include "vfx.h"
 #include "traffic.h"
+#include "controls.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -360,8 +361,9 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         return false;   // the game's shift up/down buttons do nothing while the stick decides
     }
 
-    // Sequential: our ShiftUp / ShiftDown bindings, or the game's own shift controls.
-    if (g_cfg.sequential && delta == 0 && presses != 0) delta = presses > 0 ? 1 : -1;
+    // Sequential (ours or the game's manual gearbox): our ShiftUp / ShiftDown bindings, or the
+    // game's own shift controls.
+    if (delta == 0 && presses != 0) delta = presses > 0 ? 1 : -1;
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
     bool needClutch = g_cfg.requireClutch && s.clutchActive && (g_cfg.sequential || g_cfg.sequentialNeedsClutch);
     if (delta != 0 && needClutch && !clutchIn) {
@@ -912,6 +914,7 @@ bool Game_Install() {
     Physics_Install();
     Vfx_Install();
     Traffic_Install();
+    Controls_Install();
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
         Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());

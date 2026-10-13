@@ -8,6 +8,7 @@ static InputSnapshot s_snap;
 static volatile LONG s_started;
 
 static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_nav[4];
+static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -65,6 +66,10 @@ static void ParseAll() {
     parse("MenuDown", g_cfg.menuDown, s_nav[1]);
     parse("MenuLeft", g_cfg.menuLeft, s_nav[2]);
     parse("MenuRight", g_cfg.menuRight, s_nav[3]);
+    parse("Steering", g_cfg.steer, s_steer);
+    parse("Accelerate", g_cfg.throttle, s_pedal[0]);
+    parse("Brake", g_cfg.brake, s_pedal[1]);
+    for (int i = 0; i < BTN_COUNT; i++) parse(kButtonKeys[i], g_cfg.button[i], s_button[i]);
 
     s_cal.resize(s_clutch.size());
     for (size_t i = 0; i < s_clutch.size(); i++) {
@@ -140,6 +145,46 @@ static bool AnyUsable(const std::vector<Binding>& list) {
     for (auto& b : list)
         if (BindingUsable(b)) return true;
     return false;
+}
+
+// Steering, -1 left .. +1 right: the first usable axis binding, scaled so that SteeringLock
+// degrees of wheel rotation (of WheelRotation in all) give full lock.
+static bool ReadSteer(float* out) {
+    for (auto& b : s_steer) {
+        if (b.kind != BK_AXIS || !BindingUsable(b)) continue;
+        float v = ((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f;
+        if (b.invert) v = -v;
+        v *= g_cfg.wheelRotation / g_cfg.steeringLock;
+        float dz = g_cfg.steerDeadzone, a = fabsf(v);
+        a = a <= dz ? 0.0f : (a - dz) / (1.0f - dz);
+        *out = Clamp(v < 0 ? -a : a, -1.0f, 1.0f);
+        return true;
+    }
+    return false;
+}
+
+// Pedal travel 0..1, deepest of the bindings (keys and buttons are 0 or 1). `rest` is the raw axis
+// value with the pedal up (-1: the end opposite to the direction it was bound in).
+static bool ReadPedal(const std::vector<Binding>& list, int rest, bool focus, float* out) {
+    bool bound = false;
+    float p = 0.0f;
+    for (auto& b : list) {
+        if (!BindingUsable(b)) continue;
+        bound = true;
+        if (b.kind != BK_AXIS) {
+            if (Down(b, focus)) p = 1.0f;
+            continue;
+        }
+        float raw = (float)s_joy[b.joy].state.axis[b.index];
+        float pressed = b.invert ? 0.0f : 65535.0f;
+        float released = rest >= 0 ? (float)rest : 65535.0f - pressed;
+        if (fabsf(pressed - released) < 1000.0f) continue;
+        float v = (raw - released) / (pressed - released);
+        float dz = g_cfg.pedalDeadzone;
+        p = std::max(p, Clamp((v - dz) / (1.0f - 2.0f * dz), 0.0f, 1.0f));
+    }
+    *out = p;
+    return bound;
 }
 
 // Counts presses of a held control, repeating after a delay like a keyboard.
@@ -377,7 +422,27 @@ static DWORD WINAPI InputThread(LPVOID) {
         uint32_t navPresses[4];
         for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
 
+        // Driving controls.
+        float steer = 0.0f, pedals[2] = {};
+        bool steerBound = ReadSteer(&steer);
+        bool pedalBound[2];
+        pedalBound[0] = ReadPedal(s_pedal[0], g_cfg.throttleRest, focus, &pedals[0]);
+        pedalBound[1] = ReadPedal(s_pedal[1], g_cfg.brakeRest, focus, &pedals[1]);
+        uint32_t buttonBound = 0, buttonDown = 0;
+        for (int i = 0; i < BTN_COUNT; i++) {
+            if (AnyUsable(s_button[i])) buttonBound |= 1u << i;
+            if (AnyDown(s_button[i], focus)) buttonDown |= 1u << i;
+        }
+
         EnterCriticalSection(&s_lock);
+        s_snap.steerBound = steerBound;
+        s_snap.steer = steer;
+        for (int i = 0; i < 2; i++) {
+            s_snap.pedalBound[i] = pedalBound[i];
+            s_snap.pedal[i] = pedals[i];
+        }
+        s_snap.buttonBound = buttonBound;
+        s_snap.buttonDown = buttonDown;
         s_snap.clutchBound = clutchBound;
         s_snap.clutchPedal = pedal;
         s_snap.shifterBound = shifterBound;

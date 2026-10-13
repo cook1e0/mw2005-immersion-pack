@@ -48,6 +48,8 @@ struct StubEffect : public IDirectInputEffect {
 };
 
 static bool OwnFfb() { return g_cfg.enabled && !g_cfg.nativeFfb; }
+bool DeviceWrap::OwnsFfb() const { return ffbDevice && OwnFfb(); }
+bool GameInputHidden() { return g_cfg.gameController < 0.5f; }
 
 static void SetAutoCenterOff(IDirectInputDevice8A* d) {
     DIPROPDWORD p = {};
@@ -74,8 +76,9 @@ ULONG DeviceWrap::Release() {
     LONG r = InterlockedDecrement(&refs);
     if (!r) {
         Lock l;
-        Ffb_UnregisterDevice(this);
+        if (ffbDevice) Ffb_UnregisterDevice(this);
         real->Release();
+        delete[] restState;
         Log("dinput: released '%s'", name);
         delete this;
     }
@@ -86,13 +89,13 @@ HRESULT DeviceWrap::EnumObjects(LPDIENUMDEVICEOBJECTSCALLBACKA a, LPVOID b, DWOR
 HRESULT DeviceWrap::GetProperty(REFGUID a, LPDIPROPHEADER b) { Lock l; return real->GetProperty(a, b); }
 HRESULT DeviceWrap::SetProperty(REFGUID a, LPCDIPROPHEADER b) {
     Lock l;
-    if (OwnFfb() && &a == &DIPROP_AUTOCENTER) {
+    if (OwnsFfb() && &a == &DIPROP_AUTOCENTER) {
         // The game must not re-enable the wheel's built-in centring spring.
         DIPROPDWORD p = *(const DIPROPDWORD*)b;
         p.dwData = DIPROPAUTOCENTER_OFF;
         return real->SetProperty(a, &p.diph);
     }
-    if (OwnFfb() && &a == &DIPROP_FFGAIN) return DI_OK;
+    if (OwnsFfb() && &a == &DIPROP_FFGAIN) return DI_OK;
     return real->SetProperty(a, b);
 }
 HRESULT DeviceWrap::Acquire() {
@@ -119,12 +122,29 @@ HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
     Lock l;
     HRESULT hr = real->GetDeviceState(a, b);
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
+    if (FAILED(hr) || !b) return hr;
+    if (!restState || restSize != a) {
+        // First reading in this format: the controller at rest. For the standard joystick
+        // formats, release the buttons and centre the hats.
+        delete[] restState;
+        restState = new uint8_t[a];
+        restSize = a;
+        memcpy(restState, b, a);
+        if (a == sizeof(DIJOYSTATE) || a == sizeof(DIJOYSTATE2)) {
+            DIJOYSTATE* js = (DIJOYSTATE*)restState;
+            for (int i = 0; i < 4; i++) js->rgdwPOV[i] = 0xFFFFFFFF;
+            memset(js->rgbButtons, 0, sizeof(js->rgbButtons));
+            if (a == sizeof(DIJOYSTATE2)) memset(((DIJOYSTATE2*)restState)->rgbButtons + 32, 0, 96);
+        }
+    }
+    if (GameInputHidden()) memcpy(b, restState, a);
     return hr;
 }
 HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DWORD d) {
     Lock l;
     HRESULT hr = real->GetDeviceData(a, b, c, d);
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
+    if (SUCCEEDED(hr) && c && GameInputHidden()) *c = 0;    // drained, nothing reported
     return hr;
 }
 HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
@@ -142,7 +162,7 @@ HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
             }
         }
         Log("dinput: '%s' data format size=%lu objs=%lu steerAxisOfs=%ld", name, f->dwDataSize, f->dwNumObjs, axisOfs);
-        if (OwnFfb()) SetAutoCenterOff(real);
+        if (OwnsFfb()) SetAutoCenterOff(real);
     }
     return hr;
 }
@@ -150,7 +170,7 @@ HRESULT DeviceWrap::SetEventNotification(HANDLE a) { Lock l; return real->SetEve
 HRESULT DeviceWrap::SetCooperativeLevel(HWND w, DWORD flags) {
     Lock l;
     hwnd = w;
-    if (!OwnFfb()) {
+    if (!OwnsFfb()) {
         HRESULT hr = real->SetCooperativeLevel(w, flags);
         exclusive = SUCCEEDED(hr) && (flags & DISCL_EXCLUSIVE);
         return hr;
@@ -174,7 +194,7 @@ HRESULT DeviceWrap::GetDeviceInfo(LPDIDEVICEINSTANCEA a) { return real->GetDevic
 HRESULT DeviceWrap::RunControlPanel(HWND a, DWORD b) { return real->RunControlPanel(a, b); }
 HRESULT DeviceWrap::Initialize(HINSTANCE a, DWORD b, REFGUID c) { return real->Initialize(a, b, c); }
 HRESULT DeviceWrap::CreateEffect(REFGUID a, LPCDIEFFECT b, LPDIRECTINPUTEFFECT* c, LPUNKNOWN d) {
-    if (OwnFfb()) {
+    if (OwnsFfb()) {
         *c = new StubEffect(a);
         return DI_OK;
     }
@@ -185,12 +205,12 @@ HRESULT DeviceWrap::EnumEffects(LPDIENUMEFFECTSCALLBACKA a, LPVOID b, DWORD c) {
 HRESULT DeviceWrap::GetEffectInfo(LPDIEFFECTINFOA a, REFGUID b) { return real->GetEffectInfo(a, b); }
 HRESULT DeviceWrap::GetForceFeedbackState(LPDWORD a) { Lock l; return real->GetForceFeedbackState(a); }
 HRESULT DeviceWrap::SendForceFeedbackCommand(DWORD a) {
-    if (OwnFfb()) return DI_OK;  // a game RESET/STOPALL would kill our effects
+    if (OwnsFfb()) return DI_OK;  // a game RESET/STOPALL would kill our effects
     Lock l;
     return real->SendForceFeedbackCommand(a);
 }
 HRESULT DeviceWrap::EnumCreatedEffectObjects(LPDIENUMCREATEDEFFECTOBJECTSCALLBACK a, LPVOID b, DWORD c) {
-    if (OwnFfb()) return DI_OK;
+    if (OwnsFfb()) return DI_OK;
     return real->EnumCreatedEffectObjects(a, b, c);
 }
 HRESULT DeviceWrap::Escape(LPDIEFFESCAPE a) { Lock l; return real->Escape(a); }
@@ -244,10 +264,15 @@ struct DInputWrap : public IDirectInput8A {
         dev->GetCapabilities(&caps);
         bool ffb = (caps.dwFlags & DIDC_FORCEFEEDBACK) != 0;
         Log("dinput: CreateDevice '%s' type=0x%lX axes=%lu ffb=%d", info.tszProductName, info.dwDevType, caps.dwAxes, ffb);
-        if (!ffb || !g_cfg.enabled) return hr;
+        // Controllers other than force feedback wheels are wrapped too (when enabled), so their
+        // input can be hidden from the game; keyboard and mouse never are.
+        BYTE type = GET_DIDEVICE_TYPE(info.dwDevType);
+        bool controller = type != DI8DEVTYPE_KEYBOARD && type != DI8DEVTYPE_MOUSE;
+        if (!g_cfg.enabled || !controller) return hr;
         DeviceWrap* w = new DeviceWrap(dev);
         strncpy(w->name, info.tszProductName, sizeof(w->name) - 1);
-        {
+        w->ffbDevice = ffb;
+        if (ffb) {
             Lock l;
             Ffb_RegisterDevice(w);
         }

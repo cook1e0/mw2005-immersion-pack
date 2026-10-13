@@ -80,20 +80,26 @@ void LoadConfig() {
     c.engineVibration = ReadFloat(s, "EngineVibration", c.engineVibration);
     c.brakeLockVibration = ReadFloat(s, "BrakeLockVibration", c.brakeLockVibration);
     c.menuSpring = ReadFloat(s, "MenuSpring", c.menuSpring);
+    c.centerSpring = ReadFloat(s, "CenterSpring", c.centerSpring);
+    c.softLock = ReadFloat(s, "SoftLock", c.softLock);
     c.minForce = ReadFloat(s, "MinForce", c.minForce);
     c.invertForce = ReadInt(s, "InvertForce", c.invertForce) != 0;
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
     c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 30, 1000);
     c.logTelemetry = ReadInt(s, "LogTelemetry", c.logTelemetry) != 0;
+    char gameplayIni[MAX_PATH];
+    snprintf(gameplayIni, sizeof(gameplayIni), "%snfsmw_gameplay.ini", GameDir());
+    c.gameController = GetPrivateProfileIntA("Controls", "GameController", 1, gameplayIni) ? 1.0f : 0.0f;
     c.forceSign = Clamp(ReadInt("Calibration", "ForceSign", 0), -1, 1);
     c.slipSign = Clamp(ReadInt("Calibration", "SlipSign", 0), -1, 1);
     c.rightSign = Clamp(ReadInt("Calibration", "RightSign", 0), -1, 1);
     Log("config: enabled=%d native=%d gain=%.2f sat=%.2f peak=%.1f drift=%.2f damper=%.2f/%.2f "
-        "friction=%.2f/%.2f road=%.2f coll=%.2f eng=%.3f lock=%.2f menu=%.2f min=%.2f invert=%d axis=%d hz=%d "
-        "cal(force=%d slip=%d right=%d)",
+        "friction=%.2f/%.2f road=%.2f coll=%.2f eng=%.3f lock=%.2f menu=%.2f centre=%.2f softlock=%.2f min=%.2f invert=%d axis=%d hz=%d "
+        "cal(force=%d slip=%d right=%d) game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.satGain, c.satPeakAngle, c.driftAlign, c.damperLow, c.damperHigh,
         c.friction, c.standstillFriction, c.roadGain, c.collisionGain, c.engineVibration, c.brakeLockVibration,
-        c.menuSpring, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign);
+        c.menuSpring, c.centerSpring, c.softLock, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign,
+        c.gameController > 0.5f ? "on" : "hidden");
 }
 
 void SaveCalibration(int slipSign, int rightSign, int forceSign) {

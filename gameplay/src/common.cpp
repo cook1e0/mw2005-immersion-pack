@@ -3,6 +3,7 @@
 #include <stdarg.h>
 
 Config g_cfg;
+const char* const kButtonKeys[6] = {"Handbrake", "Nitrous", "Speedbreaker", "ResetCar", "Camera", "LookBack"};
 
 static char s_dir[MAX_PATH];
 static char s_ini[MAX_PATH];
@@ -99,6 +100,18 @@ void LoadConfig() {
     c.lockRpm = Clamp(ReadFloat("Clutch", "LockRPM", c.lockRpm), 10.0f, 2000.0f);
     c.buttonPressTime = Clamp(ReadFloat("Clutch", "ButtonPressTime", c.buttonPressTime), 0.0f, 5.0f);
     c.buttonReleaseTime = Clamp(ReadFloat("Clutch", "ButtonReleaseTime", c.buttonReleaseTime), 0.0f, 5.0f);
+
+    c.steer = ReadStr("Controls", "Steering", "");
+    c.throttle = ReadStr("Controls", "Accelerate", "");
+    c.brake = ReadStr("Controls", "Brake", "");
+    c.throttleRest = ReadInt("Controls", "AccelerateRest", -1);
+    c.brakeRest = ReadInt("Controls", "BrakeRest", -1);
+    for (int i = 0; i < 6; i++) c.button[i] = ReadStr("Controls", kButtonKeys[i], "");
+    c.wheelRotation = Clamp(ReadFloat("Controls", "WheelRotation", c.wheelRotation), 90.0f, 1800.0f);
+    c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
+    c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);
+    c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
+    c.gameController = ReadInt("Controls", "GameController", 1) != 0;
 
     c.gear[0] = ReadStr("Shifter", "Reverse", "");
     for (int g = 1; g <= kMaxGears; g++) {

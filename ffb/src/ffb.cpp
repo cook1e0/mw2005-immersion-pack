@@ -441,7 +441,7 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
     o.damper = damperDrive * S.fade + c.damperHigh * (1.0f - S.fade);
     o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade + c.friction * (1.0f - S.fade);
-    o.spring = c.menuSpring * (1.0f - S.fade) + precalSpring * S.fade;
+    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + c.centerSpring) * S.fade;
 
     // --- constant ---------------------------------------------------------------------------
     float total = (S.sat + S.road + (S.forceSign ? jolt : 0.0f)) * S.fade;
@@ -453,6 +453,18 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     o.damper *= c.gain;
     o.friction *= c.gain;
     o.sineMag *= c.gain;
+
+    // --- soft lock: the wheel stops where the game's steering is at full lock ---------------
+    // (the gameplay mod's [Controls] SteeringLock). Not scaled by Gain: it marks a hard limit.
+    if (S.haveAxis && c.softLockAt < 0.98f && c.softLock > 0.0f) {
+        float over = fabsf(S.axis) - c.softLockAt;
+        if (over > 0.0f) {
+            // Full push within ~4% of travel past the lock, plus damping so it doesn't bounce.
+            float push = c.softLock * Clamp(over / 0.04f, 0.0f, 1.0f);
+            float damp = Clamp(S.axisVel * Sign(S.axis) * 0.15f, 0.0f, 0.5f) * c.softLock;
+            o.constant -= Sign(S.axis) * (push + damp);
+        }
+    }
 
     // --- calibration from driving data ------------------------------------------------------
     if (newSample && driving && S.haveAxis && speed > 12.0f && onF == 2 && fabsf(S.axis) > 0.04f &&

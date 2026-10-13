@@ -214,22 +214,37 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND };
-enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4 };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_TUNING = 4, BF_STEER = 8, BF_PEDAL = 16 };
 
-// Force feedback strength: the FFB mod's (dinput8.dll) [FFB] Gain, changed live through its
-// NfsmwFfb_Gain export and saved to nfsmw_ffb.ini.
-float s_ffbGain = 1.0f;
-float* FfbGain() {
-    static float* p;
+// Force feedback settings: the FFB mod's (dinput8.dll) [FFB] values, changed live through its
+// NfsmwFfb_Setting export and saved to nfsmw_ffb.ini. Older FFB builds only export the Gain.
+const char* const kFfbKeys[] = {"Gain", "CenterSpring", "SoftLock", "SoftLockAt", "GameController"};
+enum { FFB_GAIN, FFB_CENTER, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_COUNT };
+float s_ffb[FFB_COUNT] = {1.0f, 0.15f, 0.8f, 1.0f, 1.0f};
+
+float* FfbSetting(int i) {
+    static float* p[FFB_COUNT];
     static bool looked;
     if (!looked) {
         looked = true;
         HMODULE m = GetModuleHandleA("dinput8.dll");
-        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Gain") : nullptr;
-        p = f ? ((float* (__cdecl*)())f)() : nullptr;
-        Log("ui: force feedback mod %s", p ? "found" : "not loaded");
+        FARPROC get = m ? GetProcAddress(m, "NfsmwFfb_Setting") : nullptr;
+        FARPROC gain = m ? GetProcAddress(m, "NfsmwFfb_Gain") : nullptr;
+        for (int k = 0; k < FFB_COUNT; k++)
+            p[k] = get ? ((float* (__cdecl*)(const char*))get)(kFfbKeys[k]) : nullptr;
+        if (!p[FFB_GAIN] && gain) p[FFB_GAIN] = ((float* (__cdecl*)())gain)();
+        if (!g_cfg.gameController && !p[FFB_GAMECONTROLLER])
+            Log("ui: GameController=0 needs the force feedback mod's dinput8.dll; the game still reads the controller");
+        Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
     }
-    return p;
+    return p[i];
+}
+
+// Index into s_ffb of a menu value, or -1.
+int FfbIndex(const void* value) {
+    for (int i = 0; i < FFB_COUNT; i++)
+        if (value == &s_ffb[i]) return i;
+    return -1;
 }
 
 std::string FfbIniPath() {
@@ -272,9 +287,23 @@ const Item kItems[] = {
     {TOGGLE, "Physics sliders", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
     {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Force feedback strength", "FFB", "Gain", &s_ffbGain, 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {LINK, "Fine tuning", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {HEADER, "WHEEL AND PEDALS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    BINDING("Steering", "Controls", "Steering", steer, BF_STEER),
+    BINDING("Accelerate", "Controls", "Accelerate", throttle, BF_PEDAL),
+    BINDING("Brake", "Controls", "Brake", brake, BF_PEDAL),
+    {NUMBER, "Wheel rotation (set in its driver)", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
+    {NUMBER, "Steering lock (full turn in game)", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
+    {NUMBER, "Force feedback strength", "FFB", "Gain", &s_ffb[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ffb[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
     {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    BINDING("Handbrake", "Controls", "Handbrake", button[0], 0),
+    BINDING("Nitrous", "Controls", "Nitrous", button[1], 0),
+    BINDING("Speedbreaker", "Controls", "Speedbreaker", button[2], 0),
+    BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
+    BINDING("Change camera", "Controls", "Camera", button[4], 0),
+    BINDING("Look back", "Controls", "LookBack", button[5], 0),
     BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
     BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
     BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
@@ -323,6 +352,10 @@ const Item kItems[] = {
     {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", BF_TUNING},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", BF_TUNING},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, BF_TUNING},
+    {HEADER, "WHEEL AND PEDALS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
+    {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", BF_TUNING},
+    {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", BF_TUNING},
+    {NUMBER, "Soft lock strength (FFB)", "FFB", "SoftLock", &s_ffb[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {HEADER, "SHIFTER AND CLUTCH", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_TUNING},
     {NUMBER, "Clutch travel to shift", "Shifter", "ClutchToShift", &g_cfg.shiftPedal, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", BF_TUNING},
     {NUMBER, "Clutchless rev-match", "Shifter", "RevMatchRPM", &g_cfg.revMatchRpm, 0.0f, 3000.0f, 50.0f, 1, "%.0f rpm", BF_TUNING},
@@ -337,6 +370,7 @@ struct {
     bool open = false;
     bool dirty = false;
     bool clutchCal = false;         // [Clutch] Released/Pressed changed by binding a pedal
+    bool pedalCal = false;          // [Controls] AccelerateRest/BrakeRest changed
     int page = 0;                   // 0 = main, 1 = fine tuning
     int sel = 1;                    // selected item (index into kItems)
     int first = 0;                  // first row shown
@@ -427,7 +461,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == ACTION) return "Go";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
     if (it.kind == BIND) {
-        if (index == s_menu.capture) return "Press a key, button or pedal...";
+        if (index == s_menu.capture) return it.flags & BF_STEER ? "Turn the wheel..." : "Press a key, button or pedal...";
         std::string s;
         for (auto& t : SplitBindings(*(std::string*)it.value))
             s += (s.empty() ? "" : ", ") + (t.compare(0, 4, "key:") == 0 ? t.substr(4) : t);
@@ -435,7 +469,8 @@ std::string ValueText(const Item& it, int index) {
         if (s.size() > 28) s = s.substr(0, 25) + "...";
         return s;
     }
-    if (it.value == &s_ffbGain && !FfbGain()) return "No FFB mod";
+    int ffb = FfbIndex(it.value);
+    if (ffb >= 0 && !FfbSetting(ffb)) return "No FFB mod";
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
@@ -460,22 +495,38 @@ void FinishCapture(const std::string& binding, int axisRest) {
                 return;
             }
     std::string& field = *(std::string*)it.value;
-    std::vector<std::string> list = SplitBindings(field);
-    for (auto& t : list)
-        if (SameBinding(t, binding)) {
-            Note(std::string(it.label) + ": " + binding + " is already bound");
+    std::string b = binding;
+    if (it.flags & BF_STEER) {
+        // An axis; which way it was turned doesn't matter.
+        if (axisRest < 0) {
+            Note("Steering needs an axis: turn the wheel");
             return;
         }
-    list.push_back(binding);
+        size_t minus = b.find(":-");
+        if (minus != std::string::npos) b.erase(minus + 1, 1);
+    }
+    std::vector<std::string> list = SplitBindings(field);
+    for (auto& t : list)
+        if (SameBinding(t, b)) {
+            Note(std::string(it.label) + ": " + b + " is already bound");
+            return;
+        }
+    if (it.flags & BF_STEER) list.clear();      // one steering axis
+    list.push_back(b);
     if ((it.flags & BF_CLUTCH) && axisRest >= 0) {
         // Pedal: remember where it rests; floored is taken to be the other end of its travel.
         g_cfg.clutchReleased = axisRest;
         g_cfg.clutchPressed = -1;
         s_menu.clutchCal = true;
     }
+    if ((it.flags & BF_PEDAL) && axisRest >= 0) {
+        // Pedal: remember where it rests (pedals sharing one axis rest in the middle).
+        (it.value == &g_cfg.throttle ? g_cfg.throttleRest : g_cfg.brakeRest) = axisRest;
+        s_menu.pedalCal = true;
+    }
     Input_SetBinding(field, JoinBindings(list));
     s_menu.dirty = true;
-    Note(std::string(it.label) + ": added " + binding);
+    Note(std::string(it.label) + ": added " + b);
     Log("ui: %s = %s", it.key, field.c_str());
 }
 
@@ -492,6 +543,10 @@ void Unbind(const Item& it) {
         Note(std::string(it.label) + (value.empty() ? ": nothing to unbind" : ": already the default"));
         return;
     }
+    if (it.flags & BF_PEDAL) {
+        (it.value == &g_cfg.throttle ? g_cfg.throttleRest : g_cfg.brakeRest) = -1;
+        s_menu.pedalCal = true;
+    }
     Input_SetBinding(field, value);
     s_menu.dirty = true;
     Note(std::string(it.label) + (value.empty() ? ": unbound" : ": back to default"));
@@ -504,10 +559,16 @@ void Change(int index, int dir) {
         bool& b = *(bool*)it.value;
         b = !b;
     } else if (it.kind == NUMBER) {
-        if (it.value == &s_ffbGain && !FfbGain()) return;
+        int ffb = FfbIndex(it.value);
+        if (ffb >= 0 && !FfbSetting(ffb)) return;
         float& v = *(float*)it.value;
         v = Clamp(roundf((v + dir * it.step) / it.step) * it.step, it.lo, it.hi);
-        if (it.value == &s_ffbGain) *FfbGain() = v;
+        if (ffb >= 0) *FfbSetting(ffb) = v;
+        // The steering lock is part of the wheel's rotation.
+        if (g_cfg.steeringLock > g_cfg.wheelRotation) {
+            if (it.value == &g_cfg.steeringLock) g_cfg.steeringLock = g_cfg.wheelRotation;
+            else g_cfg.wheelRotation = g_cfg.steeringLock;
+        }
         // Keep the bite point ordered: start (released side) above end.
         if (g_cfg.biteStart < g_cfg.biteEnd + 0.05f) {
             if (it.value == &g_cfg.biteStart) g_cfg.biteEnd = std::max(0.0f, g_cfg.biteStart - 0.05f);
@@ -552,8 +613,9 @@ void Save() {
         else if (it.kind == NUMBER) snprintf(buf, sizeof(buf), "%g", *(float*)it.value), text = buf;
         else if (it.kind == SOUND) snprintf(buf, sizeof(buf), "0x%08X", *(uint32_t*)it.value), text = buf;
         else text = *(std::string*)it.value;
-        if (it.value == &s_ffbGain) {
-            if (FfbGain()) WritePrivateProfileStringA(it.section, it.key, text.c_str(), FfbIniPath().c_str());
+        int ffb = FfbIndex(it.value);
+        if (ffb >= 0) {
+            if (FfbSetting(ffb)) WritePrivateProfileStringA(it.section, it.key, text.c_str(), FfbIniPath().c_str());
             continue;
         }
         std::string section = Physics_IsPerCar(it.value) ? Physics_Section() : it.section;
@@ -563,6 +625,11 @@ void Save() {
         WritePrivateProfileStringA("Clutch", "Released", std::to_string(g_cfg.clutchReleased).c_str(), IniPath());
         WritePrivateProfileStringA("Clutch", "Pressed", std::to_string(g_cfg.clutchPressed).c_str(), IniPath());
         s_menu.clutchCal = false;
+    }
+    if (s_menu.pedalCal) {
+        WritePrivateProfileStringA("Controls", "AccelerateRest", std::to_string(g_cfg.throttleRest).c_str(), IniPath());
+        WritePrivateProfileStringA("Controls", "BrakeRest", std::to_string(g_cfg.brakeRest).c_str(), IniPath());
+        s_menu.pedalCal = false;
     }
     Log("ui: settings saved to %s", IniPath());
 }
@@ -577,7 +644,9 @@ void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
     Log("ui: menu %s", open ? "opened" : "closed");
-    if (open && FfbGain()) s_ffbGain = *FfbGain();
+    if (open)
+        for (int i = 0; i < FFB_COUNT; i++)
+            if (FfbSetting(i)) s_ffb[i] = *FfbSetting(i);
     if (!open) {
         CancelCapture();
         if (s_menu.dirty) {
@@ -651,6 +720,7 @@ void DrawMenu(int W, int H, float k) {
     const Item& cur = kItems[s_menu.sel];
     std::string hint;
     if (s_menu.capture >= 0) hint = MenuKeyName() + ": cancel";
+    else if (cur.flags & BF_STEER) hint = "Right: bind (turn the wheel)    Left: unbind    " + MenuKeyName() + ": close";
     else if (cur.kind == BIND)
         hint = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " +
                MenuKeyName() + ": close";
@@ -725,6 +795,11 @@ void Ui_Frame() {
     IDirect3DDevice9* dev = *(IDirect3DDevice9**)kDevice;
     if (!dev) return;
     Physics_Frame();
+    // The FFB mod's soft lock sits at the steering lock.
+    if (float* at = FfbSetting(FFB_SOFTLOCKAT))
+        *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / g_cfg.wheelRotation, 0.05f, 1.0f);
+    // ... and hides the controllers from the game ([Controls] GameController=0).
+    if (float* gc = FfbSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
     UpdateMenu(Input_Get(), st.driving);
     if (!st.driving) return;

@@ -22,6 +22,8 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Damper / friction / parking scrub | vehicle speed |
 | Engine buzz, brake lock | `IEngine::GetRPM`, tyre brake-lock flag |
 | Centring spring in menus, pause, cutscenes | `LocalPlayer::CanDoFFB` (pause / AI / NIS) |
+| Centring spring while driving (`CenterSpring`) | brings the wheel back at low speed and when parked |
+| Soft lock (`SoftLock`) | wheel position past the gameplay mod's `[Controls] SteeringLock` |
 
 ## First run: automatic calibration
 
@@ -50,6 +52,10 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
 - `src/telemetry.cpp`: replaces the `call LocalPlayer::DoFFB` in `LocalPlayer::OnTask` (0x6F22C6)
   with a hook that samples the player car through the game's `ISuspension` / `IEngine` vtables,
   then calls the original.
+- With the gameplay mod's `[Controls] GameController=0`, every controller the game opens is wrapped
+  and reads as untouched (its first state, buttons up, hats centred), so the game ignores it in
+  driving and menus while the gameplay mod feeds the controls. The F4 menu changes it live
+  through the `NfsmwFfb_Setting` export (also Gain, CenterSpring, SoftLock).
 - `src/ffb.cpp`: a 200 Hz thread that turns the latest telemetry into constant, spring,
   damper, friction and sine effects.
 - `tools/ffbtool.exe`: lists controllers. `ffbtool test` nudges the wheel right/left and reports
