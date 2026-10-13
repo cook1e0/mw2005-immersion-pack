@@ -334,7 +334,7 @@ static DWORD WINAPI InputThread(LPVOID) {
                 c.known = true;
                 c.released = raw > 32767.0f ? 65535.0f : 0.0f;
                 c.pressed = 65535.0f - c.released;
-                Log("input: clutch %s learned released=%d pressed=%d (run gameplaytool setup to calibrate)",
+                Log("input: clutch %s learned released=%d pressed=%d (bind the pedal in the F4 menu to calibrate)",
                     BindingName(b).c_str(), (int)c.released, (int)c.pressed);
             }
             float p = (raw - c.released) / (c.pressed - c.released);

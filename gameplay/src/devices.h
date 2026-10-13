@@ -1,4 +1,4 @@
-// DirectInput game-controller access and input bindings. Shared by the mod and gameplaytool.
+// DirectInput game-controller access and input bindings.
 #pragma once
 #include "common.h"
 

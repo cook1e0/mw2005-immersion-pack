@@ -19,14 +19,14 @@ damage and more). Install any of them, or all three.
    |---|---|
    | VR | `d3d9.dll`, `nfsmw_vr.ini` |
    | Force feedback | `dinput8.dll`, `nfsmw_ffb.ini` (`ffbtool.exe` optional: lists and tests wheels) |
-   | Gameplay | `dsound.dll`, `nfsmw_gameplay.ini`, `gameplaytool.exe` (optional: shifter setup) |
+   | Gameplay | `dsound.dll`, `nfsmw_gameplay.ini` |
 
-3. Gameplay, with an H-shifter: with your pedals and shifter connected, run `gameplaytool setup` in the game folder
-   to bind the clutch and each gear, or bind them in game under CONTROLS in the F4 menu.
+3. Gameplay, with an H-shifter: with your pedals and shifter connected, bind the clutch and each gear in game
+   under CONTROLS in the F4 menu (press F4 while driving).
 4. VR: connect your headset before launching the game.
 
 **Upgrading from v0.6.0 or older:** the H-shifter mod is now the gameplay mod. Replace
-`dsound.dll` and copy `gameplaytool.exe`; on the first start your `nfsmw_hshifter.ini` is renamed to
+`dsound.dll`; on the first start your `nfsmw_hshifter.ini` is renamed to
 `nfsmw_gameplay.ini` with all your settings and bindings. `hshiftertool.exe` and
 `nfsmw_hshifter.log` can be deleted.
 

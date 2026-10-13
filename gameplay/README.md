@@ -38,17 +38,10 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll`, `nfsmw_gameplay.ini`
-and `gameplaytool.exe` next to `speed.exe`. Then, with your pedals and shifter connected, either
-bind them in game (F4, CONTROLS) or run in the game folder:
-
-```
-gameplaytool setup
-```
-
-It asks you to press the clutch and put the stick in each gear, and writes the bindings to
-`nfsmw_gameplay.ini`. `gameplaytool list` and `gameplaytool monitor` show the attached controllers
-and live input values. To uninstall, delete `dsound.dll`.
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `dsound.dll` and `nfsmw_gameplay.ini`
+next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
+the clutch and each gear under CONTROLS: select one, press Right, then press the pedal or put the
+stick in that gear. To uninstall, delete `dsound.dll`.
 
 The game's Automatic/Manual setting doesn't matter while the shifter is active. `Toggle=` (e.g.
 `key:F9`) switches between the H-shifter and the game's sequential shifting while driving.
