@@ -154,6 +154,12 @@ void D3D_ResetForNextEye() {
     if (ds) ds->Release();
 }
 
+// Colour writes in the HUD phase include alpha (see DeviceWrap::SetRenderState).
+static DWORD HudColorWrite(DWORD mask) {
+    return mask & (D3DCOLORWRITEENABLE_RED | D3DCOLORWRITEENABLE_GREEN | D3DCOLORWRITEENABLE_BLUE)
+               ? mask | D3DCOLORWRITEENABLE_ALPHA : mask;
+}
+
 // After the last eye's scene render: keep the scene, then point everything the game
 // draws next (HUD, frontend) at a transparent render target.
 void D3D_BeginHudPhase() {
@@ -169,6 +175,8 @@ void D3D_BeginHudPhase() {
     s_dev->SetRenderTarget(0, cur == s_backBuffer ? s_hudRT : cur);
     if (cur) cur->Release();
     s_dev->SetViewport(&vp);
+    DWORD mask;
+    if (SUCCEEDED(s_dev->GetRenderState(D3DRS_COLORWRITEENABLE, &mask))) s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, HudColorWrite(mask));
     s_hudPhase = true;
 }
 
@@ -354,6 +362,14 @@ public:
         Log("d3d9: Reset -> 0x%08lx", hr);
         if (SUCCEEDED(hr)) FitWindow(pp->hDeviceWindow ? pp->hDeviceWindow : s_wnd, pp->BackBufferWidth, pp->BackBufferHeight);
         return hr;
+    }
+
+    // The HUD layer's alpha is its coverage in the headset. The game's masked HUD images (nitro
+    // and speedbreaker arcs, IDI_FE_MASK_FX) never get FEColorWriteFlag set, so their effect
+    // writes colour without alpha and they would be invisible there.
+    HRESULT STDMETHODCALLTYPE SetRenderState(D3DRENDERSTATETYPE state, DWORD value) override {
+        if (s_hudPhase && state == D3DRS_COLORWRITEENABLE) value = HudColorWrite(value);
+        return real->SetRenderState(state, value);
     }
 
     HRESULT STDMETHODCALLTYPE SetRenderTarget(DWORD index, IDirect3DSurface9* surf) override {
