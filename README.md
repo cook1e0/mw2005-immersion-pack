@@ -10,9 +10,24 @@ different proxy DLL, so they can be installed together or on their own.
 | Force feedback | [`ffb/`](ffb/) | `dinput8.dll` | Steering forces from the game's own tyre model |
 | H-shifter + clutch | [`hshifter/`](hshifter/) | `dsound.dll` | H-pattern shifting, analog clutch, engine heat / over-rev / blow-ups, in-game tuning menu |
 
-To install, download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
-and copy the files of the mods you want next to `speed.exe`; no building needed. Each folder's
-README covers settings and how the mod works.
+## Install
+
+1. Download `nfsmw05-mod.zip` from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest).
+   No building needed.
+2. Copy the files of the mods you want next to `speed.exe`:
+
+   | Mod | Files |
+   |---|---|
+   | VR | `d3d9.dll`, `nfsmw_vr.ini` |
+   | Force feedback | `dinput8.dll`, `nfsmw_ffb.ini` (`ffbtool.exe` optional: lists and tests wheels) |
+   | H-shifter + clutch | `dsound.dll`, `nfsmw_hshifter.ini`, `hshiftertool.exe` |
+
+3. H-shifter: with your pedals and shifter connected, run `hshiftertool setup` in the game folder
+   to bind the clutch and each gear.
+4. VR: connect your headset before launching the game.
+
+To uninstall a mod, delete its DLL. Settings are in the `.ini` files, and each mod writes a `.log`
+next to `speed.exe`. Each folder's README covers its settings and how it works.
 
 ## Highlights
 
