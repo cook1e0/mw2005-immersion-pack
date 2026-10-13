@@ -124,4 +124,14 @@ void LoadConfig() {
     c.powerLoss = Clamp(ReadFloat("Engine", "PowerLoss", c.powerLoss), 0.0f, 1.0f);
     c.debugBlow = ReadStr("Engine", "DebugBlow", "");
     c.debugRepair = ReadStr("Engine", "DebugRepair", "");
+
+    c.gauge = ReadInt("UI", "Gauge", 1) != 0;
+    c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);
+    c.gaugeY = Clamp(ReadFloat("UI", "GaugeY", c.gaugeY), 0.0f, 1.0f);
+    c.uiScale = Clamp(ReadFloat("UI", "Scale", c.uiScale), 0.5f, 3.0f);
+    c.menu = ReadStr("UI", "Menu", c.menu.c_str());
+    c.menuUp = ReadStr("UI", "MenuUp", c.menuUp.c_str());
+    c.menuDown = ReadStr("UI", "MenuDown", c.menuDown.c_str());
+    c.menuLeft = ReadStr("UI", "MenuLeft", c.menuLeft.c_str());
+    c.menuRight = ReadStr("UI", "MenuRight", c.menuRight.c_str());
 }

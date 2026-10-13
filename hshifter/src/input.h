@@ -10,6 +10,8 @@ struct InputSnapshot {
     uint32_t toggles = 0;       // incremented on every press of the toggle binding
     uint32_t blows = 0;         // ... of [Engine] DebugBlow
     uint32_t repairs = 0;       // ... of [Engine] DebugRepair
+    uint32_t menu = 0;          // ... of [UI] Menu
+    uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 };
 
 void Input_Start();             // safe to call repeatedly; starts the thread once

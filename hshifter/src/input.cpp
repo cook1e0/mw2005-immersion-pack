@@ -7,7 +7,7 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair;
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_blow, s_repair, s_menu, s_nav[4];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -49,6 +49,11 @@ static void ParseAll() {
     parse("Toggle", g_cfg.toggle, s_toggle);
     parse("DebugBlow", g_cfg.debugBlow, s_blow);
     parse("DebugRepair", g_cfg.debugRepair, s_repair);
+    parse("Menu", g_cfg.menu, s_menu);
+    parse("MenuUp", g_cfg.menuUp, s_nav[0]);
+    parse("MenuDown", g_cfg.menuDown, s_nav[1]);
+    parse("MenuLeft", g_cfg.menuLeft, s_nav[2]);
+    parse("MenuRight", g_cfg.menuRight, s_nav[3]);
 
     s_cal.resize(s_clutch.size());
     for (size_t i = 0; i < s_clutch.size(); i++) {
@@ -124,6 +129,24 @@ static bool AnyUsable(const std::vector<Binding>& list) {
     return false;
 }
 
+// Counts presses of a held control, repeating after a delay like a keyboard.
+struct Repeater {
+    bool prev = false;
+    double next = 0;
+    uint32_t Update(bool down, double now) {
+        uint32_t n = 0;
+        if (down && !prev) {
+            n = 1;
+            next = now + 0.35;
+        } else if (down && now >= next) {
+            n = 1;
+            next = now + 0.07;
+        }
+        prev = down;
+        return n;
+    }
+};
+
 static DWORD WINAPI InputThread(LPVOID) {
     if (!DI_Init()) {
         Log("input: DirectInput unavailable, mod inactive");
@@ -136,7 +159,8 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false;
+    bool prevNeutral = false, prevToggle = false, prevBlow = false, prevRepair = false, prevMenu = false;
+    Repeater nav[4];
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
     float logPedal = -1;
@@ -221,6 +245,9 @@ static DWORD WINAPI InputThread(LPVOID) {
         bool toggleDown = AnyDown(s_toggle, focus);
         bool blowDown = AnyDown(s_blow, focus);
         bool repairDown = AnyDown(s_repair, focus);
+        bool menuDown = AnyDown(s_menu, focus);
+        uint32_t navPresses[4];
+        for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
 
         EnterCriticalSection(&s_lock);
         s_snap.clutchBound = clutchBound;
@@ -230,10 +257,13 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (toggleDown && !prevToggle) s_snap.toggles++;
         if (blowDown && !prevBlow) s_snap.blows++;
         if (repairDown && !prevRepair) s_snap.repairs++;
+        if (menuDown && !prevMenu) s_snap.menu++;
+        for (int i = 0; i < 4; i++) s_snap.menuNav[i] += navPresses[i];
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
         prevBlow = blowDown;
         prevRepair = repairDown;
+        prevMenu = menuDown;
 
         if (g_cfg.logInputs && now - lastLog > 0.1 && (stick != logGear || fabsf(pedal - logPedal) > 0.05f)) {
             lastLog = now;

@@ -23,6 +23,7 @@
 #include "game.h"
 #include "common.h"
 #include "input.h"
+#include "ui.h"
 #include <math.h>
 
 namespace {
@@ -48,7 +49,9 @@ constexpr uintptr_t kGetEngineTorque = 0x691D40;
 constexpr uintptr_t kSlotRepair = 0x8AB6B4;         // EngineRacer IEngineDamage vtable: void Repair()
 constexpr uintptr_t kRepair = 0x691AA0;
 constexpr uintptr_t kBlow = 0x6A06E0;               // bool EngineRacer::Blow() (IEngineDamage this)
-constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool)
+constexpr uintptr_t kIInputPlayerHandle = 0x403F80; // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
+constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
+constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
 
 // InputPlayer (the "this" of DoShifting / DoAutoReverse)
 constexpr int kIP_Vehicle = 0x7C;                   // owner; +4 holds its interface list
@@ -92,6 +95,7 @@ typedef void*(__thiscall* Ptr_t)(void* obj);
 typedef void(__thiscall* Void_t)(void* obj);
 typedef float(__thiscall* EngineTorque_t)(void* engine, float rpm);
 typedef void(__thiscall* BlockInput_t)(void* input, bool block);
+typedef void(__cdecl* RenderHud_t)(int);
 
 DoShifting_t s_origDoShifting = (DoShifting_t)kDoShifting;
 DoAutoReverse_t s_origDoAutoReverse = (DoAutoReverse_t)kDoAutoReverse;
@@ -128,6 +132,9 @@ struct {
     int heatStep = 0;           // last logged quarter of heat
     bool blown = false;         // last seen blown state (log changes)
     bool autoShift = true;      // the game's automatic gearbox drives the player's car
+    double simSeen = -1e9;      // last OnTaskSimulate of the player's engine
+    bool menuOpen = false;      // tuning menu wants the car's controls blocked
+    bool menuBlocked = false;   // ... and we blocked them
 } s;
 
 bool Fresh() { return Now() - s.seen < 0.5; }
@@ -233,6 +240,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         s.forcing = false;
         s.heat = 0.0f;
         s.heatStep = 0;
+        s.menuBlocked = false;
         s.blown = eng && IsBlown(eng);
         if (eng) Log("player engine at %p%s", eng, s.blown ? " (blown)" : "");
     }
@@ -300,16 +308,39 @@ void BlowEngine(uint8_t* eng) {
     if (((Bool_t)kBlow)(eng + kER_EngineDamage)) Log("engine: BLOWN");
 }
 
-// The game blocks the player's input when the engine blows (EEngineBlown).
-void BlockPlayerInput(uint8_t* eng, bool block) {
+void* PlayerInput(uint8_t* eng) {
     uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
     void* list = owner ? Field<void*>(owner, 4) : nullptr;
-    void* input = list ? ((IListFind_t)kIListFind)(list, (void*)kIInputPlayerHandle) : nullptr;
+    return list ? ((IListFind_t)kIListFind)(list, (void*)kIInputPlayerHandle) : nullptr;
+}
+
+// The game blocks the player's input when the engine blows (EEngineBlown).
+void BlockPlayerInput(uint8_t* eng, bool block) {
+    void* input = PlayerInput(eng);
     if (input) ((BlockInput_t)Vtbl(input)[1])(input, block);
+}
+
+bool PlayerInputBlocked(uint8_t* eng) {
+    void* input = PlayerInput(eng);
+    return input && ((Bool_t)Vtbl(input)[2])(input);
+}
+
+// While the menu is open the car's controls are blocked, so the menu keys don't also steer.
+// Only undone if we did it, and never while the engine is blown.
+void UpdateMenuBlock(uint8_t* eng) {
+    if (s.menuOpen && !s.menuBlocked && !PlayerInputBlocked(eng)) {
+        BlockPlayerInput(eng, true);
+        s.menuBlocked = true;
+    } else if (!s.menuOpen && s.menuBlocked) {
+        if (!IsBlown(eng)) BlockPlayerInput(eng, false);
+        s.menuBlocked = false;
+    }
 }
 
 // Runs every step for the player's engine, also while blown (input blocked, so no FetchInput).
 void PlayerEngineStep(uint8_t* eng) {
+    s.simSeen = Now();
+    UpdateMenuBlock(eng);
     InputSnapshot in = Input_Get();
     if (in.repairs != s.repairs) {
         s.repairs = in.repairs;
@@ -422,6 +453,12 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
     if (WearApplies(eng)) UpdateWear(eng, dT);
 }
 
+// The overlay is drawn after the game's HUD, so the VR mod puts it on its HUD panel.
+void __cdecl Hook_RenderHud(int arg) {
+    ((RenderHud_t)kRenderHud)(arg);
+    Ui_Frame();
+}
+
 // --- patching ----------------------------------------------------------------------------
 bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
     const uint8_t* p = (const uint8_t*)at;
@@ -470,6 +507,18 @@ void* MakeTrampoline(uintptr_t at, size_t stolen) {
 }
 
 }  // namespace
+
+EngineStatus Game_Engine() {
+    EngineStatus st;
+    if (!s.engine || Now() - s.simSeen > 0.3) return st;
+    st.driving = true;
+    st.wear = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine);
+    st.blown = s.blown;
+    st.heat = s.heat;
+    return st;
+}
+
+void Game_SetMenuOpen(bool open) { s.menuOpen = open; }
 
 bool Game_Install() {
     // Every address we check must lie inside the host image (also true for patched v1.3 exes
@@ -520,6 +569,12 @@ bool Game_Install() {
     const uint8_t nop = 0x90;
     Write(kIsAutomaticShift + 5, &nop, 1);
     WriteRel(kEngineSimulate, 0xE9, (void*)&Hook_EngineSimulate);
+    if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF, 0xA1, 0xDC, 0x2B, 0x98, 0x00})) {
+        WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);
+        Log("overlay hook installed (menu %s)", g_cfg.menu.c_str());
+    } else {
+        Log("overlay unavailable");
+    }
     if (wear) {
         void* p = (void*)&Hook_UseRevLimiter;
         Write(kSlotUseRevLimiter, &p, 4);

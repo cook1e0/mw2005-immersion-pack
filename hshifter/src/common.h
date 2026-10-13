@@ -71,6 +71,17 @@ struct Config {
     std::string debugBlow;          // binding that blows the engine (testing)
     std::string debugRepair;        // binding that repairs it (testing)
 
+    // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
+    bool  gauge = true;
+    float gaugeX = 0.85f;           // gauge centre, fraction of the screen
+    float gaugeY = 0.64f;
+    float uiScale = 1.0f;
+    std::string menu = "key:F4";    // opens / closes the tuning menu
+    std::string menuUp = "key:UP,key:NUMPAD8";
+    std::string menuDown = "key:DOWN,key:NUMPAD2";
+    std::string menuLeft = "key:LEFT,key:NUMPAD4";
+    std::string menuRight = "key:RIGHT,key:NUMPAD6";
+
     // [General]
     std::string toggle;             // binding that switches between H-pattern and the game's sequential shifting
     bool  logInputs = false;
