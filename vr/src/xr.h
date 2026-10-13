@@ -35,3 +35,9 @@ bool Xr_SetSharedTextures(HANDLE eye0, HANDLE eye1, HANDLE hud, int width, int h
 void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud);
 
 void Xr_Recenter();
+
+// Name the runtime reports (empty before Xr_Init).
+const char* Xr_RuntimeName();
+
+// Handles runtime events (session start/stop, quit requests) outside the frame loop.
+void Xr_PollEvents();

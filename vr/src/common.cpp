@@ -18,10 +18,10 @@ const char* GameDir() {
     return s_gameDir;
 }
 
-void LogInit() {
+void LogInit(const char* fileName) {
     InitializeCriticalSection(&s_logLock);
     char path[MAX_PATH];
-    snprintf(path, sizeof(path), "%snfsmw_vr.log", GameDir());
+    snprintf(path, sizeof(path), "%s%s", GameDir(), fileName);
     s_log = fopen(path, "w");
 }
 
@@ -69,6 +69,9 @@ void LoadConfig() {
     c.hudDistance = ReadFloat(ini, "HudDistance", c.hudDistance);
     c.hudWidth = ReadFloat(ini, "HudWidth", c.hudWidth);
     c.hudHeight = ReadFloat(ini, "HudHeight", c.hudHeight);
+    char bridge[16] = "auto";
+    GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
+    c.bridge = _stricmp(bridge, "auto") == 0 ? -1 : atoi(bridge) != 0;
     c.fakeHmd = ReadInt(ini, "FakeHmd", c.fakeHmd) != 0;
     c.fakeYaw = ReadFloat(ini, "FakeYaw", c.fakeYaw);
     c.fakePitch = ReadFloat(ini, "FakePitch", c.fakePitch);
@@ -96,6 +99,6 @@ void LoadConfig() {
     c.keySeatUp = ReadInt(ini, "KeySeatUp", c.keySeatUp);
     c.keySeatDown = ReadInt(ini, "KeySeatDown", c.keySeatDown);
     c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);
-    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f fakeHmd=%d",
-        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.fakeHmd);
+    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f bridge=%d fakeHmd=%d",
+        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.bridge, c.fakeHmd);
 }

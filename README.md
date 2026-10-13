@@ -17,7 +17,7 @@ damage and more). Install any of them, or all three.
 
    | Mod | Files |
    |---|---|
-   | VR | `d3d9.dll`, `nfsmw_vr.ini` |
+   | VR | `d3d9.dll`, `nfsmw_vr_host.exe`, `nfsmw_vr.ini` |
    | Force feedback | `dinput8.dll`, `nfsmw_ffb.ini` (`ffbtool.exe` optional: lists and tests wheels) |
    | Gameplay | `dsound.dll`, `nfsmw_gameplay.ini` |
 
@@ -36,7 +36,8 @@ next to `speed.exe`.
 ## Requirements
 
 - `speed.exe` v1.3
-- VR: an OpenXR runtime with 32-bit support (Virtual Desktop's VDXR is tested)
+- VR: an OpenXR runtime: Virtual Desktop (VDXR, tested), SteamVR, or Meta Quest Link. See
+  [vr/README.md](vr/README.md#runtimes) for SteamVR setup
 
 ## Building
 

@@ -1,4 +1,5 @@
 #include "xr.h"
+#include "xr_bridge.h"
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -68,6 +69,9 @@ struct State {
     XrSessionState state = XR_SESSION_STATE_UNKNOWN;
     bool running = false;
     bool fake = false;
+    bool remote = false;     // session runs in nfsmw_vr_host.exe
+    bool loadFailed = false; // no 32-bit runtime could be loaded
+    char runtimeName[128] = {};
 
     ID3D11Device* dev = nullptr;
     ID3D11DeviceContext* ctx = nullptr;
@@ -412,13 +416,127 @@ void FillFakeEyes() {
     }
 }
 
+#ifndef NFSMW_XR_HOST
+// ---------------------------------------------------------------------------
+// Bridge client: the 64-bit nfsmw_vr_host.exe runs the OpenXR session for runtimes that have
+// no 32-bit version (SteamVR). See xr_bridge.h.
+// ---------------------------------------------------------------------------
+struct Bridge {
+    HANDLE mapping, request, reply, process;
+    BridgeShared* shm;
+    bool dead;
+};
+Bridge b;
+
+std::string ReadActiveRuntime(REGSAM view) {
+    HKEY key;
+    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Khronos\\OpenXR\\1", 0, KEY_READ | view, &key) != ERROR_SUCCESS)
+        return {};
+    char buf[MAX_PATH * 2] = {};
+    DWORD size = sizeof(buf) - 1, type = 0;
+    LONG r = RegQueryValueExA(key, "ActiveRuntime", nullptr, &type, (BYTE*)buf, &size);
+    RegCloseKey(key);
+    return r == ERROR_SUCCESS && type == REG_SZ ? buf : std::string();
+}
+
+std::string DirOf(const std::string& path) {
+    size_t i = path.find_last_of("\\/");
+    return i == std::string::npos ? std::string() : path.substr(0, i);
+}
+
+// Bridge=auto: use the bridge when the active runtime (the 64-bit registration, which runtime
+// switchers such as SteamVR's set) has no 32-bit registration from the same install.
+bool WantBridge() {
+    if (g_cfg.bridge >= 0) return g_cfg.bridge == 1;
+    char env[8];
+    if (GetEnvironmentVariableA("XR_RUNTIME_JSON", env, sizeof(env)) > 0) return false;
+    std::string rt64 = ReadActiveRuntime(KEY_WOW64_64KEY), rt32 = ReadActiveRuntime(KEY_WOW64_32KEY);
+    Log("XR: active runtime: 64-bit \"%s\", 32-bit \"%s\"", rt64.c_str(), rt32.c_str());
+    if (rt64.empty()) return false;
+    return rt32.empty() || _stricmp(DirOf(rt64).c_str(), DirOf(rt32).c_str()) != 0;
+}
+
+bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
+    if (!b.shm || b.dead) return false;
+    b.shm->cmd = cmd;
+    SetEvent(b.request);
+    HANDLE wait[2] = {b.reply, b.process};
+    DWORD r = WaitForMultipleObjects(2, wait, FALSE, timeoutMs);
+    if (r == WAIT_OBJECT_0) return true;
+    Log(r == WAIT_OBJECT_0 + 1 ? "XR: bridge process exited (see nfsmw_vr_host.log)" : "XR: bridge not responding");
+    b.dead = true;
+    return false;
+}
+
+void BridgeStop() {
+    if (b.process) {
+        if (!b.dead) BridgeCall(kBridgeShutdown, 5000);
+        if (WaitForSingleObject(b.process, 2000) != WAIT_OBJECT_0) TerminateProcess(b.process, 1);
+        CloseHandle(b.process);
+    }
+    if (b.shm) UnmapViewOfFile(b.shm);
+    for (HANDLE h : {b.mapping, b.request, b.reply})
+        if (h) CloseHandle(h);
+    b = {};
+}
+
+bool BridgeStart(LUID luid) {
+    DWORD pid = GetCurrentProcessId();
+    char name[64];
+    snprintf(name, sizeof(name), XR_BRIDGE_MAPPING, pid);
+    b.mapping = CreateFileMappingA(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(BridgeShared), name);
+    b.shm = b.mapping ? (BridgeShared*)MapViewOfFile(b.mapping, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(BridgeShared)) : nullptr;
+    snprintf(name, sizeof(name), XR_BRIDGE_REQUEST, pid);
+    b.request = CreateEventA(nullptr, FALSE, FALSE, name);
+    snprintf(name, sizeof(name), XR_BRIDGE_REPLY, pid);
+    b.reply = CreateEventA(nullptr, FALSE, FALSE, name);
+    if (!b.shm || !b.request || !b.reply) {
+        Log("XR: bridge shared memory setup failed (%lu)", GetLastError());
+        BridgeStop();
+        return false;
+    }
+    memset(b.shm, 0, sizeof(BridgeShared));
+
+    std::string exe = std::string(GameDir()) + XR_BRIDGE_EXE;
+    char cmdLine[MAX_PATH + 32];
+    snprintf(cmdLine, sizeof(cmdLine), "\"%s\" %lu", exe.c_str(), pid);
+    STARTUPINFOA si = {sizeof(si)};
+    PROCESS_INFORMATION pi = {};
+    if (!CreateProcessA(exe.c_str(), cmdLine, nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, GameDir(), &si, &pi)) {
+        Log("XR: cannot start %s (%lu)", exe.c_str(), GetLastError());
+        BridgeStop();
+        return false;
+    }
+    CloseHandle(pi.hThread);
+    b.process = pi.hProcess;
+    Log("XR: started %s (pid %lu)", XR_BRIDGE_EXE, pi.dwProcessId);
+
+    b.shm->luidLow = luid.LowPart;
+    b.shm->luidHigh = luid.HighPart;
+    // Generous timeout: SteamVR may have to start up first.
+    if (!BridgeCall(kBridgeInit, 120000) || !b.shm->result) {
+        Log("XR: the bridge could not start OpenXR - see nfsmw_vr_host.log");
+        BridgeStop();
+        return false;
+    }
+    s.recW = b.shm->recW;
+    s.recH = b.shm->recH;
+    strncpy(s.runtimeName, b.shm->runtimeName, sizeof(s.runtimeName) - 1);
+    Log("XR: runtime \"%s\" via the 64-bit bridge, per-eye %dx%d", s.runtimeName, s.recW, s.recH);
+    return true;
+}
+#endif
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 static bool InitRuntime(LUID d3d9Luid) {
-    if (!LoadRuntime()) return false;
+    if (!LoadRuntime()) {
+        s.loadFailed = true;
+        return false;
+    }
 
     uint32_t n = 0;
     xrEnumerateInstanceExtensionProperties(nullptr, 0, &n, nullptr);
@@ -448,6 +566,7 @@ static bool InitRuntime(LUID d3d9Luid) {
 
     XrInstanceProperties ip{XR_TYPE_INSTANCE_PROPERTIES};
     xrGetInstanceProperties(s.instance, &ip);
+    strncpy(s.runtimeName, ip.runtimeName, sizeof(s.runtimeName) - 1);
     Log("XR: runtime \"%s\" %u.%u.%u", ip.runtimeName, XR_VERSION_MAJOR(ip.runtimeVersion),
         XR_VERSION_MINOR(ip.runtimeVersion), XR_VERSION_PATCH(ip.runtimeVersion));
 
@@ -491,7 +610,18 @@ static bool InitRuntime(LUID d3d9Luid) {
 }
 
 bool Xr_Init(LUID d3d9Luid) {
-    if (InitRuntime(d3d9Luid)) return true;
+#ifdef NFSMW_XR_HOST
+    return InitRuntime(d3d9Luid);
+#else
+    bool bridge = WantBridge();
+    if (!bridge && InitRuntime(d3d9Luid)) return true;
+    if (bridge || s.loadFailed) {
+        Log(bridge ? "XR: using the 64-bit bridge" : "XR: no usable 32-bit runtime, trying the 64-bit bridge");
+        if (BridgeStart(d3d9Luid)) {
+            s.remote = true;
+            return true;
+        }
+    }
     if (!g_cfg.fakeHmd) return false;
     Log("XR: FakeHmd enabled - running the stereo path without a headset");
     if (s.session) xrDestroySession(s.session);
@@ -501,9 +631,17 @@ bool Xr_Init(LUID d3d9Luid) {
     s.recH = 1920;
     FillFakeEyes();
     return true;
+#endif
 }
 
 void Xr_Shutdown() {
+#ifndef NFSMW_XR_HOST
+    if (s.remote) {
+        BridgeStop();
+        s.remote = false;
+        return;
+    }
+#endif
     for (auto& c : s.chains) DestroySwapchain(c);
     if (s.session) xrDestroySession(s.session);
     if (s.instance) xrDestroyInstance(s.instance);
@@ -511,14 +649,28 @@ void Xr_Shutdown() {
     s.instance = XR_NULL_HANDLE;
 }
 
-bool Xr_Available() { return s.fake || s.session != XR_NULL_HANDLE; }
+bool Xr_Available() { return s.fake || s.remote || s.session != XR_NULL_HANDLE; }
 void Xr_RecommendedSize(int* width, int* height) {
     *width = s.recW;
     *height = s.recH;
 }
 bool Xr_FrameBegun() { return s.frameBegun; }
 const EyeView& Xr_Eye(int eye) { return s.eyes[eye]; }
-void Xr_Recenter() { s.recenterPending = true; }
+const char* Xr_RuntimeName() { return s.runtimeName; }
+
+void Xr_PollEvents() {
+    if (s.session) PollEvents();
+}
+
+void Xr_Recenter() {
+#ifndef NFSMW_XR_HOST
+    if (s.remote) {
+        BridgeCall(kBridgeRecenter);
+        return;
+    }
+#endif
+    s.recenterPending = true;
+}
 
 bool Xr_BeginFrame() {
     if (s.frameBegun) return s.fake || s.frameState.shouldRender;
@@ -526,6 +678,16 @@ bool Xr_BeginFrame() {
         s.frameBegun = true;
         return true;
     }
+#ifndef NFSMW_XR_HOST
+    if (s.remote) {
+        if (!BridgeCall(kBridgeBeginFrame)) return false;
+        s.frameBegun = b.shm->frameBegun != 0;
+        s.frameState.shouldRender = b.shm->shouldRender;
+        s.eyes[0] = b.shm->eyes[0];
+        s.eyes[1] = b.shm->eyes[1];
+        return b.shm->result != 0;
+    }
+#endif
     if (!s.session) return false;
     PollEvents();
     if (!s.running) return false;
@@ -569,6 +731,17 @@ bool Xr_BeginFrame() {
 
 bool Xr_SetSharedTextures(HANDLE eye0, HANDLE eye1, HANDLE hud, int width, int height) {
     if (s.fake) return true;
+#ifndef NFSMW_XR_HOST
+    if (s.remote) {
+        // D3D9Ex shared handles are global 32-bit values; the host sign-extends them back.
+        b.shm->handles[0] = (uint32_t)(uintptr_t)eye0;
+        b.shm->handles[1] = (uint32_t)(uintptr_t)eye1;
+        b.shm->handles[2] = (uint32_t)(uintptr_t)hud;
+        b.shm->width = width;
+        b.shm->height = height;
+        return BridgeCall(kBridgeSetTextures) && b.shm->result;
+    }
+#endif
     for (int i = 0; i < 3; i++) {
         if (s.eyeSrv[i]) s.eyeSrv[i]->Release();
         if (s.eyeTex[i]) s.eyeTex[i]->Release();
@@ -622,6 +795,20 @@ static bool BlitToSwapchain(Swapchain& sc, ID3D11ShaderResourceView* srv, bool k
     return true;
 }
 
+static bool ClearSwapchain(Swapchain& sc) {
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo ai{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    XR_CHECK(xrAcquireSwapchainImage(sc.handle, &ai, &index));
+    XrSwapchainImageWaitInfo wi{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    wi.timeout = XR_INFINITE_DURATION;
+    XR_CHECK(xrWaitSwapchainImage(sc.handle, &wi));
+    const float black[4] = {0, 0, 0, 1};
+    s.ctx->ClearRenderTargetView(sc.rtvs[index], black);
+    XrSwapchainImageReleaseInfo ri{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    XR_CHECK(xrReleaseSwapchainImage(sc.handle, &ri));
+    return true;
+}
+
 // The frontend/HUD is authored for 4:3 and stretched to the back buffer, so show
 // its panels at 4:3 whatever the render resolution is.
 static const float kPanelAspect = 3.0f / 4.0f;
@@ -637,6 +824,16 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
     if (!s.frameBegun) return;
     s.frameBegun = false;
     if (s.fake) return;
+#ifndef NFSMW_XR_HOST
+    if (s.remote) {
+        b.shm->mode = (int32_t)mode;
+        b.shm->tanX = tanX;
+        b.shm->tanY = tanY;
+        b.shm->withHud = withHud;
+        BridgeCall(kBridgeEndFrame);
+        return;
+    }
+#endif
 
     bool ready = s.frameState.shouldRender && s.eyeSrv[0] && s.chains[0].handle;
     XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
@@ -677,6 +874,21 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
             layers[layerCount++] = (XrCompositionLayerBaseHeader*)&hud;
         }
     } else if (ready && mode == LayerMode::Screen) {
+        // Black surroundings behind the screen. SteamVR treats frames without a projection
+        // layer as dropped and shows its own loading environment instead.
+        if (ClearSwapchain(s.chains[1])) {
+            for (int i = 0; i < 2; i++) {
+                const EyeView& e = s.eyes[i];
+                pv[i].pose = ToXr(e.orientation, e.position);
+                pv[i].fov = {-atanf(e.tanLeft), atanf(e.tanRight), atanf(e.tanUp), -atanf(e.tanDown)};
+                pv[i].subImage.swapchain = s.chains[1].handle;
+                pv[i].subImage.imageRect = {{0, 0}, {s.chains[1].width, s.chains[1].height}};
+            }
+            proj.space = s.local;
+            proj.viewCount = 2;
+            proj.views = pv;
+            layers[layerCount++] = (XrCompositionLayerBaseHeader*)&proj;
+        }
         if (BlitToSwapchain(s.chains[0], s.eyeSrv[0])) {
             V3 offset = QRotate(s.originRot, {0, 0, -g_cfg.screenDistance});
             quad.space = s.local;
