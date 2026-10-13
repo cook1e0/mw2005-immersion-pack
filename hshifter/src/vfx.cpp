@@ -4,17 +4,19 @@
 // DamageEffect (the smoke cop cars trail) at health <= 0.5, EngineBlownEffect for a blown engine.
 // The player's cars have no DamageEffect, so the code that loads that key is patched: for the
 // car the camera follows, once its damage reaches [Damage] SmokeFrom (health = 1 - damage), the
-// key becomes the cop cars' DamageEffect (read from the copmidsize car data, or taken from the
+// key becomes the cop cars' DamageEffect (also once engine heat reaches [Engine] SmokeFrom) (read from the copmidsize car data, or taken from the
 // first car seen with one). The car's own EngineBlownEffect is only a fallback: it is the drag
 // race smoke for a car that has stopped, and stays where it started instead of trailing the car.
 //
 // Particles take a fraction (the emitter data's VelocityInherit, 0.5 for the cop smoke) of the
-// velocity UpdateEffects passes, which is the simulation's vector: its axes are not the render
-// world's, so at speed the particles flew off and the smoke only showed once the car stopped.
+// velocity UpdateEffects passes. For the player's car that vector falls well short of how fast
+// the car really moves, so at speed the particles were left behind the chase camera and the
+// smoke only showed once the car stopped.
 // The player's smoke effect update is wrapped: its particles get [Damage] SmokeTrail of the
 // car's render-space velocity (from its render matrix's movement) instead.
 #include "vfx.h"
 #include "common.h"
+#include "game.h"
 
 namespace {
 
@@ -81,7 +83,8 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
     s_playerSmoke = false;
     if (!g_cfg.damageSmoke) return key;
     float health = *(float*)(pkt + kPkt_Health);
-    if (health > 1.0f - g_cfg.smokeFrom) return 0;
+    bool hot = g_cfg.heatSmokeFrom < 1.0f && Game_Hud().heat >= g_cfg.heatSmokeFrom;
+    if (health > 1.0f - g_cfg.smokeFrom && !hot) return 0;
     s_playerSmoke = true;
     uint32_t cop = CopSmokeKey();
     uint32_t k = key ? key : cop ? cop : blownKey;
