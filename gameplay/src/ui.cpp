@@ -297,8 +297,8 @@ const Item kItems[] = {
     BINDING("Steering", "Controls", "Steering", steer, BF_STEER),
     BINDING("Accelerate", "Controls", "Accelerate", throttle, BF_PEDAL),
     BINDING("Brake", "Controls", "Brake", brake, BF_PEDAL),
-    {NUMBER, "Wheel rotation (set in its driver)", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
-    {NUMBER, "Steering lock (full turn in game)", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
+    {NUMBER, "Wheel rotation", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
+    {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
@@ -1049,8 +1049,8 @@ const struct {
     {&g_cfg.steer, "The wheel axis that steers. Right, then turn the wheel."},
     {&g_cfg.throttle, "Accelerator pedal, button or key. Pedals: press it fully when binding."},
     {&g_cfg.brake, "Brake pedal, button or key. Pedals: press it fully when binding."},
-    {&g_cfg.wheelRotation, "The wheel's rotation as set in its driver (G HUB, Fanatec, ...), lock to lock."},
-    {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game."},
+    {&g_cfg.wheelRotation, "Set this to the wheel's rotation in its driver (G HUB, Fanatec, ...), lock to lock."},
+    {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game. A soft lock (FFB) stops it there."},
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
@@ -1187,6 +1187,7 @@ bool CreateFontTexture(IDirect3DDevice9* dev) {
         }
         lockFlags = D3DLOCK_DISCARD;
     }
+    Log("ui: font texture %dx%d %s", w, h, lockFlags ? "DEFAULT (D3D9Ex)" : "MANAGED");
     D3DLOCKED_RECT lr;
     if (FAILED(tex->LockRect(0, &lr, nullptr, lockFlags))) {
         tex->Release();
@@ -1524,7 +1525,11 @@ void DrawPage(int page, bool focused, float k) {
             dl->AddRectFilled(p0, ImVec2(p0.x + fullW, p0.y + rowH), IM_COL32(255, 255, 255, 12), 4 * k);
         }
         float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) / 2;
+        // The label keeps clear of the reset icon and the value.
+        float labelEnd = p0.x + fullW - valueW - 18 * k - ImGui::GetFrameHeight();
+        dl->PushClipRect(p0, ImVec2(labelEnd, p0.y + rowH), true);
         dl->AddText(ImVec2(p0.x + 12 * k, ty), sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
+        dl->PopClipRect();
         bool modDiff = Changed(it), gameDiff = Differs(it, true);
         if (modDiff || gameDiff) {
             // Reset to default: a circular arrow just left of the value.
@@ -1738,7 +1743,9 @@ void Ui_Frame() {
 
     if (!s_menu.open) s_im.wasOpen = false;
     if (s_menu.open && !g_cfg.classicMenu) {
-        DrawMenuImGui(dev, desc.Width, desc.Height, k);
+        // Sized to fit both ways: the VR HUD target is nearly square, a monitor is wide.
+        float ki = std::min(desc.Width / 1024.0f, desc.Height / 768.0f) * g_cfg.uiScale;
+        DrawMenuImGui(dev, desc.Width, desc.Height, ki);
         return;
     }
     if (s_menu.open) DrawMenu(desc.Width, desc.Height, k);
