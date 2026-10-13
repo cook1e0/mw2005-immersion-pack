@@ -214,7 +214,25 @@ void __cdecl hkRenderScene() {
     bool active = At<int8_t>(view, kViewActive) != 0;
 
     if (!Xr_Available() || !s_stereoEnabled || !active || !cam || !s_haveSetupArgs || !Xr_BeginFrame()) {
+        // Flat screen: the cockpit seat still applies to the single view.
+        uint8_t saved[kCameraParamsSize];
+        bool seat = false;
+        if (active && cam) {
+            memcpy(saved, cam, sizeof(saved));
+            M4 V;
+            memcpy(&V, saved + kCamMatrix, sizeof(V));
+            if (Cockpit_ApplySeat(V)) {
+                uint8_t seated[kCameraParamsSize];
+                memcpy(seated, saved, sizeof(seated));
+                memcpy(seated + kCamMatrix, &V, sizeof(V));
+                EyeView centre = {};
+                centre.relOrientation.w = 1;
+                ApplyEyeToCamera(cam, seated, centre);
+                seat = true;
+            }
+        }
         oRenderScene();
+        if (seat) memcpy(cam, saved, sizeof(saved));
         return;
     }
 
