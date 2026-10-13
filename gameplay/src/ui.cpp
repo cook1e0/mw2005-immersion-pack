@@ -214,11 +214,12 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // controls go back to their defaults, so they can't be lost).
 // Pages: the main page lists the categories (LINK items); each PAGE item starts a page and holds
 // the items after it, up to the next PAGE. A LINK opens the page whose title is in its `section`.
-// RESET puts the page's settings (not its bindings) back to their defaults, after a second press.
+// RESET puts the page's settings (not its bindings) back to their defaults, after a second press:
+// the mod's defaults (Config), or with BF_GAME what the unmodded game does (kGameDefaults).
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
-enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16 };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32 };
 
 // Force feedback settings: the FFB mod's (dinput8.dll) [FFB] values, changed live through its
 // NfsmwFfb_Setting export and saved to nfsmw_ffb.ini. Older FFB builds only export the Gain.
@@ -273,7 +274,8 @@ struct Item {
 #define HEADER_(label) {HEADER, label, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define LINK_(label, page) {LINK, label, page, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define BACK_ LINK_("< Back", kMainPage)
-#define RESET_ {RESET, "Reset this page to defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
+#define RESET_ {RESET, "Reset page to mod defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
+#define RESET_GAME_ {RESET, "Reset page to game defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_GAME}
 
 constexpr const char* kMainPage = "TUNING";
 
@@ -308,6 +310,7 @@ const Item kItems[] = {
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
     RESET_,
+    RESET_GAME_,
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
@@ -360,6 +363,7 @@ const Item kItems[] = {
     {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Engine smoke from", "Engine", "SmokeFrom", &g_cfg.heatSmokeFrom, 0.1f, 1.0f, 0.05f, 100, "%.0f%% heat", 0},
     RESET_,
+    RESET_GAME_,
 
     PAGE_("DAMAGE AND TIRES"),
     BACK_,
@@ -376,6 +380,7 @@ const Item kItems[] = {
     {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
     RESET_,
+    RESET_GAME_,
 
     PAGE_("PHYSICS"),
     BACK_,
@@ -390,6 +395,7 @@ const Item kItems[] = {
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
     RESET_,
+    RESET_GAME_,
 
     PAGE_("TRAFFIC AND HUD"),
     BACK_,
@@ -400,6 +406,7 @@ const Item kItems[] = {
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
     RESET_,
+    RESET_GAME_,
 
     PAGE_("MENU AND TESTING"),
     BACK_,
@@ -678,25 +685,61 @@ bool DefaultOf(const Item& it, float* f, bool* b, uint32_t* u) {
     return true;
 }
 
-// The setting differs from its default.
-bool Changed(const Item& it) {
+// What the unmodded game does, for settings where that means something (toggles as 0 / 1).
+const struct {
+    const void* value;
+    float game;
+} kGameDefaults[] = {
+    {&g_cfg.gameController, 1},
+    {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
+    {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
+    {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
+    {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
+    {&g_cfg.trafficDensity, 1}, {&g_cfg.noSuvCops, 0},
+    {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
+};
+
+bool GameDefaultOf(const Item& it, float* f) {
+    if (it.kind != NUMBER && it.kind != TOGGLE) return false;
+    for (auto& g : kGameDefaults)
+        if (g.value == it.value) {
+            *f = g.game;
+            return true;
+        }
+    return false;
+}
+
+// The setting differs from its mod default (game = false) or its game default (game = true).
+bool Differs(const Item& it, bool game) {
     float f;
-    bool b;
+    bool b = false;
     uint32_t u;
-    if (!DefaultOf(it, &f, &b, &u)) return false;
+    if (game) {
+        if (!GameDefaultOf(it, &f)) return false;
+        b = f != 0.0f;
+    } else if (!DefaultOf(it, &f, &b, &u)) {
+        return false;
+    }
     if (it.kind == NUMBER) return fabsf(*(float*)it.value - f) > it.step * 0.25f;
     if (it.kind == TOGGLE) return *(bool*)it.value != b;
     return *(uint32_t*)it.value != u;
 }
+bool Changed(const Item& it) { return Differs(it, false); }
 
 void AfterNumberChange(const Item& it);
 
-// Puts one setting back to its default. True if it changed.
-bool ResetItem(const Item& it) {
-    float f;
-    bool b;
-    uint32_t u;
-    if (!Changed(it) || !DefaultOf(it, &f, &b, &u)) return false;
+// Puts one setting back to its mod or game default. True if it changed.
+bool ResetItem(const Item& it, bool game = false) {
+    float f = 0.0f;
+    bool b = false;
+    uint32_t u = 0;
+    if (!Differs(it, game)) return false;
+    if (game) {
+        if (!GameDefaultOf(it, &f)) return false;
+        b = f != 0.0f;
+    } else if (!DefaultOf(it, &f, &b, &u)) {
+        return false;
+    }
     if (it.kind == NUMBER) {
         int ffb = FfbIndex(it.value);
         if (ffb >= 0 && !FfbSetting(ffb)) return false;
@@ -712,11 +755,11 @@ bool ResetItem(const Item& it) {
 }
 
 // Every setting on the page holding item `index`.
-int ResetPage(int index) {
+int ResetPage(int index, bool game) {
     int page = index;
     while (page > 0 && kItems[page].kind != PAGE) page--;
     int n = 0;
-    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) n += ResetItem(kItems[i]);
+    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) n += ResetItem(kItems[i], game);
     return n;
 }
 
@@ -777,13 +820,16 @@ void Change(int index, int dir) {
         if (s_menu.resetArmed != index || Now() - s_menu.resetTime > 3.0) {
             s_menu.resetArmed = index;
             s_menu.resetTime = Now();
-            Note("Press again to reset this page's settings (bindings are kept)");
+            Note(std::string("Press again to reset this page to the ") + (it.flags & BF_GAME ? "game's" : "mod's") +
+                 " defaults (bindings are kept)");
             return;
         }
         s_menu.resetArmed = -1;
-        int n = ResetPage(index);
-        Note(n ? std::to_string(n) + (n == 1 ? " setting" : " settings") + " back to default" : "Already at the defaults");
-        Log("ui: page reset, %d settings", n);
+        bool game = (it.flags & BF_GAME) != 0;
+        int n = ResetPage(index, game);
+        Note(n ? std::to_string(n) + (n == 1 ? " setting" : " settings") + (game ? " back to the game's default" : " back to the mod's default")
+               : "Already at the defaults");
+        Log("ui: page reset to %s defaults, %d settings", game ? "game" : "mod", n);
         return;
     } else if (it.kind == CAR) {
         if (!*Physics_Car()) return;
@@ -1061,7 +1107,8 @@ const struct {
 const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
-    if (it.kind == RESET) return "Puts every setting on this page back to its default. Bindings are kept.";
+    if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
+    if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";
     if (it.kind == LINK) return it.section == kMainPage ? "Back to the categories." : "";
     for (auto& h : kHelp)
         if (h.value == it.value) return h.text;
@@ -1084,6 +1131,16 @@ std::string DefaultText(const Item& it) {
     if (it.value == &g_cfg.revMatchRpm && f <= 0.0f) return "Default: Off";
     snprintf(buf, sizeof(buf), it.fmt, f * it.show);
     return std::string("Default: ") + buf;
+}
+
+// "Game: ..." for settings with a game default.
+std::string GameDefaultText(const Item& it) {
+    float f;
+    if (!GameDefaultOf(it, &f)) return "";
+    if (it.kind == TOGGLE) return f != 0.0f ? "Game: On" : "Game: Off";
+    char buf[64];
+    snprintf(buf, sizeof(buf), it.fmt, f * it.show);
+    return std::string("Game: ") + buf;
 }
 
 
@@ -1468,18 +1525,28 @@ void DrawPage(int page, bool focused, float k) {
         }
         float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) / 2;
         dl->AddText(ImVec2(p0.x + 12 * k, ty), sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
-        if (Changed(it)) {
+        bool modDiff = Changed(it), gameDiff = Differs(it, true);
+        if (modDiff || gameDiff) {
             // Reset to default: a circular arrow just left of the value.
             float s = ImGui::GetFrameHeight();
             ImVec2 b0(p0.x + fullW - valueW - 12 * k - s, p0.y + (rowH - s) / 2);
             ImGui::SetCursorScreenPos(b0);
-            if (ImGui::InvisibleButton("reset", ImVec2(s, s))) {
+            int click = ImGui::InvisibleButton("reset", ImVec2(s, s), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight)
+                            ? (ImGui::IsMouseReleased(ImGuiMouseButton_Right) ? 2 : 1) : 0;
+            if (click) {
                 s_menu.sel = i;
-                if (ResetItem(it)) Note(std::string(it.label) + ": back to default");
+                bool game = click == 2;
+                if (ResetItem(it, game)) Note(std::string(it.label) + (game ? ": the game's default" : ": back to the mod's default"));
             }
             bool hot = ImGui::IsItemHovered();
-            if (hot) ImGui::SetTooltip("Reset to default (%s)", DefaultText(it).substr(9).c_str());
-            ImU32 col = hot ? kAccent : IM_COL32(150, 150, 160, 255);
+            if (hot) {
+                std::string tip = "Left click: mod default (" + DefaultText(it).substr(9) + ")";
+                std::string g = GameDefaultText(it);
+                if (!g.empty()) tip += "\nRight click: game default (" + g.substr(6) + ")";
+                ImGui::SetTooltip("%s", tip.c_str());
+            }
+            // Dimmer when only the game default differs.
+            ImU32 col = hot ? kAccent : modDiff ? IM_COL32(170, 170, 180, 255) : IM_COL32(95, 95, 105, 255);
             ImVec2 c(b0.x + s / 2, b0.y + s / 2);
             float r = s * 0.28f, th = std::max(1.5f, 1.6f * k);
             dl->PathArcTo(c, r, 3.14159f * 0.15f, 3.14159f * 1.75f, 16);
@@ -1610,6 +1677,8 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     } else {
         std::string help = onMain ? std::string("Settings for ") + cur.label + "." : HelpText(cur);
         std::string def = onMain ? std::string() : DefaultText(cur);
+        std::string gdef = onMain ? std::string() : GameDefaultText(cur);
+        if (!gdef.empty()) def += (def.empty() ? "" : "    ") + gdef;
         ImGui::TextUnformatted(help.c_str());
         if (!def.empty()) {
             ImGui::SameLine();
