@@ -73,7 +73,7 @@ struct Config {
     std::string debugRepair;        // binding that repairs it (testing)
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
-    bool  gauge = true;
+    bool  gauge = false;            // placeholder look, off until it matches the game's HUD
     float gaugeX = 0.85f;           // gauge centre, fraction of the screen
     float gaugeY = 0.64f;
     float uiScale = 1.0f;

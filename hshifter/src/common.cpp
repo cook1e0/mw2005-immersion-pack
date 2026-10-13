@@ -126,7 +126,7 @@ void LoadConfig() {
     c.debugBlow = ReadStr("Engine", "DebugBlow", "");
     c.debugRepair = ReadStr("Engine", "DebugRepair", "");
 
-    c.gauge = ReadInt("UI", "Gauge", 1) != 0;
+    c.gauge = ReadInt("UI", "Gauge", 0) != 0;
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);
     c.gaugeY = Clamp(ReadFloat("UI", "GaugeY", c.gaugeY), 0.0f, 1.0f);
     c.uiScale = Clamp(ReadFloat("UI", "Scale", c.uiScale), 0.5f, 3.0f);
