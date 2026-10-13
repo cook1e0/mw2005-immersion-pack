@@ -400,7 +400,6 @@ const Item kItems[] = {
     PAGE_("TRAFFIC AND HUD"),
     BACK_,
     HEADER_("TRAFFIC"),
-    {NUMBER, "Traffic density", "Traffic", "Density", &g_cfg.trafficDensity, 0.0f, 3.0f, 0.25f, 100, "%.0f%%", 0},
     {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
@@ -553,10 +552,7 @@ std::string LinkSummary(const char* page) {
     if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() && Physics_OwnSettings() ? "This car's own" : "On";
-    if (p == "TRAFFIC AND HUD") {
-        snprintf(buf, sizeof(buf), "Traffic %.0f%%", g_cfg.trafficDensity * 100.0f);
-        return buf;
-    }
+    if (p == "TRAFFIC AND HUD") return g_cfg.noSuvCops ? "No SUV cops" : "SUV cops";
     return "";
 }
 
@@ -695,7 +691,7 @@ const struct {
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
     {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
-    {&g_cfg.trafficDensity, 1}, {&g_cfg.noSuvCops, 0},
+    {&g_cfg.noSuvCops, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
@@ -1094,7 +1090,6 @@ const struct {
     {&g_cfg.torqueSplit, "Multiplies the share of torque sent to the front wheels."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
-    {&g_cfg.trafficDensity, "Traffic spawn rate. 0 = no traffic."},
     {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
     {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},

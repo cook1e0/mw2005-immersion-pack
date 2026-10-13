@@ -98,7 +98,6 @@ struct Config {
     float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
-    float trafficDensity = 1.0f;    // multiplies the traffic spawn rate (0 = no traffic)
     bool  noSuvCops = true;         // no SUV cops (heavy support, SUV patrols, roadblocks)
     float heatSmokeFrom = 0.5f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep

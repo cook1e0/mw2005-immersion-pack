@@ -26,7 +26,6 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   red while a tire is popped.
 - **Engine smoke**: a damaged (75%) or hot (50% heat) engine smokes, trailing behind the car.
 - **Popped tires**: spike strips leave the car drivable, with less grip and some drag.
-- **Traffic density**: a multiplier on traffic, from none to 3x.
 - **No SUV cops** (on by default): no SUV police at all; heavy support is skipped and SUV
   patrols are replaced by other cars from the heat level.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
@@ -136,8 +135,6 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
 - A refused shift plays the gear grind of the intro's sabotaged BMW (`[Shifter] GrindSound`, a
   sound moment key; 0 = silent), with the drag race missed-shift exhaust pop.
-- Traffic density above 1 raises the game's limit of 20 cars around you (up to 40); not tested for
-  long sessions.
 - `TorqueSplit` multiplies the car's own front share, so a rear-wheel drive car (0% front) stays
   rear-wheel drive.
 - Not yet tested with a physical wheel and shifter, only keyboard bindings.

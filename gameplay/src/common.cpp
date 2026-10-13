@@ -150,7 +150,6 @@ void LoadConfig() {
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
-    c.trafficDensity = Clamp(ReadFloat("Traffic", "Density", c.trafficDensity), 0.0f, 3.0f);
     c.noSuvCops = ReadInt("Traffic", "NoSuvCops", 1) != 0;
     c.heatSmokeFrom = Clamp(ReadFloat("Engine", "SmokeFrom", c.heatSmokeFrom), 0.1f, 1.0f);
     c.smokeTrail = Clamp(ReadFloat("Damage", "SmokeTrail", c.smokeTrail), 0.0f, 1.0f);
