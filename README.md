@@ -21,7 +21,7 @@ VR, force feedback, and a real H-pattern gearbox with a clutch. Install any of t
    | H-shifter + clutch | `dsound.dll`, `nfsmw_hshifter.ini`, `hshiftertool.exe` |
 
 3. H-shifter: with your pedals and shifter connected, run `hshiftertool setup` in the game folder
-   to bind the clutch and each gear.
+   to bind the clutch and each gear, or bind them in game under CONTROLS in the F4 menu.
 4. VR: connect your headset before launching the game.
 
 To uninstall a mod, delete its DLL. Settings are in the `.ini` files; each mod writes a `.log`
