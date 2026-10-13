@@ -206,56 +206,186 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 }
 
 // --- tuning menu -------------------------------------------------------------------------
-enum Kind { HEADER, TOGGLE, NUMBER };
+// BIND items hold a binding list (std::string in g_cfg). Right adds a binding: the next key,
+// button, hat direction or pedal pressed is appended. Left removes the last one.
+enum Kind { HEADER, TOGGLE, NUMBER, BIND };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2 };
 struct Item {
     Kind kind;
     const char* label;
     const char* section;
     const char* key;
-    void* value;            // bool* or float*
+    void* value;            // bool*, float* or std::string*
     float lo, hi, step;
     float show;             // display multiplier
     const char* fmt;
+    int flags;
 };
 
+#define BINDING(label, section, key, field, flags) {BIND, label, section, key, &g_cfg.field, 0, 0, 0, 0, nullptr, flags}
+
 const Item kItems[] = {
-    {HEADER, "ENGINE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr},
-    {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr},
-    {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr},
-    {NUMBER, "Heating at redline", "Engine", "HeatUp", &g_cfg.heatUp, 0.01f, 2.0f, 0.01f, 1, "%.2f /s"},
-    {NUMBER, "Heating at max rpm", "Engine", "HeatUpMaxRPM", &g_cfg.heatUpMax, 0.01f, 5.0f, 0.01f, 1, "%.2f /s"},
-    {NUMBER, "Cooling", "Engine", "CoolDown", &g_cfg.coolDown, 0.005f, 1.0f, 0.005f, 1, "%.3f /s"},
-    {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat"},
-    {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%"},
-    {TOGGLE, "Heat gauge", "UI", "Gauge", &g_cfg.gauge, 0, 0, 0, 0, nullptr},
-    {HEADER, "SHIFTER AND CLUTCH", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr},
-    {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr},
-    {NUMBER, "Clutch travel to shift", "Shifter", "ClutchToShift", &g_cfg.shiftPedal, 0.05f, 1.0f, 0.05f, 100, "%.0f%%"},
-    {NUMBER, "Clutchless rev-match", "Shifter", "RevMatchRPM", &g_cfg.revMatchRpm, 0.0f, 3000.0f, 50.0f, 1, "%.0f rpm"},
-    {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f"},
-    {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%"},
-    {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%"},
+    {HEADER, "ENGINE", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Heating at redline", "Engine", "HeatUp", &g_cfg.heatUp, 0.01f, 2.0f, 0.01f, 1, "%.2f /s", 0},
+    {NUMBER, "Heating at max rpm", "Engine", "HeatUpMaxRPM", &g_cfg.heatUpMax, 0.01f, 5.0f, 0.01f, 1, "%.2f /s", 0},
+    {NUMBER, "Cooling", "Engine", "CoolDown", &g_cfg.coolDown, 0.005f, 1.0f, 0.005f, 1, "%.3f /s", 0},
+    {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat", 0},
+    {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {HEADER, "DAMAGE AND HUD", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", 0},
+    {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", 0},
+    {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
+    {HEADER, "SHIFTER AND CLUTCH", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Clutch travel to shift", "Shifter", "ClutchToShift", &g_cfg.shiftPedal, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Clutchless rev-match", "Shifter", "RevMatchRPM", &g_cfg.revMatchRpm, 0.0f, 3000.0f, 50.0f, 1, "%.0f rpm", 0},
+    {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
+    {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
+    {HEADER, "CONTROLS", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
+    BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
+    BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
+    BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
+    BINDING("Gear 2", "Shifter", "Gear2", gear[2], 0),
+    BINDING("Gear 3", "Shifter", "Gear3", gear[3], 0),
+    BINDING("Gear 4", "Shifter", "Gear4", gear[4], 0),
+    BINDING("Gear 5", "Shifter", "Gear5", gear[5], 0),
+    BINDING("Gear 6", "Shifter", "Gear6", gear[6], 0),
+    BINDING("Gear 7", "Shifter", "Gear7", gear[7], 0),
+    BINDING("Neutral (latching)", "Shifter", "Neutral", neutral, 0),
+    BINDING("H-shifter on/off", "General", "Toggle", toggle, 0),
+    BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
+    BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
+    BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
+    BINDING("Menu left", "UI", "MenuLeft", menuLeft, BF_REQUIRED),
+    BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
 };
 constexpr int kNumItems = sizeof(kItems) / sizeof(kItems[0]);
+constexpr int kMaxRows = 18;        // rows shown at once; the list scrolls
 
 struct {
     bool open = false;
     bool dirty = false;
+    bool clutchCal = false;         // [Clutch] Released/Pressed changed by binding a pedal
     int sel = 1;
+    int first = 0;                  // first row shown
     bool synced = false;
     uint32_t menu = 0, nav[4] = {};
+    int capture = -1;               // item waiting for a press
+    double captureStart = 0;
+    std::string note;               // short feedback under the list
+    double noteTime = -1e9;
 } s_menu;
 
-std::string ValueText(const Item& it) {
-    char buf[32];
+std::vector<std::string> SplitBindings(const std::string& list) {
+    std::vector<std::string> out;
+    size_t i = 0;
+    while (i <= list.size()) {
+        size_t j = list.find(',', i);
+        if (j == std::string::npos) j = list.size();
+        std::string t = list.substr(i, j - i);
+        t.erase(0, t.find_first_not_of(" \t"));
+        t.erase(t.find_last_not_of(" \t") + 1);
+        if (!t.empty()) out.push_back(t);
+        i = j + 1;
+    }
+    return out;
+}
+
+std::string JoinBindings(const std::vector<std::string>& v) {
+    std::string s;
+    for (auto& t : v) s += (s.empty() ? "" : ",") + t;
+    return s;
+}
+
+bool SameBinding(std::string a, std::string b) {
+    for (auto& c : a) c = (char)tolower((unsigned char)c);
+    for (auto& c : b) c = (char)tolower((unsigned char)c);
+    return a == b;
+}
+
+void Note(const std::string& text) {
+    s_menu.note = text;
+    s_menu.noteTime = Now();
+}
+
+std::string ValueText(const Item& it, int index) {
+    char buf[64];
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
+    if (it.kind == BIND) {
+        if (index == s_menu.capture) return "Press a key, button or pedal...";
+        std::string s;
+        for (auto& t : SplitBindings(*(std::string*)it.value))
+            s += (s.empty() ? "" : ", ") + (t.compare(0, 4, "key:") == 0 ? t.substr(4) : t);
+        if (s.empty()) return "-";
+        if (s.size() > 28) s = s.substr(0, 25) + "...";
+        return s;
+    }
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
     return buf;
 }
 
-void Change(const Item& it, int dir) {
+void StartCapture(int index) {
+    s_menu.capture = index;
+    s_menu.captureStart = Now();
+    Input_BeginCapture();
+    Log("ui: binding %s", kItems[index].label);
+}
+
+void FinishCapture(const std::string& binding, int axisRest) {
+    const Item& it = kItems[s_menu.capture];
+    s_menu.capture = -1;
+    // The menu key closes capture instead of being bound (except to the menu item itself).
+    if (it.value != &g_cfg.menu)
+        for (auto& t : SplitBindings(g_cfg.menu))
+            if (SameBinding(t, binding)) {
+                Note("Cancelled");
+                return;
+            }
+    std::string& field = *(std::string*)it.value;
+    std::vector<std::string> list = SplitBindings(field);
+    for (auto& t : list)
+        if (SameBinding(t, binding)) {
+            Note(std::string(it.label) + ": " + binding + " is already bound");
+            return;
+        }
+    list.push_back(binding);
+    if ((it.flags & BF_CLUTCH) && axisRest >= 0) {
+        // Pedal: remember where it rests; floored is taken to be the other end of its travel.
+        g_cfg.clutchReleased = axisRest;
+        g_cfg.clutchPressed = -1;
+        s_menu.clutchCal = true;
+    }
+    Input_SetBinding(field, JoinBindings(list));
+    s_menu.dirty = true;
+    Note(std::string(it.label) + ": added " + binding);
+    Log("ui: %s = %s", it.key, field.c_str());
+}
+
+void RemoveLast(const Item& it) {
+    std::string& field = *(std::string*)it.value;
+    std::vector<std::string> list = SplitBindings(field);
+    if (list.empty()) return;
+    if ((it.flags & BF_REQUIRED) && list.size() == 1) {
+        Note(std::string(it.label) + " needs a binding: add another one first");
+        return;
+    }
+    std::string gone = list.back();
+    list.pop_back();
+    Input_SetBinding(field, JoinBindings(list));
+    s_menu.dirty = true;
+    Note(std::string(it.label) + ": removed " + gone);
+    Log("ui: %s = %s", it.key, field.c_str());
+}
+
+void Change(int index, int dir) {
+    const Item& it = kItems[index];
     if (it.kind == TOGGLE) {
         bool& b = *(bool*)it.value;
         b = !b;
@@ -267,6 +397,10 @@ void Change(const Item& it, int dir) {
             if (it.value == &g_cfg.biteStart) g_cfg.biteEnd = std::max(0.0f, g_cfg.biteStart - 0.05f);
             else if (it.value == &g_cfg.biteEnd) g_cfg.biteStart = std::min(1.0f, g_cfg.biteEnd + 0.05f);
         }
+    } else if (it.kind == BIND) {
+        if (dir > 0) StartCapture(index);
+        else RemoveLast(it);
+        return;
     } else {
         return;
     }
@@ -277,20 +411,36 @@ void Save() {
     for (const Item& it : kItems) {
         if (it.kind == HEADER) continue;
         char buf[32];
-        if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0);
-        else snprintf(buf, sizeof(buf), "%g", *(float*)it.value);
-        WritePrivateProfileStringA(it.section, it.key, buf, IniPath());
+        std::string text;
+        if (it.kind == TOGGLE) snprintf(buf, sizeof(buf), "%d", *(bool*)it.value ? 1 : 0), text = buf;
+        else if (it.kind == NUMBER) snprintf(buf, sizeof(buf), "%g", *(float*)it.value), text = buf;
+        else text = *(std::string*)it.value;
+        WritePrivateProfileStringA(it.section, it.key, text.c_str(), IniPath());
+    }
+    if (s_menu.clutchCal) {
+        WritePrivateProfileStringA("Clutch", "Released", std::to_string(g_cfg.clutchReleased).c_str(), IniPath());
+        WritePrivateProfileStringA("Clutch", "Pressed", std::to_string(g_cfg.clutchPressed).c_str(), IniPath());
+        s_menu.clutchCal = false;
     }
     Log("ui: settings saved to %s", IniPath());
+}
+
+void CancelCapture() {
+    if (s_menu.capture < 0) return;
+    Input_CancelCapture();
+    s_menu.capture = -1;
 }
 
 void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
     Log("ui: menu %s", open ? "opened" : "closed");
-    if (!open && s_menu.dirty) {
-        Save();
-        s_menu.dirty = false;
+    if (!open) {
+        CancelCapture();
+        if (s_menu.dirty) {
+            Save();
+            s_menu.dirty = false;
+        }
     }
     Game_SetMenuOpen(open);
 }
@@ -314,38 +464,68 @@ void UpdateMenu(const InputSnapshot& in, bool driving) {
     for (int i = 0; i < 4; i++) nav[i] = (int)(in.menuNav[i] - s_menu.nav[i]);
     s_menu.menu = in.menu;
     memcpy(s_menu.nav, in.menuNav, sizeof(s_menu.nav));
-    if (!driving) return;
+    if (!driving) {
+        CancelCapture();
+        return;
+    }
+    if (s_menu.capture >= 0) {
+        // Waiting for a press: the menu key cancels, everything else is the new binding.
+        std::string binding;
+        int rest;
+        if (Input_Captured(&binding, &rest)) {
+            FinishCapture(binding, rest);
+        } else if (toggles & 1) {
+            CancelCapture();
+            Note("Cancelled");
+        } else if (Now() - s_menu.captureStart > 8.0) {
+            CancelCapture();
+            Note("Nothing pressed, cancelled");
+        }
+        return;
+    }
     if (toggles & 1) SetOpen(!s_menu.open);
     if (!s_menu.open) return;
     for (int n = 0; n < nav[0]; n++) Step(-1);
     for (int n = 0; n < nav[1]; n++) Step(+1);
-    for (int n = 0; n < nav[2]; n++) Change(kItems[s_menu.sel], -1);
-    for (int n = 0; n < nav[3]; n++) Change(kItems[s_menu.sel], +1);
+    for (int n = 0; n < nav[2] && s_menu.capture < 0; n++) Change(s_menu.sel, -1);
+    for (int n = 0; n < nav[3] && s_menu.capture < 0; n++) Change(s_menu.sel, +1);
 }
 
 std::string MenuKeyName() {
-    std::string m = g_cfg.menu;
-    size_t comma = m.find(',');
-    if (comma != std::string::npos) m.resize(comma);
-    if (m.compare(0, 4, "key:") == 0) m = m.substr(4);
-    return m.empty() ? "the menu key" : m;
+    std::vector<std::string> list = SplitBindings(g_cfg.menu);
+    if (list.empty()) return "the menu key";
+    std::string m = list[0];
+    return m.compare(0, 4, "key:") == 0 ? m.substr(4) : m;
 }
 
 void DrawMenu(int W, int H, float k) {
     float fh = (float)s_font.height, line = roundf(fh * 1.45f), pad = roundf(12 * k), gap = roundf(24 * k);
-    float labelW = 0, valueW = TextWidth("< 100% heat >");
+    float labelW = 0, valueW = std::max(TextWidth("< Press a key, button or pedal... >"), TextWidth("< 100% heat >"));
     for (const Item& it : kItems) labelW = std::max(labelW, TextWidth(it.label));
-    std::string hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
+    const Item& cur = kItems[s_menu.sel];
+    std::string hint;
+    if (s_menu.capture >= 0) hint = MenuKeyName() + ": cancel";
+    else if (cur.kind == BIND) hint = "Right: add binding    Left: remove last    " + MenuKeyName() + ": close";
+    else hint = "Up/Down: select    Left/Right: change    " + MenuKeyName() + ": close";
+    bool noted = Now() - s_menu.noteTime < 3.0 && s_menu.capture < 0;
     const char* title = "DRIVETRAIN TUNING";
     float w = std::max(labelW + gap + valueW, std::max(TextWidth(hint.c_str()), TextWidth(title))) + 2 * pad;
-    float h = line * (kNumItems + 3) + 2 * pad;
+    if (noted) w = std::max(w, TextWidth(s_menu.note.c_str()) + 2 * pad);
+    int rows = std::min(kNumItems, kMaxRows);
+    // Keep the selection in view, with its section header when it fits.
+    int want = s_menu.sel > 0 && kItems[s_menu.sel - 1].kind == HEADER ? s_menu.sel - 1 : s_menu.sel;
+    if (want < s_menu.first) s_menu.first = want;
+    if (s_menu.sel >= s_menu.first + rows) s_menu.first = s_menu.sel - rows + 1;
+    s_menu.first = Clamp(s_menu.first, 0, kNumItems - rows);
+    float h = line * (rows + 3) + 2 * pad;
     float x0 = roundf((W - w) / 2), y0 = roundf((H - h) / 2);
     Quad(x0, y0, x0 + w, y0 + h, D3DCOLOR_ARGB(215, 12, 12, 14));
     Quad(x0, y0, x0 + w, y0 + roundf(2 * k), D3DCOLOR_ARGB(255, 255, 150, 0));
     float y = y0 + pad;
     Text(x0 + pad, y, title, D3DCOLOR_ARGB(255, 255, 150, 0));
     y += line * 1.5f;
-    for (int i = 0; i < kNumItems; i++, y += line) {
+    float listTop = y;
+    for (int i = s_menu.first; i < s_menu.first + rows; i++, y += line) {
         const Item& it = kItems[i];
         float ty = y + roundf((line - fh) / 2);
         if (it.kind == HEADER) {
@@ -353,15 +533,26 @@ void DrawMenu(int W, int H, float k) {
             continue;
         }
         bool sel = i == s_menu.sel;
+        bool capturing = i == s_menu.capture;
         if (sel) Quad(x0 + pad / 2, y, x0 + w - pad / 2, y + line, D3DCOLOR_ARGB(200, 190, 105, 0));
         D3DCOLOR c = sel ? D3DCOLOR_ARGB(255, 255, 255, 255) : D3DCOLOR_ARGB(255, 210, 210, 210);
         Text(x0 + pad + roundf(10 * k), ty, it.label, c);
-        std::string v = ValueText(it);
-        if (sel) v = "< " + v + " >";
-        Text(x0 + w - pad - TextWidth(v.c_str()), ty, v.c_str(), c);
+        std::string v = ValueText(it, i);
+        if (sel && !capturing) v = "< " + v + " >";
+        D3DCOLOR vc = capturing && Blink(300) ? D3DCOLOR_ARGB(255, 255, 210, 120) : c;
+        Text(x0 + w - pad - TextWidth(v.c_str()), ty, v.c_str(), vc);
+    }
+    if (rows < kNumItems) {
+        // Scroll bar along the right edge of the list.
+        float trackH = line * rows, barH = std::max(4.0f * k, trackH * rows / kNumItems);
+        float barY = listTop + (trackH - barH) * s_menu.first / (kNumItems - rows);
+        float bx = x0 + w - roundf(4 * k);
+        Quad(bx, listTop, bx + roundf(2 * k), listTop + trackH, D3DCOLOR_ARGB(120, 90, 90, 95));
+        Quad(bx, barY, bx + roundf(2 * k), barY + barH, D3DCOLOR_ARGB(255, 255, 150, 0));
     }
     y += line * 0.5f;
-    Text(x0 + pad, y, hint.c_str(), D3DCOLOR_ARGB(255, 150, 150, 160));
+    if (noted) Text(x0 + pad, y, s_menu.note.c_str(), D3DCOLOR_ARGB(255, 255, 200, 120));
+    else Text(x0 + pad, y, hint.c_str(), D3DCOLOR_ARGB(255, 150, 150, 160));
 }
 
 }  // namespace

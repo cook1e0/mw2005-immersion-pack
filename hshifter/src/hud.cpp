@@ -54,6 +54,8 @@ constexpr int kMI_Textures = 0x60;                  // FEMultiImage: hTexture[3]
 constexpr int kFG_Children = 0x5C;                  // FEGroup: FEMinList (count +4, head +8, tail +0xC)
 constexpr int kPK_Objects = 0x44;                   // FEPackage: FEMinList of top-level objects
 constexpr int kML_Head = 0x08;
+constexpr int kOD_SizeX = 0x38;                     // FEObjData: Size.x, Size.y
+constexpr int kOD_SizeY = 0x3C;
 constexpr int kOD_PosZ = 0x24;                      // FEObjData: Pos.z (objects are drawn far to near)
 constexpr int kMID_Rot = 0x8C;                      // FEMultiImageData: mask rotation (degrees)
 constexpr uint32_t kDirty = 0x03C00000;             // FF_Dirty | FF_DirtyTransform | FF_DirtyColor | FF_DirtyCode
@@ -189,6 +191,17 @@ void Setup(uint8_t* meter) {
     if (icon && Field<int>(icon, kFO_Type) == FE_Group) {
         DumpGroup("icon", icon + kFG_Children, 0);
         CollectIcon(icon + kFG_Children, 0);
+        // The group also holds a small image at the end of the bar; only the clock (the largest
+        // image) becomes the car.
+        size_t big = 0;
+        float bigArea = -1.0f;
+        for (size_t i = 0; i < s.icon.size(); i++) {
+            uint8_t* d = Field<uint8_t*>(s.icon[i].img, kFO_Data);
+            float area = d ? fabsf(Field<float>(d, kOD_SizeX) * Field<float>(d, kOD_SizeY)) : 0.0f;
+            Log("hud: icon image %p size %.1f", s.icon[i].img, area);
+            if (area > bigArea) bigArea = area, big = i;
+        }
+        if (!s.icon.empty()) s.icon = {s.icon[big]};
     }
     if (!s.carIcon) s.carIcon = PickIcon();
 }

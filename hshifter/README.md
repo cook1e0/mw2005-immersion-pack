@@ -14,8 +14,14 @@ DirectInput controller (wheel shifters, separate pedal sets, button boxes) or th
 - **Engine wear** (optional): no rev limiter. Above the redline the engine heats up, loses power
   when hot, and blows at full heat. A blown engine totals the car in a race; in free roam, use
   *Jump to Safe House* from the pause menu. Manual shifting only.
-- **Tuning menu**: F4 while driving. Engine wear, shifter and clutch settings, changed live and
-  saved to the ini. Works with a wheel's d-pad and shows on the HUD panel in VR.
+- **Car damage** (optional): crashes into walls, traffic and cops damage the car; at 100% it is
+  totaled like a blown engine. Props (cones, barrels, signs) don't count.
+- **Damage / heat meter**: the speedbreaker meter next to the tachometer shows car damage, with a
+  car icon instead of the clock. Engine heat above 50% fills the same bar in red, and the meter
+  pulses at 75% heat or damage. The speedbreaker itself is off by default.
+- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, changed
+  live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
+  pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
 
 ## Install
 
@@ -49,6 +55,8 @@ All in `nfsmw_hshifter.ini` (commented). The ones you are most likely to change:
 | `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it |
 | `[Engine] PowerLossStart / PowerLoss` | heat where power starts dropping, and how much is lost at full heat |
 | `[Engine] Totaled` | 0 = a blown engine shows "Blown Engine" instead of totaling the car |
+| `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size, damage per hit |
+| `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_hshifter.log` |
 
@@ -95,3 +103,11 @@ copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
 - Nothing grinds audibly when a shift is refused; the box just stays in neutral.
 - Not yet tested with a physical wheel and shifter, only keyboard bindings.
+- Car damage: the player's `DamageRacer` keeps the game's damage total (`IDamageable::GetHealth`),
+  which racers never fill. `DamageVehicle::OnImpact` (DamageRacer vtable 0x8AD378) is replaced to
+  add impact force / mass beyond `MinImpact` to it, skipping smackables. At 100% the car is
+  destroyed through `IDamageable::Destroy`.
+- HUD meter: `ISpeedBreakerMeter::SetPursuitLevel` (0x8A2110) gets the damage instead of the
+  speedbreaker charge. The heat overlay is a clone of the meter's masked arc
+  (`FEMultiImage::Clone`) added to the HUD package next to it; the clock icon gets the
+  `COPS_ICON` texture. `LocalPlayer::CanDoGameBreaker` (0x6EDC90) turns the speedbreaker off.
