@@ -220,8 +220,9 @@ HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
                 axisOfs = (LONG)o.dwOfs;
             }
         }
-        // The axis with the motor is the wheel, whatever [FFB] SteerAxis says: Fanatec wheels report
-        // it as Ry on one of their two devices. Its offset in this data format, if the format has it.
+        // The axis with the motor (Fanatec: Ry on one of their two devices) may be the wheel rather
+        // than the configured SteerAxis: kept as a second candidate for the wheel's position.
+        forceAxisOfs = -1;
         if (ffbDevice) {
             ForceAxis found = {};
             real->EnumObjects(FirstForceAxisCb, &found, DIDFT_AXIS | DIDFT_FFACTUATOR);
@@ -229,9 +230,9 @@ HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
                 bool inFormat = false;
                 for (DWORD i = 0; i < f->dwNumObjs && !inFormat; ++i) inFormat = f->rgodf[i].dwOfs == found.ofs;
                 if (inFormat && (LONG)found.ofs != axisOfs) {
-                    Log("dinput: '%s' force axis '%s' at offset %lu (not the configured SteerAxis, offset %ld): using it",
+                    Log("dinput: '%s' force axis '%s' at offset %lu, SteerAxis at %ld: the one that moves is the wheel",
                         name, found.name, found.ofs, axisOfs);
-                    axisOfs = (LONG)found.ofs;
+                    forceAxisOfs = (LONG)found.ofs;
                 }
             }
         }

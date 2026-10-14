@@ -12,10 +12,10 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Wheel position from the force axis:** the mod read the wheel's position (and placed its
-  forces) on the X axis. On some wheels the motor is another axis (Fanatec: Ry on one of its two
-  devices), so the position never moved, the force direction test could never pass, and every
-  steering force stayed at zero. The device's force axis is now used; the log names it.
+- **Wheel position:** the mod read the wheel's position only from the X axis. Some wheels have
+  their motor on another axis (Fanatec: Ry on one of its two devices). The mod now watches both and
+  uses whichever moves when you turn the wheel (the log says which), so the force direction test
+  and the steering forces can work.
 - **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
   a given wheel angle (`[Controls] SteeringSensitivity`).
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the

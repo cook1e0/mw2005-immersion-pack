@@ -74,6 +74,26 @@ int main(int argc, char** argv) {
     printf("Game controllers:\n");
     g_di->EnumDevices(DI8DEVCLASS_GAMECTRL, EnumCb, nullptr, DIEDFL_ATTACHEDONLY);
     if (!g_numFfb) { printf("No force feedback device found.\n"); return 0; }
+    // ffbtool axes: every FFB device's main axes for a few seconds, no forces (turn the wheel).
+    if (argc >= 2 && !strcmp(argv[1], "axes")) {
+        IDirectInputDevice8A* devs[16] = {};
+        for (int i = 0; i < g_numFfb; i++) {
+            g_di->CreateDevice(g_ffb[i], &devs[i], nullptr);
+            devs[i]->SetDataFormat(&c_dfDIJoystick2);
+            devs[i]->Acquire();
+        }
+        for (int n = 0; n < 12; n++) {
+            for (int i = 0; i < g_numFfb; i++) {
+                DIJOYSTATE2 s = {};
+                devs[i]->Poll();
+                devs[i]->GetDeviceState(sizeof(s), &s);
+                printf("[ffb %d] X %6ld Y %6ld Z %6ld Rx %6ld Ry %6ld Rz %6ld   ", i, s.lX, s.lY, s.lZ, s.lRx, s.lRy, s.lRz);
+            }
+            printf("\n");
+            Sleep(500);
+        }
+        return 0;
+    }
     if (argc < 2 || strcmp(argv[1], "test")) return 0;
     int pick = argc > 2 ? atoi(argv[2]) : 0;
     if (pick < 0 || pick >= g_numFfb) { printf("No FFB device %d.\n", pick); return 1; }

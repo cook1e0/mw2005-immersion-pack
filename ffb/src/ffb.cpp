@@ -305,31 +305,72 @@ static void SetSine(float mag, float hz) {
 }
 
 // Normalised steering axis position (-1 left .. +1 right). Returns false if unavailable.
-static bool ReadAxis(DeviceWrap* d, double now, float* out) {
-    if (!d->acquired || d->axisOfs < 0 || d->dataSize < sizeof(LONG) || d->dataSize > 1024 ||
-        (DWORD)d->axisOfs > d->dataSize - sizeof(LONG)) return false;
-    if (now - s_fx.rangeTime > 1.0) {
+// Normalised position (-1..1) of the axis at `ofs` in `buf`, with its range cached in `range`.
+struct AxisRange { LONG ofs = -1, min = 0, max = 0; double time = -10; };
+static bool AxisValue(DeviceWrap* d, const uint8_t* buf, LONG ofs, AxisRange& range, double now, float* out) {
+    if (ofs < 0 || (DWORD)ofs > d->dataSize - sizeof(LONG)) return false;
+    if (range.ofs != ofs || now - range.time > 1.0) {
         DIPROPRANGE r = {};
         r.diph.dwSize = sizeof(r);
         r.diph.dwHeaderSize = sizeof(r.diph);
         r.diph.dwHow = DIPH_BYOFFSET;
-        r.diph.dwObj = (DWORD)d->axisOfs;
+        r.diph.dwObj = (DWORD)ofs;
         if (SUCCEEDED(d->real->GetProperty(DIPROP_RANGE, &r.diph))) {
-            s_fx.rangeMin = r.lMin;
-            s_fx.rangeMax = r.lMax;
+            range.min = r.lMin;
+            range.max = r.lMax;
         }
-        s_fx.rangeTime = now;
+        range.ofs = ofs;
+        range.time = now;
     }
-    if (s_fx.rangeMax <= s_fx.rangeMin) return false;
+    if (range.max <= range.min) return false;
+    float mid = 0.5f * ((float)range.min + (float)range.max);
+    float half = 0.5f * ((float)range.max - (float)range.min);
+    *out = Clamp(((float)*(const LONG*)(buf + ofs) - mid) / half, -1.0f, 1.0f);
+    return true;
+}
+
+// The wheel's position. With a force axis that differs from SteerAxis, both are watched from the
+// start and the first to move clearly (8% of its travel) while the other stays put is the wheel;
+// until then SteerAxis is used, as before.
+static AxisRange s_steerRange, s_forceRange;
+static int s_axisChoice;            // 0 = undecided, 1 = SteerAxis, 2 = force axis
+static float s_axisStart[2];
+static bool s_axisStarted;
+static DeviceWrap* s_axisChoiceDev;
+
+static bool ReadAxis(DeviceWrap* d, double now, float* out) {
+    if (!d->acquired || d->axisOfs < 0 || d->dataSize < sizeof(LONG) || d->dataSize > 1024 ||
+        (DWORD)d->axisOfs > d->dataSize - sizeof(LONG)) return false;
     alignas(8) uint8_t buf[1024];
     HRESULT hr = d->real->Poll();
     if (Lost(hr)) { EffectResult(hr); return false; }
     hr = d->real->GetDeviceState(d->dataSize, buf);
     if (FAILED(hr)) { if (Lost(hr)) EffectResult(hr); return false; }
-    LONG raw = *(LONG*)(buf + d->axisOfs);
-    float mid = 0.5f * ((float)s_fx.rangeMin + (float)s_fx.rangeMax);
-    float half = 0.5f * ((float)s_fx.rangeMax - (float)s_fx.rangeMin);
-    *out = Clamp(((float)raw - mid) / half, -1.0f, 1.0f);
+    if (d != s_axisChoiceDev) {
+        s_axisChoiceDev = d;
+        s_axisChoice = d->forceAxisOfs >= 0 ? 0 : 1;
+        s_axisStarted = false;
+    }
+    float steer = 0, force = 0;
+    bool haveSteer = AxisValue(d, buf, d->axisOfs, s_steerRange, now, &steer);
+    bool haveForce = s_axisChoice != 1 && AxisValue(d, buf, d->forceAxisOfs, s_forceRange, now, &force);
+    if (s_axisChoice == 0 && haveSteer && haveForce) {
+        if (!s_axisStarted) {
+            s_axisStarted = true;
+            s_axisStart[0] = steer;
+            s_axisStart[1] = force;
+        }
+        float ds = fabsf(steer - s_axisStart[0]), df = fabsf(force - s_axisStart[1]);
+        if (ds > 0.08f && df < 0.02f) s_axisChoice = 1;
+        else if (df > 0.08f && ds < 0.02f) s_axisChoice = 2;
+        if (s_axisChoice)
+            Log("ffb: the wheel is the %s axis (offset %ld; moved %.3f, the other %.3f)",
+                s_axisChoice == 2 ? "force" : "SteerAxis", s_axisChoice == 2 ? d->forceAxisOfs : d->axisOfs,
+                s_axisChoice == 2 ? df : ds, s_axisChoice == 2 ? ds : df);
+    }
+    if (s_axisChoice == 2 && haveForce) *out = force;
+    else if (haveSteer) *out = steer;
+    else return false;
     return true;
 }
 

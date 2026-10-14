@@ -18,6 +18,7 @@ struct DeviceWrap : public IDirectInputDevice8A {
     LONG  acquireGen = 0;       // bumps on each successful fresh Acquire
     DWORD dataSize = 0;         // current data format size
     LONG  axisOfs = -1;         // offset of the steering axis inside the data format
+    LONG  forceAxisOfs = -1;    // offset of the force (motor) axis when it differs from axisOfs
     HWND  hwnd = nullptr;
     bool  ffbDevice = true;     // false: wrapped only so its input can be hidden from the game
     std::vector<MenuObject> menuObjects;
