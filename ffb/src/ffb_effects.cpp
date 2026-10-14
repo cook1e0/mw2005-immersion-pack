@@ -6,10 +6,6 @@ namespace ffb {
 
 namespace {
 const double kTwoPi = 6.283185307179586;
-float Ramp(float a, float b, float x) {
-    float t = Clampf((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * hz * dt, kTwoPi); }
 }
 
@@ -24,7 +20,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     if (t.valid && t.rpm > 100.0f && p.engine > 0.0f) {
         float hz = Clampf(t.rpm / 30.0f, 12.0f, 70.0f);
         enginePhase_ = Advance(enginePhase_, hz, dt);
-        float amp = p.engine * (0.5f + 0.5f * t.rpmNorm) * (1.0f - 0.6f * Ramp(3.0f, 25.0f, speed));
+        float amp = p.engine * (0.5f + 0.5f * t.rpmNorm) * (1.0f - 0.6f * Smoothstep(3.0f, 25.0f, speed));
         e.engine = amp * (float)sin(enginePhase_) * drive;
     }
 
@@ -32,7 +28,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     if (t.valid && t.frontOnGround > 0 && t.surfaceRumble > 0.0f && p.surface > 0.0f) {
         float hz = Clampf(t.surfaceHz > 0.0f ? t.surfaceHz : 25.0f, 8.0f, 60.0f);
         surfacePhase_ = Advance(surfacePhase_, hz, dt);
-        float amp = p.surface * 0.5f * Clampf(t.surfaceRumble * 1.5f, 0.0f, 1.0f) * Ramp(1.0f, 8.0f, speed);
+        float amp = p.surface * 0.5f * Clampf(t.surfaceRumble * 1.5f, 0.0f, 1.0f) * Smoothstep(1.0f, 8.0f, speed);
         e.surface = amp * (float)sin(surfacePhase_) * drive;
     }
 
@@ -41,7 +37,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         lastSeq_ = t.seq;
         if (t.valid && p.kerbs > 0.0f) {
             const float ref = 0.5f;   // m/s of quick suspension compression that is a solid hit
-            float gate = Ramp(1.0f, 5.0f, speed);
+            float gate = Smoothstep(1.0f, 5.0f, speed);
             float kick = p.kerbs * 0.6f * tanhf((t.bump[1] - t.bump[0]) / ref) * gate;
             if (fabsf(kick) > fabsf(kerbKick_)) kerbKick_ = kick;
             float hit = fmaxf(fabsf(t.bump[0]), fabsf(t.bump[1]));

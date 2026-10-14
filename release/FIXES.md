@@ -8,10 +8,6 @@
 - **Turning steering wheel:** the player car's steering wheel turns with yours, by the same angle,
   in every car with a modelled wheel (found automatically in the interior model; 36 of 38 cars).
   `[VR] SteeringWheel=0` turns it off. Works in VR and on a flat screen.
-- **Force feedback:** new speed-sensitive centring (`-K * v * sin(angle)`), understeer lightening,
-  surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
-  vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
-  scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
 - **VR: driver's arms and hands hidden:** in the cockpit the driver model's arms and hands are left
   out (they followed neither your hands nor the turning steering wheel). F4 > VR > Hide the
   driver's arms and hands, `[VR] HideArms`. Found per driver model (in front of the head, above the
@@ -84,8 +80,7 @@
   as one constant force through a safety chain: smoothing of the game's 60 Hz physics, a soft
   limiter instead of clipping, a slew-rate limit, an oscillation guard, a force ceiling
   (`MaxForce`) and a fade-in. Every change restarts the effect (`RestartEffects`, needed by
-  Fanatec bases). Old FFB settings are replaced; road effects, jumps, crashes and wall scrapes
-  return in the next steps.
+  Fanatec bases). Old FFB settings are replaced. Jump lightening and landings are not in yet.
 - **ffbtool:** no longer loads the game's dinput8.dll (the ASI loader, which pulled the mods in),
   opens its own window (works from any terminal), and tests each effect type on its own.
 - **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
@@ -113,9 +108,7 @@
 - **Near plane default:** `[VR] NearZ` now defaults to 0.05 m (the game's own is 0.5 m); 0.01 m
   cost too much depth precision. Existing ini values are kept.
 
-**Upgrading from v0.12.0:** replace `scripts
-fsmw_vr.asi` and `scripts
-fsmw_gameplay.asi`.
+**Upgrading from v0.12.0:** replace `scripts\nfsmw_vr.asi` and `scripts\nfsmw_gameplay.asi`.
 
 ### v0.12.0: cockpit near plane, VR recenter binding, misshift damage
 
@@ -129,9 +122,7 @@ fsmw_gameplay.asi`.
   (`[Shifter] MisshiftChance`, `MisshiftDamage`, also in F4 > Shifter and clutch). Needs car damage
   on; `MisshiftChance=0` turns it off.
 
-**Upgrading from v0.11.2:** replace `scripts
-fsmw_vr.asi` and `scripts
-fsmw_gameplay.asi`. Keep
+**Upgrading from v0.11.2:** replace `scripts\nfsmw_vr.asi` and `scripts\nfsmw_gameplay.asi`. Keep
 your existing `.ini` files and bindings; the new settings use their defaults when missing, so the
 lower near plane and misshift damage are on after the update. The force feedback plugin,
 `nfsmw_vr_host.exe` and `nfsmw_crashdump.exe` are unchanged. The near-plane slider needs both

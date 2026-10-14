@@ -18,6 +18,12 @@ namespace ffb {
 
 inline float Clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+// 0 at or below a, 1 at or above b, a smooth S-curve between.
+inline float Smoothstep(float a, float b, float x) {
+    float t = Clampf((x - a) / (b - a), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 // Critically damped second-order low-pass. Removes the steps of the game's physics rate with less
 // lag than a one-pole filter of the same smoothness, and without overshoot.
 struct LowPass2 {

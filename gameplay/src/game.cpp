@@ -588,7 +588,6 @@ void PlayerEngineStep(uint8_t* eng) {
     if (blown) s.heat = 1.0f;
 }
 
-float PlayerDamage(uint8_t* eng);
 constexpr float kBadlyDamaged = 0.75f;      // from this much car damage the engine heats up faster
 constexpr float kDamagedHeatUp = 1.33f;     // ... by this factor
 

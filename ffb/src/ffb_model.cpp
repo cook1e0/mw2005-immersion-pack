@@ -6,10 +6,6 @@ namespace ffb {
 
 namespace {
 const float kPi = 3.14159265f;
-float Smoothstep(float a, float b, float x) {
-    float t = Clampf((x - a) / (b - a), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
 }
 
 float FrontSlipAngle(const Telemetry& t, const WheelState& w, const ModelParams& p, float roadLock) {

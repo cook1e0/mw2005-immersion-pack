@@ -220,7 +220,7 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
-enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32 };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32, BF_ONOFF = 64 };
 
 // Settings of the other mods, changed live through their exports and saved to their .ini: the
 // FFB mod's [FFB] values (NfsmwFfb_Setting; older FFB builds only export NfsmwFfb_Gain) and the
@@ -359,7 +359,7 @@ int FfbDeviceName(int index, std::string* name) {
         exported = f != nullptr;
         if (f) {
             char buf[160] = {};
-            int count = ((int(__cdecl*)(int, char*, int))f)(0, buf, sizeof(buf));
+            int count = ((int(__cdecl*)(int, char*, int))f)(-1, nullptr, 0);   // count only, opens nothing
             for (int i = 0; i < count && i < 16; i++) {
                 buf[0] = 0;
                 ((int(__cdecl*)(int, char*, int))f)(i, buf, sizeof(buf));
@@ -477,7 +477,7 @@ const Item kItems[] = {
     {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
     {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
     HEADER_("STRENGTH AND SAFETY"),
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Maximum force", "FFB", "MaxForce", &s_ext[FFB_MAXFORCE], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
@@ -598,7 +598,7 @@ const Item kItems[] = {
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
     HEADER_("VIEW"),
-    {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
 
@@ -779,7 +779,7 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
-    if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS]) return v > 0.5f ? "On" : "Off";
+    if (it.flags & BF_ONOFF) return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
         std::string name;
         FfbDeviceName((int)lrintf(v), &name);
@@ -1698,7 +1698,7 @@ void ValueWidget(int i, float w, float k) {
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
-            if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE] || it.value == &s_ext[VR_HIDEARMS]) {
+            if ((it.flags & BF_ONOFF) || it.value == &s_ext[FFB_DEVICE]) {
                 fmt.clear();   // the text from ValueText, as a format without conversions
                 for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             }

@@ -34,9 +34,9 @@ struct Output {
 
 bool s_focusKnown, s_focused;
 
-// What the device layer is doing, for F4 and the log (logged when it changes).
-CRITICAL_SECTION s_statusLock;
-bool s_statusInit;
+// What the device layer is doing, for F4 and the log (logged when it changes). Written on the FFB
+// thread, read on the game's; a statically initialised lock, so neither has to set it up first.
+SRWLOCK s_statusLock = SRWLOCK_INIT;
 char s_status[200];
 void SetStatus(const char* fmt, ...) {
     char buf[200];
@@ -44,14 +44,12 @@ void SetStatus(const char* fmt, ...) {
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    if (!s_statusInit) { InitializeCriticalSection(&s_statusLock); s_statusInit = true; }
-    EnterCriticalSection(&s_statusLock);
+    AcquireSRWLockExclusive(&s_statusLock);
     bool changed = strcmp(buf, s_status) != 0;
     if (changed) strcpy(s_status, buf);
-    LeaveCriticalSection(&s_statusLock);
+    ReleaseSRWLockExclusive(&s_statusLock);
     if (changed) Log("ffb: status: %s", buf);
 }
-DeviceWrap* s_ownDev;               // the fallback device, if we opened one
 double s_fallbackNext;
 
 // Device choice ([FFB] Device, live from F4): the nth FFB device in Windows' order.
@@ -457,7 +455,6 @@ void Device_Fallback(double now, bool manual) {
     }
     Ffb_RegisterDevice(w);
     w->Acquire();
-    s_ownDev = w;
     Log("ffb: the game did not open a force feedback device; opened '%s' ourselves", found.name);
 }
 
@@ -493,10 +490,9 @@ void Ffb_UnregisterDevice(DeviceWrap* dev) {
 
 int Ffb_Status(char* out, int len) {
     if (!out || len <= 0) return 0;
-    if (!ffb::s_statusInit) { snprintf(out, len, "Starting..."); return 0; }
-    EnterCriticalSection(&ffb::s_statusLock);
+    AcquireSRWLockShared(&ffb::s_statusLock);
     snprintf(out, len, "%s", ffb::s_status[0] ? ffb::s_status : "Starting...");
-    LeaveCriticalSection(&ffb::s_statusLock);
+    ReleaseSRWLockShared(&ffb::s_statusLock);
     return (int)strlen(out);
 }
 
