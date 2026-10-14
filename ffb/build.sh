@@ -7,7 +7,7 @@ mkdir -p build
 g++ -std=c++17 -O2 -Wall -Wno-unused-function -Wno-delete-non-virtual-dtor -Wno-stringop-truncation -Wno-sign-compare -m32 -march=i686 -mfpmath=387 \
     -shared -static -static-libgcc -static-libstdc++ \
     -o build/dinput8.dll \
-    src/dllmain.cpp src/common.cpp src/dinput_wrap.cpp src/ffb.cpp src/telemetry.cpp \
+    src/dllmain.cpp src/common.cpp src/dinput_wrap.cpp src/ffb_engine.cpp src/ffb_model.cpp src/ffb_device.cpp src/telemetry.cpp \
     src/dinput8.def -ldxguid -lwinmm -Wl,--enable-stdcall-fixup -Wl,--kill-at -s
 g++ -std=c++17 -O2 -Wall -m32 -static -static-libgcc -static-libstdc++ \
     -o build/ffbtool.exe tools/ffbtool.cpp -ldinput8 -ldxguid -s

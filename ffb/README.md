@@ -1,7 +1,8 @@
 # NFS Most Wanted (2005) force feedback mod
 
-Physics-based steering force feedback for `speed.exe` v1.3, driven from the game's own tyre model
-instead of its weak built-in effects.
+Force feedback for `speed.exe` v1.3, written for direct drive wheels (developed on a Fanatec CSL DD):
+steering weight from the front tyres, speed-sensitive centring, damping and friction computed by
+the mod, sent as one torque through a safety chain that keeps a strong motor calm.
 
 ## Install
 
@@ -12,98 +13,69 @@ zip's `dinput8.dll`, Ultimate ASI Loader, next to `speed.exe`). Without a loader
 
 In game, pick your wheel as the controller. The in-game force feedback option doesn't matter.
 
+## First run
+
+1. With the gameplay mod: F4 > Force feedback > **Test force**. The wheel pushes right for half a
+   second. If it pushes left, turn on **Reverse force direction** (or set `ForceSign=-1`). If
+   nothing moves, pick another **Wheel device** (some wheels, Fanatec's, show up twice).
+2. Drive. Tune **Strength** first, then **Maximum force** for your base.
+
 ## What you feel
 
-| Force | Source in the game |
+| Force | From |
 |---|---|
-| Steering weight (self-aligning torque) | front tyre slip angle (`SuspensionRacer::Tire` +0x118) and load, shaped like a real tyre: builds up to `SlipAnglePeak`, then goes light as the front loses grip |
-| Pull toward the direction of travel while sliding | same slip angle, `DriftAlign` |
-| Bumps, kerbs, landings | front suspension compression rate, left vs. right |
-| Impact jolts | sudden body velocity change (wheel contact point velocities) |
-| Damper / friction / parking scrub | vehicle speed |
-| Engine buzz, brake lock | `IEngine::GetRPM`, tyre brake-lock flag |
-| Centring spring in menus, pause, cutscenes | `LocalPlayer::CanDoFFB` (pause / AI / NIS) |
-| Centring spring while driving (`CenterSpring`) | grows with speed: `CenterSpringParked` of it at standstill, all of it from `CenterSpringSpeed` km/h |
-| Soft lock (`SoftLock`) | wheel position past the gameplay mod's `[Controls] SteeringLock` |
-| Speed centring (`SpeedCentering`): `-K * v * sin(angle)` | car speed and the wheel's angle as a share of the steering lock |
-| Understeer lightening (`UndersteerLightening`) | front slip past the peak, or yaw rate below what the front wheel angle and wheelbase ask for |
-| Surface rumble (`SurfaceRumble`) | the tyre's road surface (`simsurface` WheelEffectFrequency / Intensity): grass, dirt, gravel |
-| Kerbs (`Curbs`, `CurbJerk`) | jerk of the body's vertical motion in its own frame (slopes and crests stay below `CurbJerk`), side from the front suspension |
-| Impacts (`Collisions`) | head-on: a shake both ways; side and angled: a one-way kick (direction of the velocity change) |
-| Wall scrapes (`Scrapes`) | acceleration spikes above the smoothed acceleration: pull toward the wall and a fast rumble |
-| Airborne and landings (`AirborneForce`, `Landing`) | no wheel on the ground: steering forces drop; touching down: a jolt from the downward speed |
+| Steering weight (self-aligning torque) | the front axle's direction of travel vs. where the front wheels point (the tyres' slip angle), scaled by front tyre load; heaviest at `GripPeakAngle`, light past it (understeer) |
+| Countersteer in a slide | the same: the front axle travels sideways, the wheel is pulled that way (`DriftAlign`) |
+| Centring | a spring that grows with speed (`Centering`, `CenteringParked`, `CenteringSpeed`) |
+| Damping and friction | the wheel's own speed: weight against fast movement, scrub when parked |
+| Soft lock | the wheel past the gameplay mod's `[Controls] SteeringLock` |
+| Menus, pause, cutscenes | a light centring spring (`MenuCentering`) |
 
-## First run: automatic calibration
-
-The force direction convention differs between wheel drivers, and the sign of the game's
-tyre slip angle can't be read from the binary. The mod measures both against your wheel's
-position and saves the results in `nfsmw_ffb.ini` `[Calibration]`:
-
-1. **ForceSign**: on the first menu screen the wheel gets two short gentle nudges (right, then left).
-   Keep your hands off the wheel for a moment. Retries automatically if you were holding it.
-2. **SlipSign / RightSign**: during the first corners above ~45 km/h. Until then, steering weight
-   comes from a speed-dependent centring spring instead of the tyre model.
-
-Watch `nfsmw_ffb.log` for `calibration:` lines. Set the values back to `0` to re-detect.
-
-The direction test measures each push against the wheel's drift just before it. Some drivers ignore
-negative force magnitudes: when a wheel reacts to pushes one way only, the mod switches to giving
-the side as the effect's direction (`ForceDirection=1`) and tests again. `ffbtool test [n]` tries
-both on FFB device `n` (some wheels, e.g. Fanatec, show up as two devices of the same name).
-
-## Recovery and restart
-
-After Alt-Tab, the mod reacquires wheels that were previously working and restores their
-effects automatically. It also checks for stopped or unloaded effects twice per second,
-including while the gameplay mod's F4 menu is open. Failed starts and parameter updates are
-retried with a delay. Forces stop while the game is unfocused and return gradually after recovery.
-
-If a driver still gets stuck, press **F10**, or use **F4 > Force Feedback > Restart wheel force
-feedback** with the updated gameplay mod. This reacquires the wheel and rebuilds the mod's effects;
-your saved calibration and tuning are kept. `[FFB] KeyReset` changes the hotkey (`0` disables it).
-The restart option requires this mod's effects (`NativeFFB=0`); it does not reset the game's own
-effects in native mode. Recovery leaves physical power and safety switches under the wheel's control.
-
-Check `nfsmw_ffb.log` for `recovery scheduled`, `wheel effects recovered` and `manual restart` lines.
-
-## Tuning
-
-Everything is in `nfsmw_ffb.ini` (commented). Start with `Gain`, then `SelfAligningTorque`.
-If the log reports clipping, lower `Gain`. For gear-driven wheels with a deadzone (G25/G27/G29/G920)
-try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
+Next steps (not in this version yet): road texture and surface rumble, jump lightening and
+landings, crash jolts, wall scraping.
 
 ## How it works
 
-- `src/dinput_wrap.cpp`: wraps `IDirectInput8A` and every force-feedback device the game opens.
-  It forces exclusive mode (required for FFB), turns the wheel's autocentre off, and hands the
-  game's own effects a no-op object so they don't fight ours.
-- `src/telemetry.cpp`: replaces the `call LocalPlayer::DoFFB` in `LocalPlayer::OnTask` (0x6F22C6)
-  with a hook that samples the player car through the game's `ISuspension` / `IEngine` vtables,
-  then calls the original.
-- With the gameplay mod's `[Controls] GameController=0`, every controller the game opens is wrapped
-  and reads as untouched (axes centred in the game's ranges, buttons up, hats centred), so the game ignores it in
-  driving and menus while the gameplay mod feeds the controls. The F4 menu changes it live
-  through the `NfsmwFfb_Setting` export (also Gain, the centring spring and SoftLock).
-- `src/ffb.cpp`: a 200 Hz thread that turns the latest telemetry into constant, spring,
-  damper, friction and sine effects.
-- The gameplay ini's `[Controls] MenuAxes=0` (default) centres controller axes only in the
-  game's frontend and pause menus, preserving buttons and hats. `MenuController=0` disables
-  those too. Driving input and the gameplay mod's own bindings remain available. Both immediate
-  state and buffered events use neutral values from the current data format and axis ranges;
-  buffered input is resynchronised on menu entry and resume, including stationary pedals.
-  Works with `NativeFFB=1`, but needs this mod enabled (`[FFB] Enabled=1`).
-- `tools/ffbtool.exe`: lists controllers. `ffbtool test` nudges the wheel right/left and reports
-  which way it moved.
-- `tools/dis.py`, `tools/vtbl.py`: disassembly and vtable dumps with names (need a v1.3 symbol
-  map in `vr/re/`, not included).
+```
+ game physics tick (~60 Hz)                       FFB thread (UpdateHz, 400)
+ telemetry ──snapshot──▶ model ──parts──▶ safety filters ──torque──▶ device ──▶ wheel
+                           ▲                                            │
+                           └────────── wheel position and speed ◀───────┘
+```
+
+- `src/telemetry.cpp`: hooks `LocalPlayer::DoFFB` (called every physics tick) and samples the car
+  through `ISuspension`: wheel contact points and velocities give the car's frame (forward = rear
+  axle to front axle, right = forward x world up; the world is right-handed and Z-up), speed, the
+  front axle's sideways speed, yaw rate and front tyre load.
+- `src/ffb_model.cpp`: the forces above, as pure functions (+ = turns the wheel right).
+- `src/ffb_filters.h`: the safety chain's parts: a critically damped low-pass for the game-rate
+  forces (`SmoothingHz`), a soft limiter that compresses peaks above `LimitKnee` instead of
+  clipping, a slew-rate limiter (`SlewRate`), and an oscillation guard that spots the wheel shaking
+  by itself and raises damping / lowers the gain until it settles (`OscillationGuard`).
+- `src/ffb_engine.cpp`: the loop: telemetry and wheel, model, filters, `MaxForce`, a fade-in after
+  every (re)start, a final clamp and a guard against invalid numbers.
+- `src/ffb_device.cpp`: the wheel as an output: one constant-force effect, nothing else (the
+  wheel's own spring / damper / friction effects differ between drivers; a Fanatec base's spring
+  was measured pushing away from centre). Every change is sent with `DIEP_START`
+  (`RestartEffects`): a Fanatec base ignores changes to a playing effect otherwise. Device choice
+  by Windows' order (`Device`), acquisition, recovery after Alt-Tab, lost devices, stopped
+  effects and failed operations, hardware safety switches respected, F10 / F4 restart.
+- `src/dinput_wrap.cpp`: wraps the game's DirectInput: the game's own effects get a no-op object,
+  and with the gameplay mod's `[Controls] GameController=0` controllers read as untouched (the
+  gameplay mod drives the car).
+- `tools/ffbtool.exe`: `ffbtool` lists controllers; `ffbtool test [n]` measures FFB device `n`
+  with the wheel left alone: each effect type on its own and constant force sent several ways.
+  It uses Windows' own DirectInput, so it also works from the game folder.
 
 ## Building
 
 MSYS2 with the mingw32 toolchain: `./build.sh` (`./build.sh install` copies into `C:\Games\NFSMW`,
 or `$NFSMW_DIR`).
 
-Input regression tests (mingw32): `./tests/run.sh`. They check menu transitions,
-deferred buffered events, controller suppression and live re-enabling using a synthetic
-game layout and fake DirectInput device, plus effect recovery with a simulated driver
-(focus loss, stopped/download-lost effects, failed operations and manual restart).
-They do not access a physical wheel.
+Tests (mingw32): `./tests/run.sh`. The input tests check menu transitions, buffered events and
+controller suppression with a synthetic game layout and fake DirectInput device. The FFB tests
+check the filters, the model's signs and shapes (centring both ways, countersteer in a slide,
+lightening past the grip limit, parked, airborne, soft lock, menus), the engine's safety chain
+(never above `MaxForce`, never faster than `SlewRate`, invalid numbers, fade-in, oscillation) and
+the device layer against a fake driver that, like the measured Fanatec base, ignores changes
+without `DIEP_START`. None of them touch a physical wheel.

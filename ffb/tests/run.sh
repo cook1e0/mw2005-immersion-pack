@@ -9,5 +9,5 @@ g++ -std=c++17 -O2 -Wall -Wno-delete-non-virtual-dtor -Wno-stringop-truncation -
 build/menu_input_tests.exe
 build/device_input_tests.exe
 g++ -std=c++17 -O2 -Wall -Wno-delete-non-virtual-dtor -Wno-stringop-truncation -static \
-    -o build/recovery_tests.exe tests/recovery_tests.cpp -ldxguid -lwinmm
-build/recovery_tests.exe
+    -o build/ffb_tests.exe tests/ffb_tests.cpp -ldxguid -lwinmm
+build/ffb_tests.exe

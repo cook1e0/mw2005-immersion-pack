@@ -239,15 +239,11 @@ const struct {
     const char* key;
     float def;                  // the mod's default
 } kExt[] = {
-    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.5f}, {MOD_FFB, "CenterSpringParked", 0.3f},
-    {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
-    {MOD_FFB, "GameController", 1.0f},
-    {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
-    {MOD_FFB, "SelfAligningTorque", 0.75f}, {MOD_FFB, "SpeedCentering", 0.35f}, {MOD_FFB, "UndersteerLightening", 0.5f},
-    {MOD_FFB, "RoadFeel", 0.5f}, {MOD_FFB, "SurfaceRumble", 0.35f}, {MOD_FFB, "Curbs", 0.5f},
-    {MOD_FFB, "Collisions", 0.8f}, {MOD_FFB, "Scrapes", 0.4f}, {MOD_FFB, "Landing", 0.6f},
-    {MOD_FFB, "EngineVibration", 0.02f}, {MOD_FFB, "DamperLowSpeed", 0.35f}, {MOD_FFB, "InvertForce", 0.0f},
-    {MOD_FFB, "Device", 0.0f},
+    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "MaxForce", 0.8f}, {MOD_FFB, "Aligning", 0.8f},
+    {MOD_FFB, "Centering", 0.3f}, {MOD_FFB, "Damping", 0.3f}, {MOD_FFB, "Friction", 0.05f},
+    {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SlewRate", 20.0f}, {MOD_FFB, "SmoothingHz", 25.0f},
+    {MOD_FFB, "Reverse", 0.0f}, {MOD_FFB, "Device", 0.0f}, {MOD_FFB, "SoftLockAt", 1.0f},
+    {MOD_FFB, "GameController", 1.0f}, {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
     {MOD_VR, "NearZ", 0.05f},
     {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
@@ -255,10 +251,8 @@ const struct {
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
 };
 enum {
-    FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
-    FFB_MENUCONTROLLER, FFB_MENUAXES,
-    FFB_SAT, FFB_SPEEDCENTRE, FFB_UNDERSTEER, FFB_ROAD, FFB_SURFACE, FFB_CURBS, FFB_COLLISIONS, FFB_SCRAPES,
-    FFB_LANDING, FFB_ENGINE, FFB_DAMPER, FFB_INVERT, FFB_DEVICE,
+    FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
+    FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, EXT_COUNT
 };
@@ -320,7 +314,7 @@ float* ExtSetting(int i) {
             Log("ui: GameController=0 needs the force feedback mod; the game still reads the controller");
         if (!p[FFB_MENUAXES])
             Log("ui: menu controller filtering needs an updated force feedback mod");
-        Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
+        Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_ALIGNING] ? "found" : "found (an older version)") : "not loaded");
         Log("ui: VR mod %s", p[VR_HUDWIDTH] ? "found" : "not loaded");
     }
     return p[i];
@@ -354,18 +348,6 @@ int FfbDeviceName(int index, std::string* name) {
     int count = f ? ((int(__cdecl*)(int, char*, int))f)(index, buf, sizeof(buf)) : 0;
     if (name) *name = buf[0] ? buf : (f ? "No such device" : "Needs the updated FFB mod");
     return count;
-}
-
-// The FFB mod's force direction calibration: start it; status 0 not run, 1 running, 2 done, 3 failed.
-bool FfbCalibrate() {
-    HMODULE m = ExtModule(MOD_FFB);
-    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Calibrate") : nullptr;
-    return f && ((int(__cdecl*)())f)() != 0;
-}
-int FfbCalibrationStatus() {
-    HMODULE m = ExtModule(MOD_FFB);
-    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_CalibrationStatus") : nullptr;
-    return f ? ((int(__cdecl*)())f)() : -1;
 }
 
 bool FfbTest() {
@@ -452,28 +434,20 @@ const Item kItems[] = {
     PAGE_("FORCE FEEDBACK"),
     BACK_,
     {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
-    {ACTION, "Calibrate force direction (hands off)", nullptr, "CalibrateFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("STRENGTH AND SAFETY"),
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ext[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring when parked", "FFB", "CenterSpringParked", &s_ext[FFB_CENTERPARKED], 0.0f, 1.0f, 0.05f, 100, "%.0f%% of it", 0},
-    {NUMBER, "Full centring from", "FFB", "CenterSpringSpeed", &s_ext[FFB_CENTERSPEED], 20.0f, 300.0f, 10.0f, 1, "%.0f km/h", 0},
-    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Reverse force direction", "FFB", "InvertForce", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Maximum force", "FFB", "MaxForce", &s_ext[FFB_MAXFORCE], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Smoothing", "FFB", "SmoothingHz", &s_ext[FFB_SMOOTHING], 5.0f, 60.0f, 1.0f, 1, "%.0f Hz", 0},
+    {NUMBER, "Force change limit", "FFB", "SlewRate", &s_ext[FFB_SLEW], 5.0f, 60.0f, 1.0f, 1, "%.0f /s", 0},
     HEADER_("STEERING FEEL"),
-    {NUMBER, "Tyre feel", "FFB", "SelfAligningTorque", &s_ext[FFB_SAT], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Speed centring", "FFB", "SpeedCentering", &s_ext[FFB_SPEEDCENTRE], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Understeer lightening", "FFB", "UndersteerLightening", &s_ext[FFB_UNDERSTEER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Damping", "FFB", "DamperLowSpeed", &s_ext[FFB_DAMPER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    HEADER_("ROAD AND EFFECTS"),
-    {NUMBER, "Road bumps", "FFB", "RoadFeel", &s_ext[FFB_ROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Kerbs", "FFB", "Curbs", &s_ext[FFB_CURBS], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Collisions", "FFB", "Collisions", &s_ext[FFB_COLLISIONS], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Landings", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Engine vibration", "FFB", "EngineVibration", &s_ext[FFB_ENGINE], 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Friction", "FFB", "Friction", &s_ext[FFB_FRICTION], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -737,11 +711,6 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
-    if (it.kind == ACTION && strcmp(it.key, "CalibrateFfb") == 0) {
-        static const char* const kStatus[] = {"Go", "Running...", "Done", "Failed: try again"};
-        int st = FfbCalibrationStatus();
-        return st >= 0 && st <= 3 ? kStatus[st] : "Needs updated FFB mod";
-    }
     if (it.kind == ACTION) return "Go";
     if (it.kind == RESET) return s_menu.resetArmed >= 0 && Now() - s_menu.resetTime < 3.0 ? "Sure?" : "Reset";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
@@ -996,10 +965,6 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
-            return;
-        }
-        if (strcmp(it.key, "CalibrateFfb") == 0) {
-            Note(FfbCalibrate() ? "Hands off the wheel: a few short pushes each way (about 3 s)" : "Needs updated FFB mod with NativeFFB=0");
             return;
         }
         if (strcmp(it.key, "TestFfb") == 0) {
@@ -1265,23 +1230,16 @@ const struct {
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
     {&g_cfg.menuAxes, "Off: pedals and steering cannot scroll the game's menus; buttons and the d-pad still work. Driving is unaffected. Needs the updated force feedback mod."},
     {&s_ext[FFB_GAIN], "Overall force feedback strength."},
-    {&s_ext[FFB_CENTER], "Pulls the wheel back to the centre while driving, at full strength at speed."},
-    {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
-    {&s_ext[FFB_CENTERSPEED], "Speed where the centring spring reaches full strength."},
+    {&s_ext[FFB_MAXFORCE], "Ceiling of the force sent to the wheel. Peaks are compressed below it, never cut flat. Lower it on a strong direct drive base."},
+    {&s_ext[FFB_SMOOTHING], "Smooths the game's physics steps (about 60 a second). Lower: smoother but slower; higher: sharper."},
+    {&s_ext[FFB_SLEW], "How fast the force may change, full scale per second. Lower is gentler on the hands."},
+    {&s_ext[FFB_ALIGNING], "Weight from the front tyres: heavy while they grip, light past the limit, pulling into the countersteer in a slide."},
+    {&s_ext[FFB_CENTERING], "Spring back to centre, growing with speed."},
+    {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
+    {&s_ext[FFB_FRICTION], "Constant resistance, like a real steering rack."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
     {&s_ext[FFB_INVERT], "On if every force pushes the wrong way (the wheel runs away from centre, or Test pushes left)."},
     {&s_ext[FFB_DEVICE], "The force feedback device that drives your wheel, in Windows' order (as joy.cpl lists them). Use Test to check."},
-    {&s_ext[FFB_SAT], "Steering weight from the front tyres: heavy while they grip, light past the limit."},
-    {&s_ext[FFB_SPEEDCENTRE], "Pull back to centre that grows with speed and steering angle. None when parked."},
-    {&s_ext[FFB_UNDERSTEER], "How much lighter the wheel gets when the front tyres slide (understeer)."},
-    {&s_ext[FFB_DAMPER], "Weight that resists fast wheel movement, mostly at low speed. Stops oscillation."},
-    {&s_ext[FFB_ROAD], "Kicks from the front suspension: bumps, dips, landings."},
-    {&s_ext[FFB_SURFACE], "Rumble on grass, dirt and gravel, with a pull toward the rough side."},
-    {&s_ext[FFB_CURBS], "Short kicks from kerbs and rumble strips, away from the side that hit."},
-    {&s_ext[FFB_COLLISIONS], "Head-on hits shake the wheel both ways; side and angled hits kick it one way."},
-    {&s_ext[FFB_SCRAPES], "Rubbing a wall: a pull toward it and a fast rumble."},
-    {&s_ext[FFB_LANDING], "Jolt when landing a jump. The wheel goes limp while the car is in the air."},
-    {&s_ext[FFB_ENGINE], "Engine ripple at the crank frequency, mostly at low speed."},
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
@@ -1346,12 +1304,10 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
-    if (it.kind == ACTION && strcmp(it.key, "CalibrateFfb") == 0)
-        return "Finds which way your wheel's forces go: let go of the wheel and it gets short pushes each way. Runs by itself in menus until it succeeds; use this if the forces feel wrong.";
     if (it.kind == ACTION && strcmp(it.key, "TestFfb") == 0)
         return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
-        return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Calibration is kept. Also available with F10.";
+        return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Also available with F10.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";

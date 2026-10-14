@@ -12,13 +12,15 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Force feedback reaches Fanatec wheels:** measured on a Fanatec base with `ffbtool test`: it
-  ignores changes to a playing effect (only the first force ever arrived, so nothing from the car
-  did), and its spring effect pushes away from centre (the wheel ran to one side). Every force
-  change now restarts the effect (`[FFB] RestartEffects=1`), and centring, damping and friction are
-  computed by the mod and sent with the other forces instead of the wheel's own effects. The force
-  direction test runs with everything else off, against the wheel's drift, and tries both ways of
-  sending a side; F4 > Force feedback > Calibrate force direction runs it on demand.
+- **Force feedback rebuilt from scratch for direct drive wheels:** a new modular core
+  (telemetry, force model, safety filters, device). Steering weight comes from the front tyres'
+  slip angle and load (light past the grip limit, pulling into the countersteer in a slide), with
+  a speed-sensitive centring spring, damping and friction computed by the mod. Everything goes out
+  as one constant force through a safety chain: smoothing of the game's 60 Hz physics, a soft
+  limiter instead of clipping, a slew-rate limit, an oscillation guard, a force ceiling
+  (`MaxForce`) and a fade-in. Every change restarts the effect (`RestartEffects`, needed by
+  Fanatec bases). Old FFB settings are replaced; road effects, jumps, crashes and wall scrapes
+  return in the next steps.
 - **ffbtool:** no longer loads the game's dinput8.dll (the ASI loader, which pulled the mods in),
   opens its own window (works from any terminal), and tests each effect type on its own.
 - **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
