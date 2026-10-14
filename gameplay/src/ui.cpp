@@ -412,6 +412,7 @@ const Item kItems[] = {
     {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
+    {NUMBER, "Steering sensitivity", "Controls", "SteeringSensitivity", &g_cfg.steerSensitivity, 0.25f, 4.0f, 0.05f, 1, "%.2fx", 0},
     {TOGGLE, "Speed-sensitive steering", "Controls", "SpeedSensitiveSteering", &g_cfg.steerSpeedSensitive, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
@@ -852,7 +853,7 @@ const struct {
     const void* value;
     float game;
 } kGameDefaults[] = {
-    {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1},
+    {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1}, {&g_cfg.steerSensitivity, 1},
     {&g_cfg.menuController, 1}, {&g_cfg.menuAxes, 1},
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
@@ -1235,6 +1236,7 @@ const struct {
     {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game. A soft lock (FFB) stops it there."},
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
+    {&g_cfg.steerSensitivity, "How much the car steers for a given wheel angle. Higher: quicker steering (full lock sooner)."},
     {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: the game's wheel mode, with less lock at speed."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
@@ -1942,7 +1944,7 @@ void Ui_Frame() {
     Physics_Frame();
     // The FFB mod's soft lock sits at the steering lock.
     if (float* at = ExtSetting(FFB_SOFTLOCKAT))
-        *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / g_cfg.wheelRotation, 0.05f, 1.0f);
+        *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / (g_cfg.wheelRotation * g_cfg.steerSensitivity), 0.05f, 1.0f);
     // ... and hides the controllers from the game ([Controls] GameController=0).
     if (float* gc = ExtSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
     if (float* mc = ExtSetting(FFB_MENUCONTROLLER)) *mc = g_cfg.menuController ? 1.0f : 0.0f;

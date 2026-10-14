@@ -193,6 +193,15 @@ HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DW
     }
     return hr;
 }
+struct ForceAxis { DWORD ofs; char name[MAX_PATH]; bool ok; };
+static BOOL CALLBACK FirstForceAxisCb(LPCDIDEVICEOBJECTINSTANCEA o, LPVOID p) {
+    ForceAxis* fd = (ForceAxis*)p;
+    fd->ofs = o->dwOfs;
+    strncpy(fd->name, o->tszName, MAX_PATH - 1);
+    fd->ok = true;
+    return DIENUM_STOP;
+}
+
 HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
     Lock l;
     HRESULT hr = real->SetDataFormat(f);
@@ -209,6 +218,21 @@ HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
                 menuObjects.push_back({o.dwOfs, o.dwType, (o.dwType & DIDFT_POV) ? 0xFFFFFFFFu : 0u});
             if (axisOfs < 0 && o.pguid && IsEqualGUID(*o.pguid, want) && (o.dwType & DIDFT_AXIS)) {
                 axisOfs = (LONG)o.dwOfs;
+            }
+        }
+        // The axis with the motor is the wheel, whatever [FFB] SteerAxis says: Fanatec wheels report
+        // it as Ry on one of their two devices. Its offset in this data format, if the format has it.
+        if (ffbDevice) {
+            ForceAxis found = {};
+            real->EnumObjects(FirstForceAxisCb, &found, DIDFT_AXIS | DIDFT_FFACTUATOR);
+            if (found.ok && found.ofs + sizeof(LONG) <= f->dwDataSize) {
+                bool inFormat = false;
+                for (DWORD i = 0; i < f->dwNumObjs && !inFormat; ++i) inFormat = f->rgodf[i].dwOfs == found.ofs;
+                if (inFormat && (LONG)found.ofs != axisOfs) {
+                    Log("dinput: '%s' force axis '%s' at offset %lu (not the configured SteerAxis, offset %ld): using it",
+                        name, found.name, found.ofs, axisOfs);
+                    axisOfs = (LONG)found.ofs;
+                }
             }
         }
         RefreshMenuRanges();

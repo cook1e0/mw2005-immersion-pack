@@ -356,7 +356,7 @@ static bool IsWanted(DeviceWrap* d) {
     return SUCCEEDED(d->real->GetDeviceInfo(&info)) && info.guidInstance == s_wantGuid;
 }
 
-// For the F4 menu: name and buttons of the nth FFB device in Windows' order. Returns the count.
+// For the F4 menu: "n: name (axes, buttons)" of the nth FFB device in Windows' order.
 struct FfbNames { int index, want; char* out; int len; };
 static BOOL CALLBACK NameFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
     FfbNames* e = (FfbNames*)p;
@@ -382,11 +382,11 @@ int Ffb_DeviceName(int index, char* out, int len) {
     return e.index;
 }
 
-static int s_wantDevice = -2;   // g_cfg.device the lookup was made for
+static int s_wantDevice = -2;   // the [FFB] Device the lookup was made for (changes live from F4)
 
 static DeviceWrap* PickDevice() {
     int device = (int)lrintf(g_cfg.device);
-    if (device != s_wantDevice) s_wantState = 0;   // changed in F4: look it up again
+    if (device != s_wantDevice) s_wantState = 0;
     if (!s_wantState && s_di) {
         s_wantState = -1;
         s_wantDevice = device;
@@ -661,6 +661,10 @@ static struct State {
     float landAmp = 0;
     Calib slip, right;
     int   forceSign = 0;
+    // force direction test: rest, push right, rest, push left (each measured against the drift)
+    int   pulsePhase = 0, pulseTries = 0, pulseOneWay = 0;
+    double pulseTime = 0, pulseNext = 0;
+    float pulseAxis[5];
     float axis = 0, axisPrev = 0, axisVel = 0;
     bool  haveAxis = false;
     LONG  lastDir = 1;
@@ -850,36 +854,22 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     float hzs[4] = {engineHz, 22.0f, 30.0f, 45.0f};
     int strongest = 0;
     for (int i = 1; i < 4; i++) if (vib[i] > vib[strongest]) strongest = i;
-    o.sineMag = (engine + lock + road + scrapeVib + joltVib * 0.3f) * S.fade;
+    o.sineMag = (engine + lock + road + scrapeVib + (S.forceSign ? 0.0f : joltVib)) * S.fade;
     o.sineHz = hzs[strongest];
 
-    // --- centring spring and damper ----------------------------------------------------------
-    // Computed here and sent with the rest on the constant force, as sims do: wheels scale the
-    // DirectInput spring and damper effects by their own settings (Fanatec SPR / DPR, often low or
-    // off), which left the wheel where it was at speed. Without the wheel's position (no axis yet)
-    // the spring and damper effects stand in.
+    // --- conditions -------------------------------------------------------------------------
+    float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
+    o.damper = damperDrive * S.fade * std::max(S.air, 0.3f) + c.damperHigh * (1.0f - S.fade);
+    o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade * S.air + c.friction * (1.0f - S.fade);
+    // Centring spring: weak when parked, full from CenterSpringSpeed up (speed is in m/s).
     float springSpeed = Clamp(speed * 3.6f / Clamp(c.centerSpringSpeed, 10.0f, 400.0f), 0.0f, 1.0f);
     float centre = c.centerSpring * (c.centerSpringParked + (1.0f - c.centerSpringParked) * springSpeed);
-    float springK = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade * S.air * lighten;
-    float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
-    float damperK = damperDrive * S.fade * std::max(S.air, 0.3f) + c.damperHigh * (1.0f - S.fade);
-    float spring = 0.0f, damping = 0.0f;
-    if (S.haveAxis) {
-        // Full spring force at half the steering lock; the damper per wheel speed (lock share / s).
-        float lockShare = c.softLockAt < 0.98f ? c.softLockAt : 1.0f;
-        spring = -springK * Clamp(S.axis / lockShare * 2.0f, -1.0f, 1.0f);
-        damping = -damperK * 0.25f * Clamp(S.axisVel / lockShare, -4.0f, 4.0f);
-        o.spring = o.damper = 0.0f;
-    } else {
-        o.spring = springK;
-        o.damper = damperK;
-    }
-    o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade * S.air + c.friction * (1.0f - S.fade);
+    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade * S.air * lighten;
 
     // --- constant ---------------------------------------------------------------------------
     float steering = ((S.sat + S.centre) * lighten + S.road + surface) * S.air;
-    float events = jolt + curb + scrape + land;
-    o.constant = (steering + events) * S.fade + spring + damping;
+    float events = S.forceSign ? jolt + curb + scrape + land : 0.0f;
+    o.constant = (steering + events) * S.fade;
 
     // master gain
     o.constant *= c.gain;
@@ -927,8 +917,62 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     }
 }
 
-// F4 > Force feedback > Test: a firm push to the right for half a second, so the player can see
-// that the right device moves and in which direction (Reverse force direction fixes the latter).
+// Which constant-force sign turns the wheel right: in menus, the wheel rests, gets a short push
+// one way, rests, and a push the other way. Each push is measured against the drift in the rest
+// before it, so a wheel still settling doesn't decide it. A wheel that moves for one push but not
+// the other is likely ignoring negative magnitudes: the test switches to negative directions.
+// Returns true while the test owns the wheel.
+static bool PulseTest(double now, bool driving, Out& o) {
+    if (S.forceSign || !s_fx.constant || !S.haveAxis || now - s_fx.recoveryTime < 0.3) return false;
+    if (S.pulsePhase == 0) {
+        if (driving || now < S.pulseNext || S.pulseTries >= 8 || fabsf(S.axisVel) > 0.05f || fabsf(S.axis) > 0.6f) return false;
+        S.pulsePhase = 1;
+        S.pulseTime = now;
+        S.pulseAxis[0] = S.axis;
+        S.pulseTries++;
+    }
+    float t = (float)(now - S.pulseTime);
+    const float push = 0.35f, len = 0.13f;
+    o = Out();
+    static const float kPush[5] = {0, 0, 1, 0, -1};     // by phase: 1 rest, 2 right, 3 rest, 4 left
+    if (S.pulsePhase <= 4) {
+        o.constant = push * kPush[S.pulsePhase];
+        if (t >= len) {
+            S.pulseAxis[S.pulsePhase] = S.axis;
+            S.pulsePhase++;
+            S.pulseTime = now;
+        }
+        if (S.pulsePhase <= 4) return true;
+    }
+    o.constant = 0;
+    S.pulsePhase = 0;
+    float drift1 = S.pulseAxis[1] - S.pulseAxis[0], drift2 = S.pulseAxis[3] - S.pulseAxis[2];
+    float d1 = (S.pulseAxis[2] - S.pulseAxis[1]) - drift1, d2 = (S.pulseAxis[4] - S.pulseAxis[3]) - drift2;
+    const float moved = 0.004f;
+    if (fabsf(d1) > moved && fabsf(d2) > moved && (d1 > 0) != (d2 > 0)) {
+        S.forceSign = d1 > 0 ? 1 : -1;
+        Log("calibration: force direction detected, ForceSign=%d (moves %.4f / %.4f beyond drift, %s)", S.forceSign,
+            d1, d2, g_cfg.forceDirection ? "negative directions" : "negative magnitudes");
+        SaveCalibration(S.slip.sign, S.right.sign, S.forceSign);
+        return false;
+    }
+    bool oneWay = (fabsf(d1) > moved) != (fabsf(d2) > moved);
+    if (oneWay && !g_cfg.forceDirection && ++S.pulseOneWay >= 2) {
+        g_cfg.forceDirection = 1;
+        SaveForceDirection(1);
+        Log("calibration: the wheel only reacts to one force direction; sending negative directions instead "
+            "(ForceDirection=1)");
+        S.pulseNext = now + 1.0;
+        return false;
+    }
+    Log("calibration: force direction test inconclusive (moves %.4f / %.4f beyond drift %.4f / %.4f), retrying later%s",
+        d1, d2, drift1, drift2, fabsf(d1) <= moved && fabsf(d2) <= moved ? " - no reaction: is this the wheel's FFB device?" : "");
+    S.pulseNext = now + 8.0;
+    return false;
+}
+
+// F4 > Force feedback > Test: a push to the right for half a second, raw (without the detected
+// direction), so the player sees which device moves and which way.
 static volatile LONG s_testRequested;
 static double s_testUntil = -1;
 
@@ -941,11 +985,12 @@ bool Ffb_RequestTest() {
 static bool ForceTest(double now, Out& o) {
     if (InterlockedExchange(&s_testRequested, 0)) {
         s_testUntil = now + 0.5;
-        Log("ffb: test push to the right");
+        Log("ffb: test push (+0.35, %s, ForceSign %d) at wheel position %.3f", g_cfg.invertForce ? "inverted" : "as is",
+            S.forceSign, S.axis);
     }
     if (now >= s_testUntil) return false;
     o = Out();
-    o.constant = 0.35f;
+    o.constant = 0.35f * (S.forceSign ? (float)S.forceSign : 1.0f);
     return true;
 }
 
@@ -954,10 +999,17 @@ static void Apply(const Out& o, double now) {
     // the previous driving torque immediately when focus returns.
     float fade = Clamp((float)(now - s_fx.recoveryTime) / 0.25f, 0.0f, 1.0f);
     float sign = (float)S.forceSign * (g_cfg.invertForce ? -1.0f : 1.0f);
-    float v = SoftClip(o.constant);
-    if (fabsf(v) > 0.74f) S.clipCount++;
-    if (g_cfg.minForce > 0 && fabsf(v) > 0.002f) v = Sign(v) * (g_cfg.minForce + (1.0f - g_cfg.minForce) * fabsf(v));
-    v *= sign;
+    float v = o.constant;
+    if (now < s_testUntil) {
+        v *= g_cfg.invertForce ? -1.0f : 1.0f;   // already signed by ForceTest
+    } else if (S.pulsePhase == 0) {
+        v = SoftClip(v);
+        if (fabsf(v) > 0.74f) S.clipCount++;
+        if (g_cfg.minForce > 0 && fabsf(v) > 0.002f) v = Sign(v) * (g_cfg.minForce + (1.0f - g_cfg.minForce) * fabsf(v));
+        v *= sign;  // 0 until the direction is known
+    } else {
+        v *= g_cfg.invertForce ? -1.0f : 1.0f;
+    }
     SetConstant(v * fade, now);
     if (!s_fx.ready) return;
     SetCondition(s_fx.spring, s_fx.springCoef, o.spring * fade);
@@ -1005,20 +1057,13 @@ static DWORD WINAPI FfbThread(LPVOID) {
             dev = ServiceEffects(now, focused, false);
         }
         if (!dev || dev != axisDevice || dev->acquireGen != axisGen) {
-            S.haveAxis = false; S.axisVel = 0;
+            S.haveAxis = false; S.axisVel = 0; S.pulsePhase = 0;
             axisDevice = dev; axisGen = dev ? dev->acquireGen : -1;
         }
         if (dev) {
             float a;
-            static int axisLogged;   // 1 = read fine, -1 = failing (logged once each)
-            bool read = ReadAxis(dev, now, &a);
-            if (read != (axisLogged == 1)) {
-                axisLogged = read ? 1 : -1;
-                if (read) Log("ffb: reading the wheel position (axis offset %ld, %.3f)", dev->axisOfs, a);
-                else Log("ffb: cannot read the wheel position (axis offset %ld): centring falls back to the wheel's spring effect", dev->axisOfs);
-            }
-            if (read) {
-                if (S.haveAxis && dt > 0) S.axisVel += ((a - S.axis) / dt - S.axisVel) * Clamp(dt / 0.02f, 0.0f, 1.0f);
+            if (ReadAxis(dev, now, &a)) {
+                if (S.haveAxis && dt > 0) S.axisVel += ((a - S.axis) / dt - S.axisVel) * Clamp(dt / 0.1f, 0.0f, 1.0f);
                 S.axis = a;
                 S.haveAxis = true;
             }
@@ -1027,10 +1072,11 @@ static DWORD WINAPI FfbThread(LPVOID) {
 
         Out o;
         Compute(t, now, dt, o);
+        bool driving = t.driving && t.valid && (now - t.time) < 0.2;
 
         EnterCriticalSection(&g_diLock);
         if (dev && dev == s_fx.dev && s_fx.ready && dev->acquired && focused) {
-            ForceTest(now, o);
+            if (!ForceTest(now, o)) PulseTest(now, driving, o);
             Apply(o, now);
         }
         LeaveCriticalSection(&g_diLock);
@@ -1047,9 +1093,7 @@ static DWORD WINAPI FfbThread(LPVOID) {
 }
 
 void Ffb_Start() {
-    // DirectInput's convention: a positive force turns the wheel toward the axis' positive end
-    // (right). [Calibration] ForceSign=-1 or F4's Reverse force direction for wheels that differ.
-    S.forceSign = g_cfg.forceSign ? g_cfg.forceSign : 1;
+    S.forceSign = g_cfg.forceSign;
     S.slip.sign = g_cfg.slipSign;
     S.right.sign = g_cfg.rightSign;
     HANDLE thread = CreateThread(nullptr, 0, FfbThread, nullptr, 0, nullptr);

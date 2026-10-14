@@ -161,7 +161,7 @@ static bool ReadSteer(float* out, float* wheelDeg) {
         float v = ((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f;
         if (b.invert) v = -v;
         *wheelDeg = v * g_cfg.wheelRotation * 0.5f;
-        v *= g_cfg.wheelRotation / g_cfg.steeringLock;
+        v *= g_cfg.wheelRotation / g_cfg.steeringLock * g_cfg.steerSensitivity;
         float dz = g_cfg.steerDeadzone, a = fabsf(v);
         a = a <= dz ? 0.0f : (a - dz) / (1.0f - dz);
         a = powf(fminf(a, 1.0f), g_cfg.steerLinearity);

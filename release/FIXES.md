@@ -12,18 +12,16 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Force feedback that reaches the wheel:** with `ForceSign=0` (its direction test never ran or
-  never passed) every steering force, bump, kerb and crash was silently zero. Forces now use
-  DirectInput's standard direction; F4 > Force feedback > Test force pushes right, and Reverse
-  force direction flips it for wheels that differ. The centring spring and damper are computed by
-  the mod and sent with the other forces (as sims do), so the wheel's own SPR/DPR settings no
-  longer weaken them: a wheel left turned at speed comes back to centre. Default CenterSpring 0.5.
-- **Wheels that ignore a force's sign (Fanatec):** forces to the left were sent as negative
-  magnitudes, which some drivers take as their size only: everything pulled one way. The side is
-  now sent as the effect's direction (`ForceDirection=1`, works with every wheel).
+- **Wheel position from the force axis:** the mod read the wheel's position (and placed its
+  forces) on the X axis. On some wheels the motor is another axis (Fanatec: Ry on one of its two
+  devices), so the position never moved, the force direction test could never pass, and every
+  steering force stayed at zero. The device's force axis is now used; the log names it.
+- **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
+  a given wheel angle (`[Controls] SteeringSensitivity`).
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the
   first one in Windows' order (as joy.cpl lists them). F4 > Force feedback > Wheel device lists
-  them by name, axes and buttons and switches live (`[FFB] Device`).
+  them by name, axes and buttons and switches live (`[FFB] Device`). Test force pushes the wheel
+  right for half a second.
 - **Pursuit breaker camera off in VR:** pursuit breakers no longer cut to the camera watching the
   cops; the view stays in the cockpit.
 - **VR seat bindings:** F4 > Controls > VR seat binds wheel or button-box buttons to move the

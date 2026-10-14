@@ -32,21 +32,25 @@ static BOOL CALLBACK EnumCb(LPCDIDEVICEINSTANCEA inst, LPVOID) {
     return DIENUM_CONTINUE;
 }
 
+static DWORD g_forceAxis = DIJOFS_X;    // the axis with the motor, as an offset into DIJOYSTATE2
+static bool g_haveForceAxis;
 static BOOL CALLBACK ActuatorCb(LPCDIDEVICEOBJECTINSTANCEA o, LPVOID) {
     printf("  force axis: %s (offset %lu)\n", o->tszName, o->dwOfs);
+    if (!g_haveForceAxis) { g_forceAxis = o->dwOfs; g_haveForceAxis = true; }
     return DIENUM_CONTINUE;
 }
 
+// Position of the force axis.
 static LONG ReadX(IDirectInputDevice8A* d) {
     DIJOYSTATE2 s = {};
     d->Poll();
     d->GetDeviceState(sizeof(s), &s);
-    return s.lX;
+    return *(LONG*)((char*)&s + g_forceAxis);
 }
 
 // Wheel movement over `ms` with the given force (magnitude, direction sign).
 static LONG Push(IDirectInputDevice8A* d, IDirectInputEffect* fx, LONG magnitude, LONG direction, int ms) {
-    DWORD axes[1] = {DIJOFS_X};
+    DWORD axes[1] = {g_forceAxis};
     LONG dir[1] = {direction};
     DICONSTANTFORCE cf = {magnitude};
     DIEFFECT e = {sizeof(e), DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS, INFINITE, 0, DI_FFNOMINALMAX,
@@ -77,20 +81,27 @@ int main(int argc, char** argv) {
     IDirectInputDevice8A* d;
     g_di->CreateDevice(g_ffb[pick], &d, nullptr);
     d->SetDataFormat(&c_dfDIJoystick2);
-    d->SetCooperativeLevel(GetConsoleWindow(), DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    // Force feedback needs exclusive access, which needs a window (there is none when run from
+    // some terminals): the console's, or a small one of our own.
+    HWND wnd = GetConsoleWindow();
+    if (!wnd) wnd = CreateWindowExA(0, "STATIC", "ffbtool", WS_OVERLAPPED, 0, 0, 100, 100, nullptr, nullptr,
+                                    GetModuleHandle(nullptr), nullptr);
+    HRESULT coop = d->SetCooperativeLevel(wnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    if (FAILED(coop)) printf("SetCooperativeLevel failed 0x%08lX\n", coop);
     d->EnumObjects(ActuatorCb, nullptr, DIDFT_AXIS | DIDFT_FFACTUATOR);
     DIPROPDWORD ac = {{sizeof(ac), sizeof(DIPROPHEADER), 0, DIPH_DEVICE}, DIPROPAUTOCENTER_OFF};
     d->SetProperty(DIPROP_AUTOCENTER, &ac.diph);
-    DIPROPRANGE r = {{sizeof(r), sizeof(DIPROPHEADER), DIJOFS_X, DIPH_BYOFFSET}, -10000, 10000};
+    DIPROPRANGE r = {{sizeof(r), sizeof(DIPROPHEADER), g_forceAxis, DIPH_BYOFFSET}, -10000, 10000};
     d->SetProperty(DIPROP_RANGE, &r.diph);
-    if (FAILED(d->Acquire())) { printf("Acquire failed\n"); return 1; }
+    HRESULT acq = d->Acquire();
+    if (FAILED(acq)) { printf("Acquire failed 0x%08lX\n", acq); return 1; }
     d->SendForceFeedbackCommand(DISFFC_SETACTUATORSON);
     DWORD state = 0;
     d->GetForceFeedbackState(&state);
     printf("force feedback state 0x%08lX%s%s%s\n", state, state & DIGFFS_ACTUATORSOFF ? " actuators-off" : "",
            state & DIGFFS_POWEROFF ? " power-off" : "", state & DIGFFS_SAFETYSWITCHOFF ? " safety-off" : "");
 
-    DWORD axes[1] = {DIJOFS_X};
+    DWORD axes[1] = {g_forceAxis};
     LONG dir[1] = {1};
     DICONSTANTFORCE cf = {0};
     DIEFFECT e = {sizeof(e), DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS, INFINITE, 0, DI_FFNOMINALMAX,

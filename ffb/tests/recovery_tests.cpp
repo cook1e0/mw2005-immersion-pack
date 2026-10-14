@@ -196,29 +196,6 @@ static void TestForceModel() {
     Compute(t, now, 0.005f, o);
     assert(S.curbSide == 1 && o.constant < -0.05f);
 
-    // Wheel left alone, turned left, at 300 km/h: the centring spring brings it back to the right,
-    // without the wheel's own spring effect (sent with the constant force).
-    g_cfg = Config();
-    S = State();
-    S.forceSign = 1; S.slip.sign = 1; S.right.sign = 1;
-    S.haveAxis = true; S.axis = -0.25f;
-    t = Driving(now, seq);
-    t.speed = t.fwdSpeed = 83.0f;
-    float back = Settle(t, now, seq);
-    Out last; now += 0.005; t.seq = ++seq; t.time = now; Compute(t, now, 0.005f, last);
-    assert(back > 0.3f && last.spring == 0.0f && last.damper == 0.0f);
-    // The damper resists the wheel moving: turning right quickly lowers the push to the right.
-    S.axisVel = 2.0f;
-    now += 0.005; t.seq = ++seq; t.time = now; Compute(t, now, 0.005f, last);
-    assert(last.constant < back);
-    S.axisVel = 0;
-
-    // F4's test pushes right for half a second.
-    s_started = 1;
-    assert(Ffb_RequestTest());
-    Out test;
-    assert(ForceTest(now, test) && test.constant > 0.3f);
-    assert(!ForceTest(now + 0.6, test));
     g_cfg = Config();
 }
 
