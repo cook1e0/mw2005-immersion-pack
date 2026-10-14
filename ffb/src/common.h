@@ -47,8 +47,9 @@ struct Config {
     float scrapes = 0.4f;           // wall scrapes and taps: pull toward the contact and a fast rumble
     float landing = 0.6f;           // jolt on landing a jump (the wheel goes limp in the air)
     float airborneForce = 0.1f;     // share of the steering forces left while airborne
-    int   forceDirection = 0;       // how a negative force is sent: 0 = negative magnitude, 1 = negative
-                                    // direction (for drivers that ignore negative magnitudes)
+    int   forceDirection = 1;       // how a force to the left is sent: 1 = positive magnitude with a negative
+                                    // direction (works with every driver), 0 = negative magnitude (some
+                                    // drivers, e.g. Fanatec's, take its size and ignore the sign)
     float gameController = 1.0f;    // 0 = the game reads controllers as untouched (gameplay mod's
                                     // [Controls] GameController; live from its F4 menu)
     float menuController = 1.0f;    // controller buttons and hats in the game's menus

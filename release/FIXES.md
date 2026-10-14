@@ -18,6 +18,9 @@
   force direction flips it for wheels that differ. The centring spring and damper are computed by
   the mod and sent with the other forces (as sims do), so the wheel's own SPR/DPR settings no
   longer weaken them: a wheel left turned at speed comes back to centre. Default CenterSpring 0.5.
+- **Wheels that ignore a force's sign (Fanatec):** forces to the left were sent as negative
+  magnitudes, which some drivers take as their size only: everything pulled one way. The side is
+  now sent as the effect's direction (`ForceDirection=1`, works with every wheel).
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the
   first one in Windows' order (as joy.cpl lists them). F4 > Force feedback > Wheel device lists
   them by name, axes and buttons and switches live (`[FFB] Device`).
