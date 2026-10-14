@@ -54,6 +54,35 @@ void Cops_Install() {
 
 }  // namespace
 
+// Drag races: the race gives every car the drag driver style (STYLE_DRAG, PVehicle::SetDriverStyle),
+// which swaps the car's parts for drag ones: InputPlayerDrag (steering becomes lane changes, the
+// game steers), EngineDragster (its own heat and shift model), DamageDragster (totaled by a hit).
+// None of that works with a wheel, the shifter and the gameplay mod's engine and damage, so with
+// [Races] NormalDragRaces the player's car keeps the normal style: the game's normal input,
+// engine and damage, and you steer. Opponents still race as drag cars, and the race itself (the
+// drag HUD, staging, the finish) goes by the race type and is unchanged.
+constexpr uintptr_t kSlotSetDriverStyle = 0x8AA854;   // PVehicle's IVehicle vtable: SetDriverStyle
+constexpr uintptr_t kSetDriverStyle = 0x687690;       // thiscall(IVehicle*, DriverStyle)
+constexpr int kIV_DriverClass = 0x94;                 // PVehicle+0x140 from its IVehicle: 0 = the player
+constexpr int kStyleDrag = 1, kStyleRacing = 0;
+
+static void __attribute__((thiscall)) HkSetDriverStyle(uint8_t* vehicle, int style) {
+    if (style == kStyleDrag && g_cfg.normalDragRaces && *(int*)(vehicle + kIV_DriverClass) == 0) {
+        Log("traffic: drag race - the player's car keeps the normal driving style");
+        style = kStyleRacing;
+    }
+    ((void(__attribute__((thiscall))*)(uint8_t*, int))kSetDriverStyle)(vehicle, style);
+}
+
 void Traffic_Install() {
+    if (*(uintptr_t*)kSlotSetDriverStyle == kSetDriverStyle) {
+        DWORD old;
+        VirtualProtect((void*)kSlotSetDriverStyle, 4, PAGE_READWRITE, &old);
+        *(void**)kSlotSetDriverStyle = (void*)&HkSetDriverStyle;
+        VirtualProtect((void*)kSlotSetDriverStyle, 4, old, &old);
+        Log("traffic: drag races %s", g_cfg.normalDragRaces ? "with normal driving for the player" : "as the game's");
+    } else {
+        Log("traffic: unexpected vehicle code, NormalDragRaces unavailable");
+    }
     Cops_Install();
 }

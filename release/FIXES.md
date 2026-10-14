@@ -46,6 +46,12 @@
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
+- **Drag races playable with the mods:** a drag race gave your car the drag driver style, which
+  swaps in the game's drag parts: steering became automatic lane changes, and the drag engine and
+  damage (totaled by a hit) replaced the normal ones, so the wheel, shifter, engine wear and damage
+  mods did nothing. Your car now keeps the normal style: you steer, with the normal engine,
+  shifting and damage. Opponents and the race itself (staging, drag HUD, finish) are unchanged.
+  F4 > Traffic and HUD > Drive drag races normally, `[Races] NormalDragRaces`.
 - **Damage meter car icon back to the game's look:** it was drawn opaque with a black outline,
   which looked harsh. It now uses the HUD's own colours: gray with no damage, the HUD's beige when
   damaged, pulsing red like the damage arc from 75%. The spike strip icon matches it: always

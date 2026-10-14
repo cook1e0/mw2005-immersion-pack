@@ -582,6 +582,7 @@ const Item kItems[] = {
     BACK_,
     HEADER_("TRAFFIC"),
     {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Drive drag races normally", "Races", "NormalDragRaces", &g_cfg.normalDragRaces, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
@@ -896,7 +897,7 @@ const struct {
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
     {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
-    {&g_cfg.noSuvCops, 0},
+    {&g_cfg.noSuvCops, 0}, {&g_cfg.normalDragRaces, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
@@ -1354,6 +1355,7 @@ const struct {
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
     {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
+    {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
     {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},
     {&g_cfg.clutch, "Clutch pedal, button or key."},

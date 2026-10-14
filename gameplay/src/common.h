@@ -113,6 +113,7 @@ struct Config {
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
     bool  noSuvCops = true;         // no SUV cops (heavy support, SUV patrols, roadblocks)
+    bool  normalDragRaces = true;   // the player drives drag races normally (no auto lane steering, normal engine and damage)
     float heatSmokeFrom = 0.5f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep
     float damageLossStart = 0.3f;   // damage where the engine starts losing power
