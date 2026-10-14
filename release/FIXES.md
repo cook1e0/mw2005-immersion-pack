@@ -46,6 +46,13 @@
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
+- **Drivetrain multiplication:** F4 > Physics > Drivetrain multiplication (`[Physics] Drivetrain`,
+  also per car) exaggerates how the driven wheels lose side grip under power: at 2x a rear drive
+  car's power oversteer and a front drive car's understeer are doubled, all-wheel drive cars get
+  both by their torque split; below 1 it softens them. It scales the game's own tyre model (the
+  forward force a driving tyre adds against its grip limit), for your car only.
+- **A wrecked engine runs hot:** from 75% car damage the engine heats up a third faster (with
+  engine wear on); cooling is unchanged.
 - **Drag races playable with the mods:** a drag race gave your car the drag driver style, which
   swaps in the game's drag parts: steering became automatic lane changes, and the drag engine and
   damage (totaled by a hit) replaced the normal ones, so the wheel, shifter, engine wear and damage

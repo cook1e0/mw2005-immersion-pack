@@ -588,6 +588,10 @@ void PlayerEngineStep(uint8_t* eng) {
     if (blown) s.heat = 1.0f;
 }
 
+float PlayerDamage(uint8_t* eng);
+constexpr float kBadlyDamaged = 0.75f;      // from this much car damage the engine heats up faster
+constexpr float kDamagedHeatUp = 1.33f;     // ... by this factor
+
 void UpdateWear(uint8_t* eng, float dT) {
     if (IsBlown(eng)) return;
     // Like EngineDragster::ComputeEngineHeat: frozen at the start line and in the speedbreaker.
@@ -601,6 +605,8 @@ void UpdateWear(uint8_t* eng, float dT) {
     if (rpm >= redline * 0.99f) {
         float over = maxRpm > redline ? Clamp((rpm - redline) / (maxRpm - redline), 0.0f, 1.0f) : 0.0f;
         rate = g_cfg.heatUp + (g_cfg.heatUpMax - g_cfg.heatUp) * over;
+        // A wrecked car's engine runs hotter: a third faster from 75% damage (cooling unchanged).
+        if (PlayerDamage(eng) >= kBadlyDamaged) rate *= kDamagedHeatUp;
     }
     s.heat = Clamp(s.heat + rate * dT, 0.0f, 1.0f);
     int step = (int)(s.heat * 4.0f);

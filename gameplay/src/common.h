@@ -142,6 +142,7 @@ struct Config {
     float driftAssist = 0.5f;       // how much rear grip is lowered in a slide
     float grip = 1.0f;              // overall tire grip
     float torqueSplit = 1.0f;       // multiplies the share of torque sent to the front wheels
+    float drivetrain = 1.0f;        // exaggerates the driven axle's character (RWD oversteer, FWD understeer)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
 

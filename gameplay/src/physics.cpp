@@ -8,6 +8,14 @@
 //   (TuneWheelParams / YawFrictionBoost);
 // - drift stabiliser: DoDrifting damps rotation by DriftStabilizerTable;
 // - drift assist: DoDrifting lowers rear grip in a slide by DriftRearFrictionTable.
+// Drivetrain multiplication: in Tire::UpdateLoaded a driving tyre's forward force is multiplied by
+// TireForceEllipseRatio (1.5) before the tyre's grip limit is applied (and divided back if under
+// it), so a tyre putting power down runs out of side grip sooner: why rear drive cars step out
+// under power and front drive cars push wide, and all-wheel drive does a bit of both by its
+// torque split. The ratio is multiplied for the player's car, so the driven axle's character is
+// exaggerated (2 = a rear drive car's power oversteer, a front drive car's understeer, doubled)
+// or, below 1, softened. Both uses in UpdateLoaded are pointed at our own copies (the constants
+// are shared with other code).
 // These, the grip (Tweak_GlobalGripScale) and the torque split (the transmission's TORQUE_SPLIT,
 // the front wheels' share) are tuning data read while a car's suspension simulates. SuspensionRacer::OnTaskSimulate is wrapped: for the
 // player's car the slider values are swapped in for the duration of the call and the game's own
@@ -43,6 +51,10 @@ constexpr uintptr_t kISuspensionHandle = 0x404040;
 constexpr uintptr_t kIRigidBodyHandle = 0x4039F0;
 constexpr uintptr_t kBlownTire = 0x6A9ECA;          // TuneWheelParams: blown tire branch (44 bytes, to 0x6A9EF6)
 constexpr int kBlownTireLen = 0x2C;
+constexpr uintptr_t kEllipseMul = 0x69DF61;         // UpdateLoaded: fmul [TireForceEllipseRatio]
+constexpr uintptr_t kEllipseDiv = 0x69E03A;         // UpdateLoaded: fmul [1 / TireForceEllipseRatio]
+constexpr uintptr_t kEllipseRatio = 0x8AAC78;       // 1.5
+constexpr uintptr_t kEllipseRatioInv = 0x896D64;    // 0.6667
 
 constexpr int kSR_Tranny = 0xDC;                    // SuspensionRacer: transmission layout (+0x70 TORQUE_SPLIT)
 constexpr int kTR_TorqueSplit = 0x70;
@@ -60,6 +72,9 @@ Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
+
+// UpdateLoaded's ellipse ratio and its inverse, ours (the game's while not the player's car).
+float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f, s_ellipseGame = 1.5f;
 
 // The game's own values, captured once.
 struct {
@@ -116,6 +131,9 @@ void Apply(uint8_t* susp, Saved& sv) {
         sv.split = *sv.tranny;
         *sv.tranny = Clamp(sv.split * c.torqueSplit, 0.0f, 1.0f);
     }
+    // Never below 1: the forward force is not made smaller than it is.
+    s_ellipse = std::max(s_ellipseGame * c.drivetrain, 1.0f);
+    s_ellipseInv = 1.0f / s_ellipse;
 }
 
 void Restore(const Saved& sv) {
@@ -127,12 +145,14 @@ void Restore(const Saved& sv) {
     float* rear = *(float**)(kDriftRearTable + 0x10);
     memcpy(rear, g.rear, g.rearN * sizeof(float));
     if (sv.tranny) *sv.tranny = sv.split;
+    s_ellipse = s_ellipseGame;
+    s_ellipseInv = 1.0f / s_ellipseGame;
 }
 
 bool Stock() {
     const Config& c = g_cfg;
     return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.torqueSplit == 1.0f;
+           c.torqueSplit == 1.0f && c.drivetrain == 1.0f;
 }
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
@@ -263,6 +283,7 @@ const PerCar kPerCar[] = {
     {&Config::driftAssist, "DriftAssist", 0.0f, 1.0f},
     {&Config::grip, "Grip", 0.3f, 2.0f},
     {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
+    {&Config::drivetrain, "Drivetrain", 0.7f, 3.0f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
@@ -343,6 +364,22 @@ void Physics_Install() {
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
     InstallBlownTire();
+    // fmul dword ptr [abs32] at both uses of the ratio: point them at our copies.
+    if (Expect(kEllipseMul, {0xD8, 0x0D, 0x78, 0xAC, 0x8A, 0x00}) && Expect(kEllipseDiv, {0xD8, 0x0D, 0x64, 0x6D, 0x89, 0x00}) &&
+        *(float*)kEllipseRatio > 1.0f) {
+        s_ellipseGame = s_ellipse = *(float*)kEllipseRatio;
+        s_ellipseInv = 1.0f / s_ellipse;
+        for (auto at : {std::make_pair(kEllipseMul, &s_ellipse), std::make_pair(kEllipseDiv, &s_ellipseInv)}) {
+            DWORD old;
+            VirtualProtect((void*)(at.first + 2), 4, PAGE_EXECUTE_READWRITE, &old);
+            *(float**)(at.first + 2) = at.second;
+            VirtualProtect((void*)(at.first + 2), 4, old, &old);
+            FlushInstructionCache(GetCurrentProcess(), (void*)at.first, 6);
+        }
+        Log("physics: drivetrain multiplication ready (ellipse ratio %.2f)", s_ellipseGame);
+    } else {
+        Log("physics: unexpected tire code, drivetrain multiplication unavailable");
+    }
     Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, torque split x%.2f, "
         "gravity %.2f%s)", g_cfg.physics ? "on" : "off", g_cfg.tractionControl * 100, g_cfg.stability * 100,
         g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.torqueSplit, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
