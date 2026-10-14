@@ -1,7 +1,22 @@
+### v0.12.1: cockpit crash and garbage polygons fixed, settings kept
+
+- **VR cockpit crash:** the VR mod's driver-model cache was never refreshed. After the game
+  streamed a car model out and loaded another at the same address (traffic, car resets, race
+  restarts), the cockpit kept drawing with the freed model's vertex buffer: big dark garbage
+  polygons in the cockpit, then a crash inside `d3d9.dll` when the game released its model
+  buffers (seen right after opening F4). Changed or reloaded models are now prepared again, and
+  the head-less copy of a draw entry always uses the live vertex buffer.
+- **Near plane default:** `[VR] NearZ` now defaults to 0.05 m (the game's own is 0.5 m); 0.01 m
+  cost too much depth precision. Existing ini values are kept.
+
+**Upgrading from v0.12.0:** replace `scripts
+fsmw_vr.asi` and `scripts
+fsmw_gameplay.asi`.
+
 ### v0.12.0: cockpit near plane, VR recenter binding, misshift damage
 
 - **VR near clip plane:** the player view's near plane is now `[VR] NearZ` (default 0.01 m, was
-  the game's own), so the dashboard, wheel and pillars right in front of the eyes are no longer
+  the game's own 0.5 m), so the dashboard, wheel and pillars right in front of the eyes are no longer
   cut off. Adjustable live in F4 > VR > Near clip plane. 0 in the ini restores the game's value.
   Very low values can make distant surfaces flicker (depth precision).
 - **Recenter VR view binding:** F4 > Controls > Recenter VR view binds any key, wheel or button

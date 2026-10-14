@@ -29,6 +29,11 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.12.0: replace scripts
+fsmw_vr.asi and scripts
+fsmw_gameplay.asi. Fixes
+garbage polygons in the VR cockpit and a d3d9.dll crash after cars were streamed in and out.
+
 Upgrading from v0.11.2: replace scripts
 fsmw_vr.asi and scripts
 fsmw_gameplay.asi. Keep

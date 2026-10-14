@@ -244,7 +244,7 @@ const struct {
     {MOD_FFB, "GameController", 1.0f},
     {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
-    {MOD_VR, "NearZ", 0.01f},
+    {MOD_VR, "NearZ", 0.05f},
 };
 enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,

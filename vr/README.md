@@ -113,7 +113,7 @@ Everything is in `nfsmw_vr.ini`. The useful ones:
 - **`Resolution` / `ResolutionScale`:** each eye renders at the headset's recommended size by default. Lower `ResolutionScale` for more fps.
 - **`LevelRoll` / `LevelPitch`:** how much of the car's body roll and pitch to remove from your view. By default roll is removed and pitch is kept.
 - **`HudDistance` / `HudWidth`:** placement of the floating HUD panel.
-- **`NearZ`:** near clip plane in metres (default 0.01). Lower it if the dashboard or wheel close to your eyes is cut off; raise it (e.g. 0.05) if distant surfaces flicker. 0 = the game's own.
+- **`NearZ`:** near clip plane in metres (default 0.05; the game's own is 0.5). Lower it if the dashboard or wheel close to your eyes is cut off; raise it if distant surfaces flicker. 0 = the game's own.
 
 ## Recording
 

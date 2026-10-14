@@ -81,7 +81,22 @@ struct Driver {
     std::vector<uint8_t> trimmed;                   // entries without the head (kEntrySize each)
     std::vector<int> kept;                          // triangles left per entry
 };
-std::unordered_map<uint8_t*, Driver*> s_solids;     // nullptr = not a driver
+
+// Solids are streamed: a traffic car's or a reloaded car's model can be freed and another loaded
+// at the same address. Each cache entry remembers what the solid looked like when it was seen, and
+// is prepared again when that changed. Drawing a freed model's buffers through a stale entry made
+// garbage polygons in the cockpit and corrupted d3d9 until it crashed releasing a buffer.
+struct SolidInfo {
+    Driver* driver = nullptr;                       // nullptr = not a driver
+    char name[64] = {};
+    uint8_t* plat = nullptr;
+    uint8_t* entries = nullptr;
+    void* ib = nullptr;
+    uint16_t* indices = nullptr;
+    uint32_t indexHash = 0;                         // of the game's index copy, after reordering
+};
+std::unordered_map<uint8_t*, SolidInfo> s_solids;
+std::vector<Driver*> s_retired;                     // replaced this frame; queued draws may still use them
 
 // The game camera (before the seat and the eyes) this frame, as camera -> world.
 M4 s_base;
@@ -236,14 +251,48 @@ Driver* Prepare(uint8_t* solid, const char* name) {
     return d;
 }
 
+uint32_t IndexHash(const uint16_t* indices, int count) {
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < count; i++) h = (h ^ indices[i]) * 16777619u;
+    return h;
+}
+
+// The solid's current plat info, entries, index buffer and index copy (null where missing).
+void ReadSolid(uint8_t* solid, SolidInfo& s) {
+    memcpy(s.name, solid + kSolidName, sizeof(s.name));
+    s.plat = At<uint8_t*>(solid, kSolidPlat);
+    s.entries = s.plat ? At<uint8_t*>(s.plat, kPlatEntries) : nullptr;
+    s.ib = s.plat ? At<void*>(s.plat, kPlatIndexBuffer) : nullptr;
+    s.indices = s.plat ? At<uint16_t*>(s.plat, kPlatIndices) : nullptr;
+}
+
+uint32_t CurrentHash(const SolidInfo& s) {
+    int n = s.plat ? At<int>(s.plat, kPlatNumIndices) : 0;
+    return s.indices && n > 0 && n < (1 << 20) ? IndexHash(s.indices, n) : 0;
+}
+
 Driver* GetDriver(uint8_t* solid) {
+    SolidInfo now;
+    ReadSolid(solid, now);
     auto it = s_solids.find(solid);
-    if (it != s_solids.end()) return it->second;
+    if (it != s_solids.end()) {
+        const SolidInfo& was = it->second;
+        bool same = !memcmp(was.name, now.name, sizeof(now.name)) && was.plat == now.plat &&
+                    was.entries == now.entries && was.ib == now.ib && was.indices == now.indices;
+        // A driver reloaded in place has its original triangle order back.
+        if (same && was.driver && was.driver->ok) same = CurrentHash(now) == was.indexHash;
+        if (same) return was.driver;
+        if (was.driver) {
+            Log("cockpit: %.64s changed or reloaded, preparing it again", was.name);
+            s_retired.push_back(was.driver);
+        }
+    }
     char name[65] = {};
-    memcpy(name, solid + kSolidName, 64);
-    Driver* d = strstr(name, "_DRIVER") ? Prepare(solid, name) : nullptr;
-    s_solids[solid] = d;
-    return d;
+    memcpy(name, now.name, 64);
+    now.driver = strstr(name, "_DRIVER") ? Prepare(solid, name) : nullptr;
+    now.indexHash = CurrentHash(now);
+    s_solids[solid] = now;
+    return now.driver;
 }
 
 // Whether CarRenderConn::OnRender draws the car in `view` with the in-car camera's body matrix.
@@ -345,7 +394,13 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
     int i = (int)(entry - entries) / kEntrySize;
     if (entry < entries || i >= (int)d->kept.size()) return entry;
-    return d->kept[i] > 0 ? &d->trimmed[i * kEntrySize] : nullptr;
+    if (d->kept[i] <= 0) return nullptr;
+    // Copied from the live entry each time, so its vertex buffer and data are the current ones.
+    uint8_t* trimmed = &d->trimmed[i * kEntrySize];
+    memcpy(trimmed, entry, kEntrySize);
+    At<int>(trimmed, kEntryTris) = d->kept[i];
+    At<int>(trimmed, kEntryNumIndices) = d->kept[i] * 3;
+    return trimmed;
 }
 
 __declspec(naked) void hkSubmitEntry() {
@@ -447,6 +502,8 @@ bool Cockpit_ApplySeat(M4& view) {
 }
 
 void Cockpit_EndFrame() {
+    for (Driver* d : s_retired) delete d;
+    s_retired.clear();
     static double lastReport;
     if (s_bodyDraws && Now() - lastReport > 5.0) {
         lastReport = Now();

@@ -50,6 +50,89 @@ static M4 Apply() {
     return MInvRigid(view);
 }
 
+// Index buffer stand-in for the head reordering (Lock/Unlock/GetDesc only).
+struct FakeIb : IDirect3DIndexBuffer9 {
+    uint16_t data[6];
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void**) override { return E_NOINTERFACE; }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9**) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, CONST void*, DWORD, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, void*, DWORD*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE FreePrivateData(REFGUID) override { return E_NOTIMPL; }
+    DWORD STDMETHODCALLTYPE SetPriority(DWORD) override { return 0; }
+    DWORD STDMETHODCALLTYPE GetPriority() override { return 0; }
+    void STDMETHODCALLTYPE PreLoad() override {}
+    D3DRESOURCETYPE STDMETHODCALLTYPE GetType() override { return D3DRTYPE_INDEXBUFFER; }
+    HRESULT STDMETHODCALLTYPE Lock(UINT offset, UINT, void** p, DWORD) override { *p = (uint8_t*)data + offset; return D3D_OK; }
+    HRESULT STDMETHODCALLTYPE Unlock() override { return D3D_OK; }
+    HRESULT STDMETHODCALLTYPE GetDesc(D3DINDEXBUFFER_DESC* d) override {
+        memset(d, 0, sizeof(*d));
+        d->Format = D3DFMT_INDEX16;
+        d->Size = sizeof(data);
+        return D3D_OK;
+    }
+};
+
+// A driver model streamed out and another loaded at the same address must be prepared again, and
+// the head-less entry must carry the live entry's vertex buffer, never one copied at first sight.
+static void TestReloadedDriver() {
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16], camera[0x50];
+    static float verts[18] = {0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0, 1.9f, -1, 1, 1.9f, -0.9f, 0, 2.0f};
+    static uint16_t indices[6];
+    static FakeIb ib;
+    const uint16_t original[6] = {3, 4, 5, 0, 1, 2};    // head triangle first
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    strcpy((char*)solid + kSolidName, "TESTCAR_KIT00_DRIVER_A");
+    At<float>(solid, kSolidMin) = -1;
+    At<float>(solid, kSolidMax + 8) = 2.0f;
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = 6;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = 2;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = verts;
+    At<int>(entry, kEntryVertexBytes) = sizeof(verts);
+    At<uintptr_t>(entry, 0x54) = 0x1111;                // vertex buffer
+
+    Driver* first = GetDriver(solid);
+    Check(first && first->ok && first->kept[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
+    Check(GetDriver(solid) == first, "unchanged driver stays cached");
+
+    // Reloaded in place: same pointers, original triangle order and a new vertex buffer.
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    At<uintptr_t>(entry, 0x54) = 0x2222;
+    Driver* second = GetDriver(solid);
+    Check(second && second != first && second->ok && indices[0] == 0 && s_retired.size() == 1, "reloaded driver prepared again");
+
+    // The head next to the eyes: the trimmed entry is a fresh copy of the live one.
+    float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    uint8_t modelData[0x10] = {};
+    At<uint8_t*>(modelData, kModelSolid) = solid;
+    memcpy(camera + kCamPosition, second->head, sizeof(second->head));
+    void* savedCam = At<void*>((void*)kPlayerView, kViewCamera);
+    At<void*>((void*)kPlayerView, kViewCamera) = camera;
+    g_cfg.hideHead = true;
+    uint8_t* trimmed = OnSubmit(modelData, model, entry);
+    Check(trimmed && trimmed != entry && At<int>(trimmed, kEntryTris) == 1 && At<uintptr_t>(trimmed, 0x54) == 0x2222,
+          "trimmed entry uses the live vertex buffer");
+    g_cfg.hideHead = false;
+    At<void*>((void*)kPlayerView, kViewCamera) = savedCam;
+
+    // Another model at the address: no longer a driver.
+    strcpy((char*)solid + kSolidName, "TRAFFIC_BODY");
+    Check(!GetDriver(solid), "replaced by a non-driver model");
+    Cockpit_EndFrame();
+    Check(s_retired.empty(), "retired drivers freed at the end of the frame");
+}
+
 int main() {
     testTime = Now();
     static_assert(sizeof(void*) == 4, "test the game's 32-bit layout");
@@ -124,5 +207,6 @@ int main() {
     Near(s_head.body[0], 0.8f, "new car measures a new seat");
     s_head.time -= 1;
     Check(!Cockpit_ApplySeat(view), "expired observation releases seat");
-    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD and frame lifecycle");
+    TestReloadedDriver();
+    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle and reloaded drivers");
 }

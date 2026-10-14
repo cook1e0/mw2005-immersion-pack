@@ -2,6 +2,8 @@
 # Assembles dist/nfsmw05-mod-<version>.zip from the three builds (run vr/build.cmd,
 # ffb/build.sh and gameplay/build.sh first).
 # Usage: ./package.sh <Ultimate ASI Loader x86 dinput8.dll> <version, e.g. v0.11.0>
+# NFSMW_SETTINGS=<folder with nfsmw_*.ini> packages those settings (F4 menu, bindings, seats)
+# instead of the defaults, e.g. a game's scripts folder, so unpacking keeps that setup.
 set -e
 cd "$(dirname "$0")"
 LOADER="$1"
@@ -24,6 +26,14 @@ cp ffb/build/dinput8.dll "$OUT/scripts/nfsmw_ffb.asi"
 cp gameplay/build/dsound.dll "$OUT/scripts/nfsmw_gameplay.asi"
 cp vr/bin/nfsmw_vr_host.exe vr/bin/nfsmw_crashdump.exe ffb/build/ffbtool.exe "$OUT/"
 cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini "$OUT/scripts/"
+if [ -n "$NFSMW_SETTINGS" ]; then
+    for ini in nfsmw_vr.ini nfsmw_ffb.ini nfsmw_gameplay.ini; do
+        if [ -f "$NFSMW_SETTINGS/$ini" ]; then
+            cp "$NFSMW_SETTINGS/$ini" "$OUT/scripts/$ini"
+            echo "settings: $ini from $NFSMW_SETTINGS"
+        fi
+    done
+fi
 cp release/README.txt release/FIXES.md release/LICENSE-asi-loader.txt LICENSE "$OUT/"
 cp gameplay/third_party/imgui/LICENSE.txt "$OUT/LICENSE-imgui.txt"
 PS=pwsh; command -v pwsh >/dev/null || PS=powershell
