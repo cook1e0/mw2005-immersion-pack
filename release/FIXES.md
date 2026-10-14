@@ -48,7 +48,8 @@
   it to compensate. The drift assist and stability control are left as the game has them.
 - **Damage meter car icon back to the game's look:** it was drawn opaque with a black outline,
   which looked harsh. It now uses the HUD's own colours: gray with no damage, the HUD's beige when
-  damaged, pulsing red like the damage arc from 75%. The spike strip icon is unchanged.
+  damaged, pulsing red like the damage arc from 75%. The spike strip icon matches it: always
+  shown, gray, flashing red while a tyre is popped, no outline.
 - **VR: no more occasional cutscene camera at pursuit breakers:** the camera director had other
   ways off the driving camera (the cinematic camera when a moment or the game asks for it). In VR
   the player's camera is now turned straight back to the driving camera whatever picks another,

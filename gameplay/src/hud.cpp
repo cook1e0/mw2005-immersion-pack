@@ -16,9 +16,9 @@
 // Warn or above both arcs pulse. The car icon is drawn like the game's own HUD: gray with no
 // damage, the HUD's beige (the arc's colour) when damaged, and pulsing red like the arc from
 // IconRedFrom (75%) up. Above it a clone of it shows the spike strip milestone icon
-// (MILESTONE_SPIKESTRIPS), flashing red while a tire is popped and hidden otherwise. The spike
-// icon is opaque (it sits over the arc, so a translucent one takes on the arc's colour) and has a
-// dark outline (eight black copies around it) so it reads on bright scenery. The HUD package owns the clones and frees them with the
+// (MILESTONE_SPIKESTRIPS) the same way: gray, flashing red while a tire is popped. It stays
+// opaque (it sits over the arc, so a translucent one takes on the arc's colour): it flashes by
+// brightness, in the car icon's rhythm. Neither icon has an outline. The HUD package owns the clones and frees them with the
 // rest of the package; a new HUD (or a clone that is gone from its list) gets new ones.
 #include "hud.h"
 #include "common.h"
@@ -78,7 +78,6 @@ constexpr uint32_t kHeatColor = 0xFFE01E14;
 constexpr uint32_t kIconGray = 0xFFA8A8A8;          // car icon with no damage
 constexpr float kIconRedFrom = 0.75f;               // car icon pulses red from this much damage
 constexpr float kIconDamaged = 0.005f;              // any damage at all turns it beige
-constexpr float kFlashLow = 0.45f;                  // icon flash: brightness 1 -> kFlashLow -> 1
 constexpr uint32_t kOutlineColor = 0xC0000000;
 constexpr float kOutline = 1.5f;                    // outline width, in HUD units
 constexpr float kOutlineDepth = 0.01f;              // outline copies just behind their icon
@@ -341,12 +340,13 @@ void UpdateSpike(int popped, float flash) {
             return;
         }
     }
-    SetColor(s.spike, Bright(kHeatColor, flash));
-    // Bit 0 = invisible (FEngSetInvisible): shown with the car icon, and only with a popped tire.
+    SetColor(s.spike, popped ? Bright(kHeatColor, flash) : kIconGray);
+    // Bit 0 = invisible (FEngSetInvisible): shown whenever the car icon is.
     uint32_t& flags = Field<uint32_t>(s.spike, kFO_Flags);
-    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (popped ? 0u : 1u);
+    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u);
     if (vis != flags) flags = vis | kDirty;
-    UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, popped != 0);
+    if (!s.spikeOutline.empty() && InList(s.iconList, s.spikeOutline[0]))
+        UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, false);
 }
 
 void Apply() {
@@ -396,7 +396,7 @@ void Update(uint8_t* meter, const HudStatus& h) {
     SetRotation(s.bar, Angle(h.damage));
     SetRotation(s.clone, Angle(heat));
     float wave = 0.5f + 0.5f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f);
-    float flash = kFlashLow + (1.0f - kFlashLow) * wave;
+    float flash = 0.2f + 0.8f * wave;               // same swing as the car icon's red pulse
     // The car icon in the HUD's own colours, no outline (an outlined, opaque copy looked harsh).
     uint32_t iconColor = h.damage >= kIconRedFrom ? WithAlpha(kHeatColor, 0.6f + 0.4f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f))
                          : h.damage >= kIconDamaged ? (s.barColor | 0xFF000000)
