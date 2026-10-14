@@ -12,15 +12,15 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Force feedback direction, calibrated for real:** the direction test only ran with the wheel
-  near centre, and the wheel's own spring effect held it to one side (on Fanatec its centre is
-  not the wheel's), so it never ran: `ForceSign` stayed 0 and every force from the car (tyres,
-  kerbs, bumps, crashes) was sent as zero. The wheel's spring and damper effects are no longer
-  used; centring and damping are computed by the mod and sent with the other forces once the
-  direction is known. The test now runs with everything else off, measures each push against the
-  wheel's drift, and tries both ways of sending a force to the other side (some drivers, Fanatec's
-  among them, ignore a negative magnitude). F4 > Force feedback > Calibrate force direction runs
-  it on demand and shows the result.
+- **Force feedback reaches Fanatec wheels:** measured on a Fanatec base with `ffbtool test`: it
+  ignores changes to a playing effect (only the first force ever arrived, so nothing from the car
+  did), and its spring effect pushes away from centre (the wheel ran to one side). Every force
+  change now restarts the effect (`[FFB] RestartEffects=1`), and centring, damping and friction are
+  computed by the mod and sent with the other forces instead of the wheel's own effects. The force
+  direction test runs with everything else off, against the wheel's drift, and tries both ways of
+  sending a side; F4 > Force feedback > Calibrate force direction runs it on demand.
+- **ffbtool:** no longer loads the game's dinput8.dll (the ASI loader, which pulled the mods in),
+  opens its own window (works from any terminal), and tests each effect type on its own.
 - **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
   a given wheel angle (`[Controls] SteeringSensitivity`).
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the

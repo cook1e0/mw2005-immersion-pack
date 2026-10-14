@@ -47,6 +47,7 @@ struct Config {
     float scrapes = 0.4f;           // wall scrapes and taps: pull toward the contact and a fast rumble
     float landing = 0.6f;           // jolt on landing a jump (the wheel goes limp in the air)
     float airborneForce = 0.1f;     // share of the steering forces left while airborne
+    bool  restartEffects = true;    // send effect changes with DIEP_START (needed by Fanatec bases)
     int   forceDirection = 0;       // how a negative force is sent: 0 = negative magnitude, 1 = negative
                                     // direction (for drivers that ignore negative magnitudes)
     float gameController = 1.0f;    // 0 = the game reads controllers as untouched (gameplay mod's

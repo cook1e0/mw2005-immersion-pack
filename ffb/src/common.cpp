@@ -131,6 +131,7 @@ void LoadConfig() {
     c.landing = ReadFloat(s, "Landing", c.landing);
     c.airborneForce = Clamp(ReadFloat(s, "AirborneForce", c.airborneForce), 0.0f, 1.0f);
     c.forceDirection = Clamp(ReadInt(s, "ForceDirection", c.forceDirection), 0, 1);
+    c.restartEffects = ReadInt(s, "RestartEffects", 1) != 0;
     c.minForce = ReadFloat(s, "MinForce", c.minForce);
     c.invertForce = ReadInt(s, "InvertForce", 0) != 0 ? 1.0f : 0.0f;
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);

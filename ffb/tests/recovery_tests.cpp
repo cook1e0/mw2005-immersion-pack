@@ -20,6 +20,7 @@ struct TestEffect : IDirectInputEffect {
     bool playing = false, downloaded = true;
     HRESULT startResult = DI_OK, parameterResult = DI_OK, statusResult = DI_OK;
     LONG magnitude = 0;
+    DWORD lastFlags = 0;
     TestEffect(Driver* d) : driver(d) {}
     STDMETHOD(QueryInterface)(REFIID, void**) override { return E_NOINTERFACE; }
     STDMETHOD_(ULONG, AddRef)() override { return 1; }
@@ -53,11 +54,12 @@ ULONG TestEffect::Release() {
     list.erase(std::find(list.begin(), list.end(), this));
     ++driver->releases; delete this; return 0;
 }
-HRESULT TestEffect::SetParameters(const DIEFFECT* effect, DWORD) {
+HRESULT TestEffect::SetParameters(const DIEFFECT* effect, DWORD flags) {
     if (!driver->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
     if (parameterResult == DIERR_INPUTLOST) driver->acquired = false;
     if (parameterResult != DI_OK) return parameterResult;
     magnitude = *(const LONG*)effect->lpvTypeSpecificParams;
+    lastFlags = flags;
     downloaded = true;
     return DI_OK;
 }
@@ -339,6 +341,8 @@ int main() {
     assert(((TestEffect*)s_fx.constant)->magnitude > 0 && ((TestEffect*)s_fx.constant)->magnitude < 5000);
     Apply(forces, 7.3);
     assert(((TestEffect*)s_fx.constant)->magnitude == 5000);
+    // Every change restarts the effect: Fanatec bases drop changes to a playing effect otherwise.
+    assert(((TestEffect*)s_fx.constant)->lastFlags & DIEP_START);
     // Disabled physical switches must not be overridden by software recovery.
     driver.state |= DIGFFS_SAFETYSWITCHOFF;
     int enabled = driver.enables; starts = driver.starts;

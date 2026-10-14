@@ -128,7 +128,7 @@ static bool ConfigureWheel(DeviceWrap* d) {
     return hr == DIERR_UNSUPPORTED || EffectResult(hr);
 }
 
-static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size);
+static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size, DWORD flags = DIEP_TYPESPECIFICPARAMS);
 
 void Ffb_SetDirectInput(IDirectInput8A* real) {
     EnterCriticalSection(&g_diLock);
@@ -238,13 +238,19 @@ static bool CreateEffects(DeviceWrap* d) {
     return started;
 }
 
-static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size) {
+// Parameter changes go out with DIEP_START (restart with the new values): some drivers ignore
+// changes to a playing effect (measured on a Fanatec base: the first force stayed, every later
+// one was dropped, so nothing from the car ever reached the wheel). [FFB] RestartEffects=0 sends
+// plain updates.
+static DWORD UpdateFlags() { return DIEP_TYPESPECIFICPARAMS | (g_cfg.restartEffects ? DIEP_START : 0); }
+
+static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size, DWORD flags) {
     DIEFFECT e = {};
     e.dwSize = sizeof(e);
     e.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
     e.cbTypeSpecificParams = size;
     e.lpvTypeSpecificParams = params;
-    HRESULT hr = fx->SetParameters(&e, DIEP_TYPESPECIFICPARAMS);
+    HRESULT hr = fx->SetParameters(&e, flags);
     return EffectResult(hr);
 }
 
@@ -282,10 +288,10 @@ static void SetConstant(float v, double now) {
         e.rglDirection = dirs;
         e.cbTypeSpecificParams = sizeof(cf);
         e.lpvTypeSpecificParams = &cf;
-        ok = EffectResult(s_fx.constant->SetParameters(&e, DIEP_TYPESPECIFICPARAMS | (dir != s_constDir ? DIEP_DIRECTION : 0)));
+        ok = EffectResult(s_fx.constant->SetParameters(&e, UpdateFlags() | (dir != s_constDir ? DIEP_DIRECTION : 0)));
         if (ok) s_constDir = dir;
     } else {
-        ok = SetParams(s_fx.constant, &cf, sizeof(cf));
+        ok = SetParams(s_fx.constant, &cf, sizeof(cf), UpdateFlags());
     }
     if (ok) {
         s_fx.constMag = m; s_fx.constTime = now;
@@ -302,7 +308,7 @@ static void SetSine(float mag, float hz) {
     DIPERIODIC p = {};
     p.dwMagnitude = m;
     p.dwPeriod = period;
-    if (SetParams(s_fx.sine, &p, sizeof(p))) {
+    if (SetParams(s_fx.sine, &p, sizeof(p), UpdateFlags())) {
         s_fx.sineMag = m; s_fx.sinePeriod = period;
     }
 }
@@ -912,20 +918,25 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     float springK = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade * S.air * lighten;
     float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
     float damperK = damperDrive * S.fade * std::max(S.air, 0.3f) + c.damperHigh * (1.0f - S.fade);
-    float spring = 0.0f, damping = 0.0f;
+    float frictionK = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade * S.air +
+                      c.friction * (1.0f - S.fade);
+    float spring = 0.0f, damping = 0.0f, friction = 0.0f;
     if (S.haveAxis && S.forceSign) {
-        // Full spring force at half the steering lock; the damper per wheel speed (lock share / s).
+        // Full spring force at half the steering lock; the damper per wheel speed (lock share / s);
+        // friction against the wheel's movement, smoothed through zero so it doesn't buzz.
         float lockShare = c.softLockAt < 0.98f ? c.softLockAt : 1.0f;
         spring = -springK * Clamp(S.axis / lockShare * 2.0f, -1.0f, 1.0f);
         damping = -damperK * 0.25f * Clamp(S.axisVel / lockShare, -4.0f, 4.0f);
+        friction = -frictionK * 0.5f * tanhf(S.axisVel / 0.05f);
     }
-    o.spring = o.damper = 0.0f;
-    o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade * S.air + c.friction * (1.0f - S.fade);
+    // The wheel's own spring, damper and friction effects are not used: on a Fanatec base they were
+    // measured pushing away from centre, the wrong way.
+    o.spring = o.damper = o.friction = 0.0f;
 
     // --- constant ---------------------------------------------------------------------------
     float steering = ((S.sat + S.centre) * lighten + S.road + surface) * S.air;
     float events = S.forceSign ? jolt + curb + scrape + land : 0.0f;
-    o.constant = (steering + events) * S.fade + spring + damping;
+    o.constant = (steering + events) * S.fade + spring + damping + friction;
 
     // master gain
     o.constant *= c.gain;
