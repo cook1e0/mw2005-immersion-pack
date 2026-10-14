@@ -199,6 +199,75 @@ static void TestForceModel() {
     g_cfg = Config();
 }
 
+// The direction calibration against simulated drivers: how the wheel accelerates for a force
+// `v` sent the calibration's way (0 = signed magnitude, 1 = direction + size).
+enum SimDriver { STANDARD, REVERSED, SIZE_ONLY_LEFT, DEAD };
+static float Physical(SimDriver d, float v, int mode) {
+    switch (d) {
+    case STANDARD: return v;
+    case REVERSED: return -v;
+    case SIZE_ONLY_LEFT: return mode ? -v : -fabsf(v);   // ignores a negative magnitude; + pushes left
+    default: return 0;
+    }
+}
+
+static int Calibrate(SimDriver driver, int* mode) {
+    S = State();
+    S.haveAxis = true; S.axis = 0.1f;
+    g_cfg.forceDirection = 0;
+    IDirectInputEffect* savedConstant = s_fx.constant;
+    s_fx.constant = (IDirectInputEffect*)1;
+    s_fx.recoveryTime = 0;
+    double now = 50;
+    float vel = 0;
+    Out o;
+    for (int i = 0; i < 2000 && (S.pulsePhase || !S.forceSign) && S.pulseTries < 2; i++) {
+        now += 0.005;
+        bool owns = PulseTest(now, false, o);
+        float v = owns ? o.constant : 0.0f;
+        int sent = s_calSendMode >= 0 ? s_calSendMode : 0;
+        // a light, damped wheel with a slow drift
+        vel += (Physical(driver, v, sent) * 6.0f - vel * 4.0f) * 0.005f;
+        S.axis += (vel + 0.01f) * 0.005f;
+        S.axisVel = vel;
+    }
+    s_fx.constant = savedConstant;
+    *mode = g_cfg.forceDirection;
+    return S.forceSign;
+}
+
+static void TestCalibration() {
+    int mode = -1;
+    s_started = 1;
+    assert(Calibrate(STANDARD, &mode) == 1 && mode == 0);
+    assert(Calibrate(REVERSED, &mode) == -1 && mode == 0);
+    assert(Calibrate(SIZE_ONLY_LEFT, &mode) == -1 && mode == 1);
+    assert(Calibrate(DEAD, &mode) == 0);
+
+    // The centring spring is the mod's own and waits for the direction; the wheel's spring effect
+    // is never used.
+    g_cfg = Config();
+    g_cfg.centerSpring = 0.5f;
+    S = State();
+    S.slip.sign = 1; S.right.sign = 1;
+    S.haveAxis = true; S.axis = -0.25f;
+    double now = 300;
+    uint32_t seq = 0;
+    Telemetry t = Driving(now, seq);
+    t.speed = t.fwdSpeed = 83.0f;
+    Out o;
+    for (int i = 0; i < 60; i++) { now += 0.005; t.seq = ++seq; t.time = now; Compute(t, now, 0.005f, o); }
+    float before = o.constant;   // no spring in it yet (sent as 0 anyway until the direction is known)
+    assert(o.spring == 0 && o.damper == 0);
+    S.forceSign = 1;
+    for (int i = 0; i < 60; i++) { now += 0.005; t.seq = ++seq; t.time = now; Compute(t, now, 0.005f, o); }
+    assert(o.spring == 0 && o.constant > before + 0.2f);   // wheel turned left at 300 km/h: pushed back right
+    float moves[4] = {0.02f, 0.02f, -0.02f, 0.02f};
+    assert(DecideForce(moves, &mode) == -1 && mode == 1);
+    g_cfg = Config();
+    S = State();
+}
+
 int main() {
     InitializeCriticalSection(&g_diLock);
     void* vt[32] = {};
@@ -327,5 +396,6 @@ int main() {
     assert(Service(13.4) == d && limited.starts == 1);
     d->Release(); assert(limited.effects.empty());
     TestForceModel();
+    TestCalibration();
     puts("FFB recovery and force model tests passed");
 }

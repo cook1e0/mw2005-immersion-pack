@@ -12,10 +12,15 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Wheel position:** the mod read the wheel's position only from the X axis. Some wheels have
-  their motor on another axis (Fanatec: Ry on one of its two devices). The mod now watches both and
-  uses whichever moves when you turn the wheel (the log says which), so the force direction test
-  and the steering forces can work.
+- **Force feedback direction, calibrated for real:** the direction test only ran with the wheel
+  near centre, and the wheel's own spring effect held it to one side (on Fanatec its centre is
+  not the wheel's), so it never ran: `ForceSign` stayed 0 and every force from the car (tyres,
+  kerbs, bumps, crashes) was sent as zero. The wheel's spring and damper effects are no longer
+  used; centring and damping are computed by the mod and sent with the other forces once the
+  direction is known. The test now runs with everything else off, measures each push against the
+  wheel's drift, and tries both ways of sending a force to the other side (some drivers, Fanatec's
+  among them, ignore a negative magnitude). F4 > Force feedback > Calibrate force direction runs
+  it on demand and shows the result.
 - **Steering sensitivity:** F4 > Controls > Steering sensitivity scales how far the car steers for
   a given wheel angle (`[Controls] SteeringSensitivity`).
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the

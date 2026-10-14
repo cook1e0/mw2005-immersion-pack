@@ -7,6 +7,10 @@ void Ffb_Start();
 bool Ffb_RequestReset();
 // F4 menu: a short push to the right. False when mod effects are inactive.
 bool Ffb_RequestTest();
+// F4 menu: run the force direction calibration now (hands off the wheel); status 0 not run,
+// 1 running, 2 done, 3 failed.
+bool Ffb_RequestCalibration();
+int Ffb_CalibrationStatus();
 // F4 menu: "n: name (axes, buttons)" of the nth FFB device in Windows' order; returns the count.
 int Ffb_DeviceName(int index, char* out, int len);
 // The gameplay overlay keeps menu forces available and requests a health check on transitions.

@@ -12,3 +12,5 @@ EXPORTS
     NfsmwFfb_MenuOpen
     NfsmwFfb_Test
     NfsmwFfb_DeviceName
+    NfsmwFfb_Calibrate
+    NfsmwFfb_CalibrationStatus

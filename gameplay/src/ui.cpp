@@ -356,6 +356,18 @@ int FfbDeviceName(int index, std::string* name) {
     return count;
 }
 
+// The FFB mod's force direction calibration: start it; status 0 not run, 1 running, 2 done, 3 failed.
+bool FfbCalibrate() {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Calibrate") : nullptr;
+    return f && ((int(__cdecl*)())f)() != 0;
+}
+int FfbCalibrationStatus() {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_CalibrationStatus") : nullptr;
+    return f ? ((int(__cdecl*)())f)() : -1;
+}
+
 bool FfbTest() {
     HMODULE m = ExtModule(MOD_FFB);
     FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Test") : nullptr;
@@ -440,6 +452,7 @@ const Item kItems[] = {
     PAGE_("FORCE FEEDBACK"),
     BACK_,
     {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
+    {ACTION, "Calibrate force direction (hands off)", nullptr, "CalibrateFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
@@ -724,6 +737,11 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
+    if (it.kind == ACTION && strcmp(it.key, "CalibrateFfb") == 0) {
+        static const char* const kStatus[] = {"Go", "Running...", "Done", "Failed: try again"};
+        int st = FfbCalibrationStatus();
+        return st >= 0 && st <= 3 ? kStatus[st] : "Needs updated FFB mod";
+    }
     if (it.kind == ACTION) return "Go";
     if (it.kind == RESET) return s_menu.resetArmed >= 0 && Now() - s_menu.resetTime < 3.0 ? "Sure?" : "Reset";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
@@ -978,6 +996,10 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
+            return;
+        }
+        if (strcmp(it.key, "CalibrateFfb") == 0) {
+            Note(FfbCalibrate() ? "Hands off the wheel: a few short pushes each way (about 3 s)" : "Needs updated FFB mod with NativeFFB=0");
             return;
         }
         if (strcmp(it.key, "TestFfb") == 0) {
@@ -1324,6 +1346,8 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
+    if (it.kind == ACTION && strcmp(it.key, "CalibrateFfb") == 0)
+        return "Finds which way your wheel's forces go: let go of the wheel and it gets short pushes each way. Runs by itself in menus until it succeeds; use this if the forces feel wrong.";
     if (it.kind == ACTION && strcmp(it.key, "TestFfb") == 0)
         return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)

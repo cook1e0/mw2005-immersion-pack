@@ -18,6 +18,8 @@ static bool s_active;
 extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 extern "C" int __cdecl NfsmwFfb_Reset() { return s_active && Ffb_RequestReset() ? 1 : 0; }
 extern "C" int __cdecl NfsmwFfb_Test() { return s_active && Ffb_RequestTest() ? 1 : 0; }
+extern "C" int __cdecl NfsmwFfb_Calibrate() { return s_active && Ffb_RequestCalibration() ? 1 : 0; }
+extern "C" int __cdecl NfsmwFfb_CalibrationStatus() { return s_active ? Ffb_CalibrationStatus() : 0; }
 extern "C" int __cdecl NfsmwFfb_DeviceName(int index, char* out, int len) { return s_active ? Ffb_DeviceName(index, out, len) : 0; }
 extern "C" void __cdecl NfsmwFfb_MenuOpen(int open) { if (s_active) Ffb_SetMenuOpen(open != 0); }
 
