@@ -14,3 +14,6 @@ void Cockpit_Keys();
 // The physical wheel's angle in degrees (+ = right), set by the gameplay mod through
 // NfsmwVr_Setting("SteeringWheelAngle"); the player car's steering wheel is drawn turned by it.
 extern float g_steeringWheelAngle;
+// Seat movement from the gameplay mod's bindings while held: right, up, forward (-1, 0, 1) and
+// reset (1), through NfsmwVr_Setting("SeatRight" / "SeatUp" / "SeatForward" / "SeatReset").
+extern float g_seatInput[4];

@@ -4,6 +4,7 @@
 
 Config g_cfg;
 const char* const kButtonKeys[6] = {"Handbrake", "Nitrous", "Speedbreaker", "ResetCar", "Camera", "LookBack"};
+const char* const kSeatKeys[7] = {"SeatForward", "SeatBack", "SeatLeft", "SeatRight", "SeatUp", "SeatDown", "SeatReset"};
 
 static char s_dir[MAX_PATH];
 static char s_ini[MAX_PATH];
@@ -145,6 +146,7 @@ void LoadConfig() {
     c.brakeRest = ReadInt("Controls", "BrakeRest", -1);
     for (int i = 0; i < 6; i++) c.button[i] = ReadStr("Controls", kButtonKeys[i], "");
     c.recenterVr = ReadStr("Controls", "RecenterVr", "");
+    for (int i = 0; i < 7; i++) c.seat[i] = ReadStr("Controls", kSeatKeys[i], "");
     c.wheelRotation = Clamp(ReadFloat("Controls", "WheelRotation", c.wheelRotation), 90.0f, 1800.0f);
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
     c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);

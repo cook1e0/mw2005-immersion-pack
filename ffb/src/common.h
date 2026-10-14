@@ -58,6 +58,7 @@ struct Config {
     float minForce = 0.0f;          // wheel deadband compensation (0..0.2)
     float invertForce = 0.0f;       // 1 = flip constant-force direction (a 0/1 float: live from the F4 menu)
     int   steerAxis = 0;            // 0=X 1=Y 2=Z 3=RX 4=RY 5=RZ 6=Slider0
+    int   device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens
     int   updateHz = 200;
     int   keyReset = VK_F10;        // restart mod effects without restarting the game; 0 = off
     // [Calibration] - written by the mod, 0 = unknown (re-detect)

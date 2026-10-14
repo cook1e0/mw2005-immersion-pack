@@ -17,6 +17,11 @@
   wheel's drift and switches to sending the direction separately (`ForceDirection=1`) for drivers
   that ignore negative forces. `ffbtool test [n]` checks a wheel by hand; F4 has "Reverse force
   direction".
+- **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the
+  first one in Windows' order (as joy.cpl lists them); `[FFB] Device` picks another.
+- **VR seat bindings:** F4 > Controls > VR seat binds wheel or button-box buttons to move the
+  cockpit camera forward/back, left/right, up/down (held) and back to the driver's head, like the
+  numpad keys. Saved per car.
 
 **Upgrading from v0.12.1:** replace all three plugins and `ffbtool.exe`. Keep your `.ini` files.
 

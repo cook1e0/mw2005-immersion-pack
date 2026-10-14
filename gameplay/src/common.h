@@ -70,6 +70,7 @@ struct Config {
     bool  menuController = true;    // controller buttons and hats in the game's menus (needs FFB mod)
     bool  menuAxes = false;         // analog axes in menus; off prevents pedal scrolling
     std::string recenterVr;         // recentres the VR view (the VR mod's recentre key), also outside the F4 menu
+    std::string seat[7];            // VR seat (the cockpit camera), held: Seat order (input.h)
 
     // [Shifter]
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7
@@ -160,5 +161,7 @@ struct Config {
 extern Config g_cfg;
 // [Controls] ini keys of Config::button.
 extern const char* const kButtonKeys[6];
+// [Controls] ini keys of Config::seat.
+extern const char* const kSeatKeys[7];
 void LoadConfig();
 const char* IniPath();

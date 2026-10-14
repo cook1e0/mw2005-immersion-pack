@@ -250,13 +250,16 @@ const struct {
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
     {MOD_VR, "NearZ", 0.05f},
     {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
+    {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
+    {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
 };
 enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
     FFB_MENUCONTROLLER, FFB_MENUAXES,
     FFB_SAT, FFB_SPEEDCENTRE, FFB_UNDERSTEER, FFB_ROAD, FFB_SURFACE, FFB_CURBS, FFB_COLLISIONS, FFB_SCRAPES,
     FFB_LANDING, FFB_ENGINE, FFB_DAMPER, FFB_INVERT,
-    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE, EXT_COUNT
+    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
+    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -405,6 +408,14 @@ const Item kItems[] = {
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
     BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
+    HEADER_("VR SEAT (HOLD)"),
+    BINDING("Seat forward", "Controls", "SeatForward", seat[0], 0),
+    BINDING("Seat back", "Controls", "SeatBack", seat[1], 0),
+    BINDING("Seat left", "Controls", "SeatLeft", seat[2], 0),
+    BINDING("Seat right", "Controls", "SeatRight", seat[3], 0),
+    BINDING("Seat up", "Controls", "SeatUp", seat[4], 0),
+    BINDING("Seat down", "Controls", "SeatDown", seat[5], 0),
+    BINDING("Seat back to the driver's head", "Controls", "SeatReset", seat[6], 0),
     RESET_,
     RESET_GAME_,
 
@@ -1218,6 +1229,13 @@ const struct {
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
     {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
+    {&g_cfg.seat[0], "Moves the VR seat (cockpit camera) forward while held. Saved per car."},
+    {&g_cfg.seat[1], "Moves the VR seat back while held. Saved per car."},
+    {&g_cfg.seat[2], "Moves the VR seat left while held. Saved per car."},
+    {&g_cfg.seat[3], "Moves the VR seat right while held. Saved per car."},
+    {&g_cfg.seat[4], "Moves the VR seat up while held. Saved per car."},
+    {&g_cfg.seat[5], "Moves the VR seat down while held. Saved per car."},
+    {&g_cfg.seat[6], "Puts the VR seat back at the driver model's head."},
     {&g_cfg.misshiftChance, "Chance that a shift without the clutch (a misshift) damages the car. Needs car damage on."},
     {&g_cfg.misshiftDamage, "Car damage done by a damaging misshift."},
     {&g_cfg.sequential, "H-pattern shifter, or sequential shift up / shift down."},
@@ -1893,6 +1911,12 @@ void Ui_Frame() {
     InputSnapshot in = Input_Get();
     // The cockpit's steering wheel turns with the bound wheel (VR mod, also on a flat screen).
     if (float* angle = ExtSetting(VR_WHEELANGLE)) *angle = in.steerBound ? in.wheelDeg : 0.0f;
+    // VR seat bindings, held: the VR mod moves the seat while they are.
+    auto held = [&](int seat) { return (in.seatDown >> seat & 1) ? 1.0f : 0.0f; };
+    if (float* v = ExtSetting(VR_SEATRIGHT)) *v = held(SEAT_RIGHT) - held(SEAT_LEFT);
+    if (float* v = ExtSetting(VR_SEATUP)) *v = held(SEAT_UP) - held(SEAT_DOWN);
+    if (float* v = ExtSetting(VR_SEATFORWARD)) *v = held(SEAT_FORWARD) - held(SEAT_BACK);
+    if (float* v = ExtSetting(VR_SEATRESET)) *v = held(SEAT_RESET);
     // [Controls] RecenterVr works everywhere, not only while driving.
     static uint32_t recenters = in.recenters;
     if (in.recenters != recenters) {

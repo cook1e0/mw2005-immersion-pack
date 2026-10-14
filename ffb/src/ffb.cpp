@@ -332,7 +332,41 @@ static bool ReadAxis(DeviceWrap* d, double now, float* out) {
     return true;
 }
 
+// Some wheels (Fanatec) show up as two force feedback devices of the same name, and only one
+// drives the motor. [FFB] Device picks by Windows' order (the order joy.cpl lists them): the
+// game may open them in any order. -1 = whichever the game opened first.
+static GUID s_wantGuid;
+static int s_wantState;     // 0 = not looked up yet, 1 = known, -1 = not found (any device)
+
+struct FfbEnum { int index, want; GUID guid; bool found; };
+static BOOL CALLBACK NthFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
+    FfbEnum* e = (FfbEnum*)p;
+    if (e->index++ != e->want) return DIENUM_CONTINUE;
+    e->guid = inst->guidInstance;
+    e->found = true;
+    Log("ffb: using FFB device %d in Windows' order: '%s'", e->want, inst->tszProductName);
+    return DIENUM_STOP;
+}
+
+static bool IsWanted(DeviceWrap* d) {
+    if (s_wantState != 1) return false;
+    DIDEVICEINSTANCEA info = {};
+    info.dwSize = sizeof(info);
+    return SUCCEEDED(d->real->GetDeviceInfo(&info)) && info.guidInstance == s_wantGuid;
+}
+
 static DeviceWrap* PickDevice() {
+    if (!s_wantState && s_di) {
+        s_wantState = -1;
+        if (g_cfg.device >= 0) {
+            FfbEnum e = {0, g_cfg.device, {}, false};
+            s_di->EnumDevices(DI8DEVCLASS_GAMECTRL, NthFfbDeviceCb, &e, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
+            if (e.found) { s_wantGuid = e.guid; s_wantState = 1; }
+            else Log("ffb: no FFB device %d, using the first one the game opens", g_cfg.device);
+        }
+    }
+    for (int i = 0; i < s_numDevs; ++i)
+        if (s_devs[i]->acquired && s_devs[i]->exclusive && IsWanted(s_devs[i])) return s_devs[i];
     if (s_fx.dev && s_fx.dev->acquired && s_fx.dev->exclusive) return s_fx.dev;
     for (int i = 0; i < s_numDevs; ++i)
         if (s_devs[i]->acquired && s_devs[i]->exclusive) return s_devs[i];

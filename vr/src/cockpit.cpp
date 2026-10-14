@@ -28,6 +28,7 @@
 #include <vector>
 
 float g_steeringWheelAngle = 0.0f;
+float g_seatInput[4] = {};
 
 namespace {
 
@@ -824,7 +825,8 @@ void Cockpit_Keys() {
     float dt = (float)std::min(now - last, 0.1);
     last = now;
     if (!g_cfg.seat || s_offsetCar.empty() || !GameFocused()) return;
-    if (Held(g_cfg.keySeatReset)) {
+    bool reset = Held(g_cfg.keySeatReset) || g_seatInput[3] > 0.5f;
+    if (reset) {
         s_offset[0] = s_offset[1] = s_offset[2] = 0;
         s_offsetDirty = true;
     }
@@ -834,9 +836,10 @@ void Cockpit_Keys() {
     bool moving = false;
     for (int a = 0; a < 3; a++) {
         int dir = (Held(keys[a][1]) ? 1 : 0) - (Held(keys[a][0]) ? 1 : 0);
+        if (!dir && g_seatInput[a] != 0.0f) dir = g_seatInput[a] > 0 ? 1 : -1;
         if (!dir) continue;
         s_offset[a] = std::max(-kSeatLimit, std::min(kSeatLimit, s_offset[a] + dir * kSeatSpeed * dt));
         moving = s_offsetDirty = true;
     }
-    if (s_offsetDirty && !moving && !Held(g_cfg.keySeatReset)) SaveOffset();
+    if (s_offsetDirty && !moving && !reset) SaveOffset();
 }

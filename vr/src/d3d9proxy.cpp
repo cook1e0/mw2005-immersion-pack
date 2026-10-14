@@ -630,6 +630,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "ScreenDistance")) return &g_cfg.screenDistance;
     if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;
     if (!strcmp(name, "SteeringWheelAngle")) return &g_steeringWheelAngle;
+    if (!strcmp(name, "SeatRight")) return &g_seatInput[0];
+    if (!strcmp(name, "SeatUp")) return &g_seatInput[1];
+    if (!strcmp(name, "SeatForward")) return &g_seatInput[2];
+    if (!strcmp(name, "SeatReset")) return &g_seatInput[3];
     return nullptr;
 }
 

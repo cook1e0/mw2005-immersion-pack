@@ -8,7 +8,7 @@ static InputSnapshot s_snap;
 static volatile LONG s_started;
 
 static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_recenter, s_nav[4];
-static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT];
+static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT], s_seat[SEAT_COUNT];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -71,6 +71,7 @@ static void ParseAll() {
     parse("Accelerate", g_cfg.throttle, s_pedal[0]);
     parse("Brake", g_cfg.brake, s_pedal[1]);
     for (int i = 0; i < BTN_COUNT; i++) parse(kButtonKeys[i], g_cfg.button[i], s_button[i]);
+    for (int i = 0; i < SEAT_COUNT; i++) parse(kSeatKeys[i], g_cfg.seat[i], s_seat[i]);
 
     s_cal.resize(s_clutch.size());
     for (size_t i = 0; i < s_clutch.size(); i++) {
@@ -436,11 +437,13 @@ static DWORD WINAPI InputThread(LPVOID) {
         bool pedalBound[2];
         pedalBound[0] = ReadPedal(s_pedal[0], g_cfg.throttleRest, focus, &pedals[0]);
         pedalBound[1] = ReadPedal(s_pedal[1], g_cfg.brakeRest, focus, &pedals[1]);
-        uint32_t buttonBound = 0, buttonDown = 0;
+        uint32_t buttonBound = 0, buttonDown = 0, seatDown = 0;
         for (int i = 0; i < BTN_COUNT; i++) {
             if (AnyUsable(s_button[i])) buttonBound |= 1u << i;
             if (AnyDown(s_button[i], focus)) buttonDown |= 1u << i;
         }
+        for (int i = 0; i < SEAT_COUNT; i++)
+            if (AnyDown(s_seat[i], focus)) seatDown |= 1u << i;
 
         EnterCriticalSection(&s_lock);
         s_snap.steerBound = steerBound;
@@ -452,6 +455,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         }
         s_snap.buttonBound = buttonBound;
         s_snap.buttonDown = buttonDown;
+        s_snap.seatDown = seatDown;
         s_snap.clutchBound = clutchBound;
         s_snap.clutchPedal = pedal;
         s_snap.shifterBound = shifterBound;
