@@ -51,6 +51,40 @@ struct MenuResetQueue {
 
     void Reset() { mode = -1; pending.clear(); }
 
+    // Refresh deferred snapshots from the current state. Buffered events can still
+    // contain a backlog older than the snapshot, including events from the pause.
+    void Refresh(const void* state, DWORD size, const std::vector<MenuObject>& objects) {
+        for (auto& e : pending) {
+            for (const auto& o : objects) {
+                if (o.offset != e.dwOfs || o.offset > size || o.Size() > size - o.offset) continue;
+                e.dwData = 0;
+                memcpy(&e.dwData, (const uint8_t*)state + o.offset, o.Size());
+                if (mode == 2 || (mode == 1 && o.Axis())) e.dwData = o.neutral;
+                break;
+            }
+        }
+    }
+
+    // A current snapshot is redundant if the last real event already reports it.
+    // PEEK leaves that event in the driver queue, so invalidation is safe there too.
+    void DiscardSuperseded(DWORD stride, const void* events, DWORD count) {
+        if (!events || stride < 16) return;
+        for (auto p = pending.begin(); p != pending.end();) {
+            bool found = false;
+            DWORD last = 0;
+            for (DWORD i = 0; i < count; ++i) {
+                const uint8_t* event = (const uint8_t*)events + (size_t)i * stride;
+                DWORD offset;
+                memcpy(&offset, event, sizeof(offset));
+                if (offset != p->dwOfs) continue;
+                memcpy(&last, event + offsetof(DIDEVICEOBJECTDATA, dwData), sizeof(last));
+                found = true;
+            }
+            if (found && last == p->dwData) p = pending.erase(p);
+            else ++p;
+        }
+    }
+
     void Change(int next, const void* state, DWORD size, const std::vector<MenuObject>& objects) {
         if (next == mode) return;
         int previous = mode;

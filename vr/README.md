@@ -10,14 +10,33 @@ Native OpenXR VR mod for *Need for Speed: Most Wanted* (2005, PC) with full ster
 ## Install
 
 1. With [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader) (`dinput8.dll`, in the release zip)
-   next to `speed.exe`, copy `nfsmw_vr.asi` and `nfsmw_vr.ini` into the `scripts` folder and `nfsmw_vr_host.exe`
+   next to `speed.exe`, copy `nfsmw_vr.asi` and `nfsmw_vr.ini` into the `scripts` folder and `nfsmw_vr_host.exe` plus `nfsmw_crashdump.exe`
    next to `speed.exe`. Without a loader, rename `nfsmw_vr.asi` to `d3d9.dll` and put it and the `.ini` next to `speed.exe`.
 2. Connect your headset, then launch the game.
 
 With ThirteenAG's widescreen fix, its end-of-frame colour pass (`ConsoleGamma`, `SMAA`) and edge lines (`HideAABug`) are
 skipped on the HUD layer in VR, where they would black out or frame the menu and HUD panel; the headset view never had them.
 
-To uninstall, delete `nfsmw_vr.asi` (or `d3d9.dll`), `nfsmw_vr_host.exe` and `nfsmw_vr.ini`. If something goes wrong, check `nfsmw_vr.log` in the game folder.
+To uninstall, delete `nfsmw_vr.asi` (or `d3d9.dll`), `nfsmw_vr_host.exe`, `nfsmw_crashdump.exe` and `nfsmw_vr.ini`. If something goes wrong, check `nfsmw_vr.log` in the game folder.
+
+## Crash diagnostics
+
+With `nfsmw_crashdump.exe` next to `speed.exe`, crash capture is enabled by default; existing ini
+files need no changes. After an unhandled game crash, send these files from the game folder:
+
+- `nfsmw_crash.dmp` and `nfsmw_crash.txt`
+- `nfsmw_vr.log`, `nfsmw_vr_host.log` (if present), and `nfsmw_crashdump.log`
+
+The helper starts automatically, needs no administrator setup, and exits when the game exits.
+The latest crash replaces the previous dump and report. Copy them before another crash; logs
+are replaced when the game starts. If the game folder cannot be written, the helper tries
+`%TEMP%\nfsmw_crash_<pid>.dmp` and `.txt`; its log records the path.
+
+These files stay on the computer; nothing is uploaded. Dumps contain portions of game memory.
+Set `[VR] CrashDumps=0` to disable capture. Missing or failed helpers leave the game playable and
+are reported in `nfsmw_vr.log`. Capture covers unhandled exceptions after graphics initialisation;
+forced process termination, hangs, and another component replacing the exception filter may
+require an external dump tool.
 
 ## Runtimes
 
@@ -121,10 +140,16 @@ Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Be
 
 ## Building
 
-Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` (released as `nfsmw_vr.asi`) and `bin\nfsmw_vr_host.exe`.
+Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` (released as `nfsmw_vr.asi`), `bin\nfsmw_vr_host.exe`, and the x86 `bin\nfsmw_crashdump.exe`. Keep the generated PDB files with the matching build for dump analysis.
 
-Run `tests\run.cmd` for the x86 cockpit regression harness. It exercises the production camera
-code with a synthetic game layout; it does not launch or modify the game.
+Run `tests\run.cmd` for cockpit, required-hook validation and OpenXR frame regressions.
+They exercise production code with a synthetic game layout and fake runtime calls;
+they do not launch or modify the game. Incompatible required render hooks leave VR inactive;
+an existing valid resolution detour (such as the widescreen fix's) is chained.
+
+Run `tests\crash_run.ps1` for crash-capture integration tests. They use a synthetic x86 process,
+check the dump's exception/context/module/thread streams, and cover handled exceptions, normal
+exit, disabled capture, and a missing helper. Test outputs stay under `dist\validation`.
 
 ## Credits
 

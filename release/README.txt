@@ -8,7 +8,7 @@ the same loader the widescreen fix and most other NFS mods use.
    widescreen fix), and create a "scripts" folder there if there is none.
 2. Copy the mods you want:
 
-  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini, and nfsmw_vr_host.exe next to
+  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
                    speed.exe
                    (Virtual Desktop, SteamVR or Meta Quest Link; for SteamVR set it as the
                    OpenXR runtime in SteamVR's settings and run Room Setup once)
@@ -20,6 +20,14 @@ the same loader the widescreen fix and most other NFS mods use.
 
 Each mod works on its own or together with the others. To uninstall, delete its .asi.
 Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
+
+Crash capture: install nfsmw_crashdump.exe next to speed.exe. After an unhandled game crash,
+send nfsmw_crash.dmp + nfsmw_crash.txt and the nfsmw_*.log files from the game folder.
+Capture is automatic with existing ini files, requires no administrator setup and uploads
+nothing. The latest crash replaces the previous dump/report; copy logs before restarting.
+Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
+If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
+nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
 Upgrading from v0.11.0: replace scripts\nfsmw_ffb.asi and scripts\nfsmw_gameplay.asi. Keep
 your existing .ini files and bindings. Analog axes are now ignored in game menus by default,

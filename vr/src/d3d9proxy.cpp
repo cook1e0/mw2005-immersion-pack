@@ -11,6 +11,7 @@
 #include "xr.h"
 #include "spectator.h"
 #include "cockpit.h"
+#include "crash.h"
 
 #include <d3d9.h>
 #include "d3d9device_gen.h"
@@ -502,6 +503,7 @@ bool D3D_EnsureXr() {
     static bool attempted;
     if (attempted || !g_cfg.enabled) return s_xr;
     attempted = true;
+    Crash_Initialize();
     LUID luid = {};
     auto create9ex = Real<HRESULT(WINAPI*)(UINT, IDirect3D9Ex**)>("Direct3DCreate9Ex");
     IDirect3D9Ex* ex = nullptr;
@@ -692,13 +694,15 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         if (!LoadedAsProxy(inst) && proxy && GetProcAddress(proxy, "NfsmwVr_Loaded")) return TRUE;
         LogInit();
         Log("NFSMW VR mod loaded");
-        AddVectoredExceptionHandler(0, CrashLogger);
         LoadConfig();
+        if (g_cfg.enabled && !Game_ValidateHooks()) g_cfg.enabled = false;
         if (g_cfg.enabled && !LoadedAsProxy(inst) && !PatchImport()) g_cfg.enabled = false;
         if (g_cfg.enabled) {
-            s_active = true;
-            Game_InstallHooks();
-            Cockpit_Install();
+            if (Game_InstallHooks()) {
+                s_active = true;
+                AddVectoredExceptionHandler(0, CrashLogger);
+                Cockpit_Install();
+            } else g_cfg.enabled = false;
         }
     }
     return TRUE;

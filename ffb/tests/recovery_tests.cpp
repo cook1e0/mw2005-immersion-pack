@@ -1,0 +1,252 @@
+// Production FFB engine and wrapper against an in-memory driver. No hardware,
+// game process, foreground-window manipulation or FFB worker thread is used.
+#include "../src/dinput_wrap.cpp"
+#include "../src/ffb.cpp"
+#include <assert.h>
+#include <algorithm>
+#include <stdio.h>
+#include <vector>
+Config g_cfg;
+static double testTime = 1;
+double Now() { return testTime; }
+void Log(const char*, ...) {}
+void SaveCalibration(int, int, int) {}
+void Telemetry_Get(Telemetry* out) { memset(out, 0, sizeof(*out)); }
+
+struct Driver;
+struct TestEffect : IDirectInputEffect {
+    Driver* driver;
+    bool playing = false, downloaded = true;
+    HRESULT startResult = DI_OK, parameterResult = DI_OK, statusResult = DI_OK;
+    LONG magnitude = 0;
+    TestEffect(Driver* d) : driver(d) {}
+    STDMETHOD(QueryInterface)(REFIID, void**) override { return E_NOINTERFACE; }
+    STDMETHOD_(ULONG, AddRef)() override { return 1; }
+    STDMETHOD_(ULONG, Release)() override;
+    STDMETHOD(Initialize)(HINSTANCE, DWORD, REFGUID) override { return DI_OK; }
+    STDMETHOD(GetEffectGuid)(GUID*) override { return DI_OK; }
+    STDMETHOD(GetParameters)(DIEFFECT*, DWORD) override { return DI_OK; }
+    STDMETHOD(SetParameters)(const DIEFFECT*, DWORD) override;
+    STDMETHOD(Start)(DWORD, DWORD) override;
+    STDMETHOD(Stop)() override { playing = false; return DI_OK; }
+    STDMETHOD(GetEffectStatus)(DWORD* status) override {
+        if (!downloaded) return DIERR_NOTDOWNLOADED;
+        *status = playing ? DIEGES_PLAYING : 0;
+        return statusResult;
+    }
+    STDMETHOD(Download)() override { downloaded = true; return DI_OK; }
+    STDMETHOD(Unload)() override { downloaded = playing = false; return DI_OK; }
+    STDMETHOD(Escape)(DIEFFESCAPE*) override { return DI_OK; }
+};
+struct Driver {
+    void** vtable;
+    bool acquired = false, constantOnly = false;
+    HRESULT acquireResult = DI_OK, stateResult = DI_OK, pollResult = DI_OK;
+    DWORD state = DIGFFS_ACTUATORSON | DIGFFS_POWERON | DIGFFS_SAFETYSWITCHON | DIGFFS_USERFFSWITCHON;
+    int acquires = 0, unacquires = 0, creates = 0, releases = 0, starts = 0, enables = 0;
+    std::vector<TestEffect*> effects;
+    void StopAll() { for (auto* e : effects) e->playing = false; }
+};
+ULONG TestEffect::Release() {
+    auto& list = driver->effects;
+    list.erase(std::find(list.begin(), list.end(), this));
+    ++driver->releases; delete this; return 0;
+}
+HRESULT TestEffect::SetParameters(const DIEFFECT* effect, DWORD) {
+    if (!driver->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
+    if (parameterResult == DIERR_INPUTLOST) driver->acquired = false;
+    if (parameterResult != DI_OK) return parameterResult;
+    magnitude = *(const LONG*)effect->lpvTypeSpecificParams;
+    downloaded = true;
+    return DI_OK;
+}
+HRESULT TestEffect::Start(DWORD iterations, DWORD flags) {
+    assert(iterations == 1 && flags == 0); // Must allow automatic download.
+    ++driver->starts;
+    assert(magnitude == 0); // Old driving torque must be cleared before restart.
+    if (!driver->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
+    if (startResult == DIERR_INPUTLOST) driver->acquired = false;
+    if (FAILED(startResult)) return startResult;
+    downloaded = playing = true;
+    return DI_OK;
+}
+static Driver* D(IDirectInputDevice8A* self) { return (Driver*)self; }
+static ULONG WINAPI ReleaseDevice(IDirectInputDevice8A*) { return 0; }
+static HRESULT WINAPI AcquireDevice(IDirectInputDevice8A* self) {
+    Driver* d = D(self); ++d->acquires;
+    if (SUCCEEDED(d->acquireResult)) d->acquired = true;
+    return d->acquireResult;
+}
+static HRESULT WINAPI UnacquireDevice(IDirectInputDevice8A* self) {
+    Driver* d = D(self); ++d->unacquires; d->acquired = false; d->StopAll(); return DI_OK;
+}
+static HRESULT WINAPI Property(IDirectInputDevice8A*, REFGUID, const DIPROPHEADER*) { return DI_OK; }
+static HRESULT WINAPI Range(IDirectInputDevice8A*, REFGUID, DIPROPHEADER* p) {
+    auto* range = (DIPROPRANGE*)p; range->lMin = -10000; range->lMax = 10000; return DI_OK;
+}
+static HRESULT WINAPI DeviceState(IDirectInputDevice8A* self, DWORD size, void* out) {
+    if (!D(self)->acquired) return DIERR_NOTACQUIRED;
+    memset(out, 0, size); return DI_OK;
+}
+static HRESULT WINAPI PollDevice(IDirectInputDevice8A* self) { return D(self)->pollResult; }
+static HRESULT WINAPI ForceState(IDirectInputDevice8A* self, DWORD* out) {
+    Driver* d = D(self);
+    if (!d->acquired) return DIERR_NOTACQUIRED;
+    *out = d->state; return d->stateResult;
+}
+static HRESULT WINAPI Command(IDirectInputDevice8A* self, DWORD command) {
+    Driver* d = D(self);
+    if (!d->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
+    if (command == DISFFC_SETACTUATORSON) {
+        ++d->enables; d->state &= ~DIGFFS_ACTUATORSOFF; d->state |= DIGFFS_ACTUATORSON;
+    }
+    if (command == DISFFC_CONTINUE) d->state &= ~DIGFFS_PAUSED;
+    return DI_OK;
+}
+static HRESULT WINAPI Create(IDirectInputDevice8A* self, REFGUID kind, const DIEFFECT*, IDirectInputEffect** out, IUnknown*) {
+    Driver* d = D(self);
+    if (!d->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
+    if (d->constantOnly && kind != GUID_ConstantForce) return DIERR_UNSUPPORTED;
+    ++d->creates;
+    auto* fx = new TestEffect(d); d->effects.push_back(fx); *out = fx; return DI_OK;
+}
+static DeviceWrap* Open(Driver& driver) {
+    auto* d = new DeviceWrap((IDirectInputDevice8A*)&driver);
+    strcpy(d->name, "Test wheel");
+    d->exclusive = d->acquireWanted = true;
+    d->axisOfs = 0; d->dataSize = sizeof(LONG);
+    Ffb_RegisterDevice(d);
+    return d;
+}
+static DeviceWrap* Service(double now, bool focus = true, bool manual = false) {
+    testTime = now; return ServiceEffects(now, focus, manual);
+}
+int main() {
+    InitializeCriticalSection(&g_diLock);
+    void* vt[32] = {};
+    vt[2] = (void*)&ReleaseDevice; vt[5] = (void*)&Range; vt[6] = (void*)&Property;
+    vt[7] = (void*)&AcquireDevice; vt[8] = (void*)&UnacquireDevice; vt[9] = (void*)&DeviceState;
+    vt[18] = (void*)&Create; vt[21] = (void*)&ForceState; vt[22] = (void*)&Command; vt[25] = (void*)&PollDevice;
+    Driver driver = {}; driver.vtable = vt;
+    DeviceWrap* d = Open(driver);
+    assert(Service(1) == d && driver.acquires == 1 && driver.starts == 5 && driver.creates == 5);
+    assert(Service(1.1) == d && Service(1.6) == d && driver.starts == 5);
+
+    // Alt-Tab, including an explicit game Unacquire. No retries/forces in the background.
+    assert(!Service(1.7, false));
+    d->Unacquire();
+    int acquired = driver.acquires;
+    assert(!Service(1.9, false) && driver.acquires == acquired);
+    driver.acquireResult = S_FALSE;
+    LONG gen = d->acquireGen;
+    assert(Service(2) == d && d->acquireGen == gen + 1 && driver.starts == 10 && driver.creates == 5);
+    driver.acquireResult = DI_OK;
+
+    // F4-like silent effect stop while input access still appears healthy.
+    driver.StopAll();
+    assert(Service(2.6) == d && driver.starts == 15 && driver.acquires == acquired + 1);
+    auto* spring = (TestEffect*)s_fx.spring;
+    SetCondition(spring, s_fx.springCoef, 0.5f);
+    assert(s_fx.springCoef == 5000);
+    spring->parameterResult = DIERR_INPUTLOST;
+    SetCondition(spring, s_fx.springCoef, 0.6f);
+    assert(s_fx.springCoef == 5000 && !d->acquired && !s_fx.ready);
+    spring->parameterResult = DI_OK;
+    assert(Service(3.2) == d && driver.starts == 20);
+
+    // Failed Start must remain pending and be retried without a 200 Hz busy loop.
+    driver.StopAll();
+    auto* constant = (TestEffect*)s_fx.constant;
+    constant->startResult = DIERR_INPUTLOST;
+    assert(!Service(3.8) && !s_fx.ready && !d->acquired);
+    int starts = driver.starts;
+    for (int i = 0; i < 10; ++i) assert(!Service(3.9 + i * 0.01));
+    assert(driver.starts == starts);
+    constant->startResult = DI_OK;
+    assert(Service(5.9) == d && s_fx.ready);
+
+    // An intentional foreground Unacquire is respected until a new Acquire.
+    d->Unacquire(); acquired = driver.acquires;
+    assert(!Service(6) && driver.acquires == acquired);
+    driver.acquireResult = DIERR_OTHERAPPHASPRIO;
+    d->Acquire();
+    assert(!Service(6.1));
+    acquired = driver.acquires;
+    for (int i = 0; i < 10; ++i) assert(!Service(6.12 + i * 0.01));
+    assert(driver.acquires == acquired);
+    driver.acquireResult = DI_OK;
+    assert(Service(6.7) == d);
+
+    // Explicit reset reconstructs effects, while preserving calibration.
+    S.forceSign = 1; S.slip.sign = -1; S.right.sign = 1;
+    s_started = 1;
+    assert(Ffb_RequestReset() && s_resetRequested == 1);
+    int creates = driver.creates;
+    assert(Service(7, true, InterlockedExchange(&s_resetRequested, 0) != 0) == d);
+    assert(driver.creates == creates + 5 && driver.releases == 5);
+    assert(S.forceSign == 1 && S.slip.sign == -1 && S.right.sign == 1);
+    Out forces; forces.constant = 0.5f; forces.spring = 0.3f;
+    Apply(forces, 7);
+    assert(((TestEffect*)s_fx.constant)->magnitude == 0);
+    Apply(forces, 7.125);
+    assert(((TestEffect*)s_fx.constant)->magnitude > 0 && ((TestEffect*)s_fx.constant)->magnitude < 5000);
+    Apply(forces, 7.3);
+    assert(((TestEffect*)s_fx.constant)->magnitude == 5000);
+    // Disabled physical switches must not be overridden by software recovery.
+    driver.state |= DIGFFS_SAFETYSWITCHOFF;
+    int enabled = driver.enables; starts = driver.starts;
+    assert(!Service(7.6) && !Service(7.8));
+    assert(driver.enables == enabled && driver.starts == starts);
+    driver.state &= ~DIGFFS_SAFETYSWITCHOFF;
+    assert(Service(8.2) == d);
+
+    // Unsupported health queries should not restart healthy effects.
+    driver.stateResult = DIERR_UNSUPPORTED;
+    for (auto* e : driver.effects) e->statusResult = DIERR_UNSUPPORTED;
+    starts = driver.starts;
+    assert(Service(8.8) == d && driver.starts == starts);
+    driver.stateResult = DI_OK;
+    for (auto* e : driver.effects) e->statusResult = DI_OK;
+
+    // Lost downloads are restored even when the device handle remains acquired.
+    for (auto* e : driver.effects) e->downloaded = e->playing = false;
+    assert(Service(9.4) == d && driver.starts == starts + 5);
+    auto* sine = (TestEffect*)s_fx.sine;
+    sine->parameterResult = DI_DOWNLOADSKIPPED;
+    DWORD oldMag = s_fx.sineMag;
+    SetSine(0.3f, 30);
+    assert(s_fx.sineMag == oldMag && !d->acquired && !s_fx.ready);
+    sine->parameterResult = DI_OK;
+    assert(Service(10) == d);
+
+    // Poll loss uses the same recovery, and malformed axis offsets are rejected.
+    float axis;
+    d->axisOfs = 4096;
+    assert(!ReadAxis(d, testTime, &axis));
+    d->axisOfs = 0;
+    driver.pollResult = DIERR_INPUTLOST;
+    assert(!ReadAxis(d, testTime, &axis) && !d->acquired);
+    driver.pollResult = DI_OK;
+    assert(Service(10.6) == d);
+
+    // F4 may temporarily unacquire the controller without losing OS focus.
+    Ffb_SetMenuOpen(true);
+    d->Unacquire();
+    assert(Service(11.2) == d && d->acquireWanted);
+    Ffb_SetMenuOpen(false);
+    d->Unacquire();
+    assert(Service(11.8) == d && s_menuOpen == 0);
+
+    // Native/disabled configurations refuse our reset API.
+    g_cfg.nativeFfb = true; assert(!Ffb_RequestReset()); g_cfg.nativeFfb = false;
+    g_cfg.enabled = false; assert(!Ffb_RequestReset()); g_cfg.enabled = true;
+    d->Release(); assert(driver.effects.empty() && s_numDevs == 0);
+
+    // Wheels supporting only constant force still work without retry storms.
+    Driver limited = {}; limited.vtable = vt; limited.constantOnly = true;
+    d = Open(limited);
+    assert(Service(12.4) == d && limited.starts == 1);
+    assert(Service(13.4) == d && limited.starts == 1);
+    d->Release(); assert(limited.effects.empty());
+    puts("FFB recovery tests passed");
+}

@@ -72,5 +72,43 @@ int main() {
     assert(reset.Append(16, nullptr, 0, INFINITE, false) == 5 && reset.pending.empty());
     reset.Reset();
     assert(reset.mode == -1);
+
+    // Resume with a held pedal, then release it while the synthetic queue is still pending.
+    reset.Change(1, &js, sizeof(js), objects);
+    reset.Append(sizeof(resetEvents[0]), resetEvents, 0, 8, false);
+    reset.Change(0, &js, sizeof(js), objects);
+    resetEvents[0].dwOfs = DIJOFS_Y;
+    resetEvents[0].dwData = 0;
+    js.lY = 0;
+    reset.Refresh(&js, sizeof(js), objects);
+    reset.DiscardSuperseded(sizeof(resetEvents[0]), resetEvents, 1);
+    assert(reset.Append(sizeof(resetEvents[0]), resetEvents, 1, 1, false) == 1);
+    assert(resetEvents[0].dwData == 0);
+    assert(reset.Append(sizeof(resetEvents[0]), resetEvents, 0, 8, false) == 2);
+    for (int i = 0; i < 2; ++i) assert(resetEvents[i].dwOfs != DIJOFS_Y);
+
+    // PEEK invalidates old snapshots without consuming unaffected snapshots or real events.
+    reset.Change(1, &js, sizeof(js), objects);
+    reset.Change(0, &js, sizeof(js), objects);
+    DWORD released[1][4] = {{DIJOFS_Y, 0, 42, 43}};
+    reset.DiscardSuperseded(16, released, 1);
+    assert(reset.pending.size() == 2 && released[0][1] == 0);
+    assert(reset.Append(sizeof(resetEvents[0]), resetEvents, 0, 8, true) == 2);
+    assert(reset.pending.size() == 2);
+    reset.DiscardSuperseded(16, nullptr, INFINITE);
+
+    // Old events in the driver's backlog cannot replace a newer snapshot.
+    js.lY = 65535;
+    reset.Change(1, &js, sizeof(js), objects);
+    reset.Change(0, &js, sizeof(js), objects);
+    reset.Refresh(&js, sizeof(js), objects);
+    reset.DiscardSuperseded(16, released, 1);
+    assert(reset.pending.size() == 3);
+    // Compare the last event for each object, rather than an earlier matching event.
+    DWORD backlog[2][4] = {{DIJOFS_Y, 65535, 1, 1}, {DIJOFS_Y, 0, 2, 2}};
+    reset.DiscardSuperseded(16, backlog, 2);
+    assert(reset.pending.size() == 3);
+    assert(reset.Append(sizeof(resetEvents[0]), resetEvents, 0, 8, false) == 3);
+    assert(resetEvents[1].dwData == 65535);
     puts("menu input tests passed");
 }

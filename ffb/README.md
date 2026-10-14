@@ -39,6 +39,21 @@ position and saves the results in `nfsmw_ffb.ini` `[Calibration]`:
 
 Watch `nfsmw_ffb.log` for `calibration:` lines. Set the values back to `0` to re-detect.
 
+## Recovery and restart
+
+After Alt-Tab, the mod reacquires wheels that were previously working and restores their
+effects automatically. It also checks for stopped or unloaded effects twice per second,
+including while the gameplay mod's F4 menu is open. Failed starts and parameter updates are
+retried with a delay. Forces stop while the game is unfocused and return gradually after recovery.
+
+If a driver still gets stuck, press **F10**, or use **F4 > Force Feedback > Restart wheel force
+feedback** with the updated gameplay mod. This reacquires the wheel and rebuilds the mod's effects;
+your saved calibration and tuning are kept. `[FFB] KeyReset` changes the hotkey (`0` disables it).
+The restart option requires this mod's effects (`NativeFFB=0`); it does not reset the game's own
+effects in native mode. Recovery leaves physical power and safety switches under the wheel's control.
+
+Check `nfsmw_ffb.log` for `recovery scheduled`, `wheel effects recovered` and `manual restart` lines.
+
 ## Tuning
 
 Everything is in `nfsmw_ffb.ini` (commented). Start with `Gain`, then `SelfAligningTorque`.
@@ -54,7 +69,7 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
   with a hook that samples the player car through the game's `ISuspension` / `IEngine` vtables,
   then calls the original.
 - With the gameplay mod's `[Controls] GameController=0`, every controller the game opens is wrapped
-  and reads as untouched (its first state, buttons up, hats centred), so the game ignores it in
+  and reads as untouched (axes centred in the game's ranges, buttons up, hats centred), so the game ignores it in
   driving and menus while the gameplay mod feeds the controls. The F4 menu changes it live
   through the `NfsmwFfb_Setting` export (also Gain, the centring spring and SoftLock).
 - `src/ffb.cpp`: a 200 Hz thread that turns the latest telemetry into constant, spring,
@@ -75,6 +90,8 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
 MSYS2 with the mingw32 toolchain: `./build.sh` (`./build.sh install` copies into `C:\Games\NFSMW`,
 or `$NFSMW_DIR`).
 
-Menu input regression tests (mingw32):
-`g++ -std=c++17 -O2 -Wall -static -o build/menu_input_tests.exe tests/menu_input_tests.cpp`,
-then run `build/menu_input_tests.exe`.
+Input regression tests (mingw32): `./tests/run.sh`. They check menu transitions,
+deferred buffered events, controller suppression and live re-enabling using a synthetic
+game layout and fake DirectInput device, plus effect recovery with a simulated driver
+(focus loss, stopped/download-lost effects, failed operations and manual restart).
+They do not access a physical wheel.

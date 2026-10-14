@@ -17,6 +17,7 @@ void Log(const char* fmt, ...);
 // ---------------------------------------------------------------------------
 struct Config {
     bool  enabled = true;          // master switch; false = plain passthrough d3d9
+    bool  crashDumps = true;        // save local diagnostics on an unhandled game exception
     bool  forceWindowed = true;    // keep the desktop usable while in the headset
     bool  disableVSync = true;     // the headset paces frames, not the monitor
     float worldScale = 1.0f;       // multiplies head translation (game units are metres)

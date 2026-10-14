@@ -93,6 +93,7 @@ void LoadConfig() {
     ConfigFile("nfsmw_vr.ini", ini, true);
     Config& c = g_cfg;
     c.enabled = ReadInt(ini, "Enabled", c.enabled) != 0;
+    c.crashDumps = ReadInt(ini, "CrashDumps", c.crashDumps) != 0;
     c.forceWindowed = ReadInt(ini, "ForceWindowed", c.forceWindowed) != 0;
     c.disableVSync = ReadInt(ini, "DisableVSync", c.disableVSync) != 0;
     c.worldScale = ReadFloat(ini, "WorldScale", c.worldScale);

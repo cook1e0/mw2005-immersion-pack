@@ -72,7 +72,7 @@ void DeviceWrap::RefreshMenuRanges() {
         r.diph.dwHow = DIPH_BYOFFSET;
         r.diph.dwObj = o.offset;
         o.neutral = SUCCEEDED(real->GetProperty(DIPROP_RANGE, &r.diph))
-            ? MenuAxisCenter(r.lMin, r.lMax) : 32767;
+            ? MenuAxisCenter(r.lMin, r.lMax) : 0; // Optional absent axes: the game's zero input.
     }
 }
 
@@ -103,7 +103,6 @@ ULONG DeviceWrap::Release() {
         Lock l;
         if (ffbDevice) Ffb_UnregisterDevice(this);
         real->Release();
-        delete[] restState;
         Log("dinput: released '%s'", name);
         delete this;
     }
@@ -132,13 +131,13 @@ HRESULT DeviceWrap::SetProperty(REFGUID a, LPCDIPROPHEADER b) {
 }
 HRESULT DeviceWrap::Acquire() {
     Lock l;
+    acquireWanted = true;
     HRESULT hr = real->Acquire();
-    if (hr == DI_OK) {
+    if (SUCCEEDED(hr)) {
+        bool fresh = !acquired || hr == DI_OK;
         if (!acquired) Log("dinput: '%s' acquired (exclusive=%d)", name, exclusive);
         acquired = true;
-        acquireGen++;
-    } else if (hr == S_FALSE) {
-        acquired = true;
+        if (fresh) acquireGen++;
     } else {
         acquired = false;
     }
@@ -148,6 +147,7 @@ HRESULT DeviceWrap::Unacquire() {
     Lock l;
     if (acquired) Log("dinput: '%s' unacquired", name);
     acquired = false;
+    acquireWanted = false;
     return real->Unacquire();
 }
 HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
@@ -155,23 +155,13 @@ HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
     HRESULT hr = real->GetDeviceState(a, b);
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
     if (FAILED(hr) || !b) return hr;
-    if (!restState || restSize != a) {
-        // First reading in this format: the controller at rest. For the standard joystick
-        // formats, release the buttons and centre the hats.
-        delete[] restState;
-        restState = new uint8_t[a];
-        restSize = a;
-        memcpy(restState, b, a);
-        if (a == sizeof(DIJOYSTATE) || a == sizeof(DIJOYSTATE2)) {
-            DIJOYSTATE* js = (DIJOYSTATE*)restState;
-            for (int i = 0; i < 4; i++) js->rgdwPOV[i] = 0xFFFFFFFF;
-            memset(js->rgbButtons, 0, sizeof(js->rgbButtons));
-            if (a == sizeof(DIJOYSTATE2)) memset(((DIJOYSTATE2*)restState)->rgbButtons + 32, 0, 96);
-        }
-    }
-    if (GameInputHidden()) memcpy(b, restState, a);
-    if (GameInMenus()) {
-        bool all = GameInputHidden() || g_cfg.menuController < 0.5f;
+    if (GameInputHidden()) {
+        // The game sets joystick axes to -10000..10000 (v1.3, 0x6D8270);
+        // their centre is zero input, regardless of what was held on the first read.
+        memset(b, 0, a);
+        NeutralizeMenuState(b, a, menuObjects, true);
+    } else if (GameInMenus()) {
+        bool all = g_cfg.menuController < 0.5f;
         if (all || g_cfg.menuAxes < 0.5f) NeutralizeMenuState(b, a, menuObjects, all);
     }
     return hr;
@@ -183,19 +173,21 @@ HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DW
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
     if (SUCCEEDED(hr) && c) {
         int mode = 0;
-        if (GameInMenus()) {
-            bool all = GameInputHidden() || g_cfg.menuController < 0.5f;
+        if (GameInputHidden()) {
+            mode = 2;
+            NeutralizeMenuEvents(a, b, *c, menuObjects, true);
+        } else if (GameInMenus()) {
+            bool all = g_cfg.menuController < 0.5f;
             mode = all ? 2 : g_cfg.menuAxes < 0.5f ? 1 : 0;
             if (mode) NeutralizeMenuEvents(a, b, *c, menuObjects, all);
-        } else if (GameInputHidden()) {
-            *c = 0;    // drained, nothing reported
-            menuReset.Reset();
-            return hr;
         }
-        if (mode != menuReset.mode && dataSize) {
+        if ((mode != menuReset.mode || !menuReset.pending.empty()) && dataSize) {
             std::vector<uint8_t> state(dataSize);
-            if (SUCCEEDED(real->GetDeviceState(dataSize, state.data())))
-                menuReset.Change(mode, state.data(), dataSize, menuObjects);
+            if (SUCCEEDED(real->GetDeviceState(dataSize, state.data()))) {
+                if (mode != menuReset.mode) menuReset.Change(mode, state.data(), dataSize, menuObjects);
+                else menuReset.Refresh(state.data(), dataSize, menuObjects);
+                menuReset.DiscardSuperseded(a, b, *c);
+            } else if (mode == 0) menuReset.Reset(); // Never replay an unverified driving snapshot.
         }
         *c = menuReset.Append(a, b, *c, capacity, (d & DIGDD_PEEK) != 0);
     }
@@ -205,9 +197,6 @@ HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
     Lock l;
     HRESULT hr = real->SetDataFormat(f);
     if (SUCCEEDED(hr) && f) {
-        delete[] restState;
-        restState = nullptr;
-        restSize = 0;
         dataSize = f->dwDataSize;
         axisOfs = -1;
         menuObjects.clear();

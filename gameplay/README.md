@@ -49,6 +49,9 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   panel size, distance and height (when those mods are installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
+- **Force feedback restart**: F4 > Force Feedback > *Restart wheel force feedback* requests
+  a wheel reacquisition and effect rebuild from the updated force feedback mod, keeping
+  calibration and tuning. F10 provides the same restart directly from the FFB mod.
 
 ## Install
 
@@ -139,6 +142,15 @@ Based on the dbalatoni13/nfsmw decompilation (`EngineRacer` by Brawltendo).
 
 MSYS2 with the mingw32 toolchain: `./build.sh` builds into `build/`, `./build.sh install` also
 copies the files into `C:\Games\NFSMW` (or `$NFSMW_DIR`).
+
+Run `./tests/run.sh` for axis binding, smoke selection and legacy settings migration
+regressions. The harness uses synthetic game addresses and temporary INI files under `build/`;
+it does not launch the game or access controllers. If shipped INI defaults change, update
+`kGameplayDefaultIniFingerprint` to the value reported by this test.
+
+When upgrading from the old H-shifter mod, an untouched gameplay INI from the package is
+backed up as `nfsmw_gameplay.ini.pre-hshifter.bak` before importing the legacy settings.
+A customised gameplay INI is kept, with the old shifter INI retained for manual merging.
 
 ## Limitations
 

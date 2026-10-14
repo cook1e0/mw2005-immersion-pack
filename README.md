@@ -21,7 +21,7 @@ damage and more). Install any of them, or all three.
 
    | Mod | `scripts\` | Next to `speed.exe` |
    |---|---|---|
-   | VR | `nfsmw_vr.asi`, `nfsmw_vr.ini` | `nfsmw_vr_host.exe` |
+   | VR | `nfsmw_vr.asi`, `nfsmw_vr.ini` | `nfsmw_vr_host.exe`, `nfsmw_crashdump.exe` |
    | Force feedback | `nfsmw_ffb.asi`, `nfsmw_ffb.ini` | `ffbtool.exe` (optional: lists and tests wheels) |
    | Gameplay | `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini` | |
 
@@ -47,6 +47,10 @@ moves its own from next to `speed.exe` into `scripts`, replacing the default one
 
 To uninstall a mod, delete its `.asi`. Settings are in the `.ini` files next to each `.asi`; each
 mod writes a `.log` next to `speed.exe`.
+
+The VR mod also saves `nfsmw_crash.dmp` and `nfsmw_crash.txt` after an unhandled game crash when
+`nfsmw_crashdump.exe` is installed. Send both with the logs for diagnosis; see
+[crash diagnostics](vr/README.md#crash-diagnostics). Existing ini files enable this by default.
 
 **With the [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw):**
 all three mods run alongside it. Two things about the fix itself:

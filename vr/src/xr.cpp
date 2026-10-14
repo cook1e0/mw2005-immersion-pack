@@ -91,6 +91,7 @@ struct State {
 
     XrFrameState frameState{XR_TYPE_FRAME_STATE};
     bool frameBegun = false;
+    bool viewsValid = false;
     EyeView eyes[2] = {};
 
     bool haveOrigin = false;
@@ -676,9 +677,11 @@ void Xr_Recenter() {
 }
 
 bool Xr_BeginFrame() {
-    if (s.frameBegun) return s.fake || s.frameState.shouldRender;
+    if (s.frameBegun) return s.viewsValid;
+    s.viewsValid = false;
     if (s.fake) {
         s.frameBegun = true;
+        s.viewsValid = true;
         return true;
     }
 #ifndef NFSMW_XR_HOST
@@ -688,7 +691,8 @@ bool Xr_BeginFrame() {
         s.frameState.shouldRender = b.shm->shouldRender;
         s.eyes[0] = b.shm->eyes[0];
         s.eyes[1] = b.shm->eyes[1];
-        return b.shm->result != 0;
+        s.viewsValid = b.shm->result != 0;
+        return s.viewsValid;
     }
 #endif
     if (!s.session) return false;
@@ -729,6 +733,7 @@ bool Xr_BeginFrame() {
         e.tanUp = tanf(views[i].fov.angleUp);
         e.tanDown = tanf(-views[i].fov.angleDown);
     }
+    s.viewsValid = true;
     return true;
 }
 
@@ -826,6 +831,8 @@ static XrPosef ToXr(Quat q, V3 p) {
 void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
     if (!s.frameBegun) return;
     s.frameBegun = false;
+    bool viewsValid = s.viewsValid;
+    s.viewsValid = false;
     if (s.fake) return;
 #ifndef NFSMW_XR_HOST
     if (s.remote) {
@@ -843,7 +850,7 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
     }
 #endif
 
-    bool ready = s.frameState.shouldRender && s.eyeSrv[0] && s.chains[0].handle;
+    bool ready = viewsValid && s.frameState.shouldRender && s.eyeSrv[0] && s.chains[0].handle;
     XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
                                              {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
     XrCompositionLayerProjection proj{XR_TYPE_COMPOSITION_LAYER_PROJECTION};

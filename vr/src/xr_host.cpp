@@ -63,7 +63,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
         case kBridgeBeginFrame:
             shm->result = Xr_BeginFrame();
             shm->frameBegun = Xr_FrameBegun();
-            shm->shouldRender = shm->frameBegun && Xr_BeginFrame(); // idempotent: reports shouldRender
+            shm->shouldRender = shm->result;
             shm->eyes[0] = Xr_Eye(0);
             shm->eyes[1] = Xr_Eye(1);
             break;

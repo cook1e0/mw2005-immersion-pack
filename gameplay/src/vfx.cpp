@@ -81,6 +81,7 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
     bool player = ((IsViewAnchor_t)kIsViewAnchor)(conn);
     float health = *(float*)(pkt + kPkt_Health);
     s_smokeHealth = health;
+    s_playerSmoke = false;
     if (!player) {
         if (key && key != s_copKey) {
             s_copKey = key;
@@ -88,7 +89,6 @@ extern "C" uint32_t __cdecl Vfx_DamageKey(void* conn, uint8_t* pkt, uint32_t key
         }
         return key;
     }
-    s_playerSmoke = false;
     if (!g_cfg.damageSmoke) return key;
     bool hot = g_cfg.heatSmokeFrom < 1.0f && Game_Hud().heat >= g_cfg.heatSmokeFrom;
     if (health > 1.0f - g_cfg.smokeFrom && !hot) return 0;

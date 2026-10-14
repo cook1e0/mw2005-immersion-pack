@@ -12,16 +12,14 @@ struct DeviceWrap : public IDirectInputDevice8A {
     char name[MAX_PATH] = {};
     // State shared with the FFB engine (guarded by g_diLock)
     bool  acquired = false;
+    bool  acquireWanted = false; // explicit Unacquire suspends retries until Acquire/focus return
+    double acquireRetry = 0;
     bool  exclusive = false;
     LONG  acquireGen = 0;       // bumps on each successful fresh Acquire
     DWORD dataSize = 0;         // current data format size
     LONG  axisOfs = -1;         // offset of the steering axis inside the data format
     HWND  hwnd = nullptr;
     bool  ffbDevice = true;     // false: wrapped only so its input can be hidden from the game
-    // While the game's controller input is off ([Controls] GameController=0 in the gameplay mod)
-    // the game reads this state instead: its first reading, buttons released, hats centred.
-    uint8_t* restState = nullptr;
-    DWORD restSize = 0;
     std::vector<MenuObject> menuObjects;
     MenuResetQueue menuReset;
     bool relativeAxes = false;

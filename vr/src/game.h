@@ -2,7 +2,9 @@
 #pragma once
 #include "common.h"
 
-void Game_InstallHooks();
+// Check the host and all required hook sites before changing the import or game code.
+bool Game_ValidateHooks();
+bool Game_InstallHooks();
 
 // True when the current frame rendered separate left/right eye images.
 bool Game_StereoThisFrame();

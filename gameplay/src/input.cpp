@@ -130,7 +130,10 @@ static bool Down(const Binding& b, bool focus) {
         case BK_KEY: return focus && (GetAsyncKeyState(b.index) & 0x8000);
         case BK_BUTTON: return s_joy[b.joy].ok && (s_joy[b.joy].state.btn[b.index] & 0x80);
         case BK_POV: return s_joy[b.joy].ok && PovMatches(s_joy[b.joy].state.pov[b.index], b.povDir);
-        case BK_AXIS: return s_joy[b.joy].ok && fabsf(s_joy[b.joy].state.axis[b.index] - 32767.5f) > 24000.0f;
+        case BK_AXIS: {
+            float travel = s_joy[b.joy].state.axis[b.index] - 32767.5f;
+            return s_joy[b.joy].ok && (b.invert ? -travel : travel) > 24000.0f;
+        }
     }
     return false;
 }

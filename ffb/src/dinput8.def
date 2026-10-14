@@ -8,3 +8,5 @@ EXPORTS
     GetdfDIJoystick = Proxy_GetdfDIJoystick@0
     NfsmwFfb_Gain
     NfsmwFfb_Setting
+    NfsmwFfb_Reset
+    NfsmwFfb_MenuOpen

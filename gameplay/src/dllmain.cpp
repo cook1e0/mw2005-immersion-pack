@@ -2,6 +2,7 @@
 // DirectSound), or as an .asi by an ASI loader.
 #include "common.h"
 #include "game.h"
+#include "ini_migration.h"
 
 // --- dsound.dll proxy ------------------------------------------------------------------------
 static const char* const kExports[12] = {
@@ -54,10 +55,7 @@ static bool LoadRealDsound() {
 static void MigrateOldIni() {
     char oldPath[MAX_PATH];
     snprintf(oldPath, sizeof(oldPath), "%snfsmw_hshifter.ini", GameDir());
-    if (GetFileAttributesA(IniPath()) != INVALID_FILE_ATTRIBUTES) return;
-    if (GetFileAttributesA(oldPath) == INVALID_FILE_ATTRIBUTES) return;
-    if (MoveFileA(oldPath, IniPath())) Log("settings: nfsmw_hshifter.ini renamed to nfsmw_gameplay.ini");
-    else Log("settings: could not rename nfsmw_hshifter.ini (error %lu)", GetLastError());
+    MigrateLegacyIni(oldPath, IniPath());
 }
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {

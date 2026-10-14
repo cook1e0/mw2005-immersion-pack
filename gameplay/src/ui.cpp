@@ -333,6 +333,12 @@ bool VrRecenter() {
     FARPROC f = m ? GetProcAddress(m, "NfsmwVr_Recenter") : nullptr;
     return f && ((int(__cdecl*)())f)() != 0;
 }
+
+bool FfbRestart() {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Reset") : nullptr;
+    return f && ((int(__cdecl*)())f)() != 0;
+}
 struct Item {
     Kind kind;
     const char* label;
@@ -394,6 +400,7 @@ const Item kItems[] = {
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
+    {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ext[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Centring when parked", "FFB", "CenterSpringParked", &s_ext[FFB_CENTERPARKED], 0.0f, 1.0f, 0.05f, 100, "%.0f%% of it", 0},
@@ -904,6 +911,10 @@ void Change(int index, int dir) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
             return;
         }
+        if (strcmp(it.key, "RestartFfb") == 0) {
+            Note(FfbRestart() ? "FFB restart requested" : "Needs updated FFB mod with NativeFFB=0");
+            return;
+        }
         Game_PopTires();
         Note("Tires popped (repair: safehouse, race restart or DebugRepair)");
         return;
@@ -992,6 +1003,9 @@ void SetOpen(bool open) {
         }
     }
     Game_SetMenuOpen(open);
+    HMODULE ffb = ExtModule(MOD_FFB);
+    FARPROC menuOpen = ffb ? GetProcAddress(ffb, "NfsmwFfb_MenuOpen") : nullptr;
+    if (menuOpen) ((void(__cdecl*)(int))menuOpen)(open ? 1 : 0);
 }
 
 void Step(int dir) {
@@ -1211,6 +1225,8 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
+    if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
+        return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Calibration is kept. Also available with F10.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";

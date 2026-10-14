@@ -125,6 +125,7 @@ void LoadConfig() {
     c.invertForce = ReadInt(s, "InvertForce", c.invertForce) != 0;
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
     c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 30, 1000);
+    c.keyReset = Clamp(ReadInt(s, "KeyReset", c.keyReset), 0, 255);
     c.logTelemetry = ReadInt(s, "LogTelemetry", c.logTelemetry) != 0;
     char gameplayIni[MAX_PATH];
     ConfigFile("nfsmw_gameplay.ini", gameplayIni, false);

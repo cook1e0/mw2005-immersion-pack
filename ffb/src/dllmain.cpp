@@ -16,6 +16,8 @@ static bool s_active;
 
 // The master Gain, for the gameplay mod's F4 tuning menu (read live by the effect update).
 extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
+extern "C" int __cdecl NfsmwFfb_Reset() { return s_active && Ffb_RequestReset() ? 1 : 0; }
+extern "C" void __cdecl NfsmwFfb_MenuOpen(int open) { if (s_active) Ffb_SetMenuOpen(open != 0); }
 
 // Live settings for the gameplay mod (F4 menu, [Controls]): Gain, CenterSpring,
 // CenterSpringParked, CenterSpringSpeed, SoftLock, SoftLockAt, GameController (0 = hide the

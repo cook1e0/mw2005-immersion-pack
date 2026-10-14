@@ -47,6 +47,7 @@ struct Config {
     bool  invertForce = false;      // flip constant-force direction
     int   steerAxis = 0;            // 0=X 1=Y 2=Z 3=RX 4=RY 5=RZ 6=Slider0
     int   updateHz = 200;
+    int   keyReset = VK_F10;        // restart mod effects without restarting the game; 0 = off
     // [Calibration] - written by the mod, 0 = unknown (re-detect)
     int   forceSign = 0;            // constant-force sign that turns the wheel right
     int   slipSign = 0;             // game slip-angle sign vs. physical right

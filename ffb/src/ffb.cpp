@@ -30,7 +30,9 @@ static DeviceWrap* s_devs[8];
 static int s_numDevs;
 static IDirectInput8A* s_di;
 static double s_diTime;
-static bool s_triedFallback;
+static double s_fallbackNext;
+static volatile LONG s_started, s_resetRequested;
+static volatile LONG s_menuOpen, s_resumeRequested;
 
 struct Effects {
     DeviceWrap* dev = nullptr;
@@ -49,6 +51,9 @@ struct Effects {
     LONG rangeMin = 0, rangeMax = 0;
     double rangeTime = 0;
     double createTime = 0;
+    double healthTime = 0, retryTime = 0, recoveryTime = 0;
+    bool ready = false, restartNeeded = false, rebuildNeeded = false, inhibited = false;
+    LONG effectAxis = -1;
 };
 static Effects s_fx;
 
@@ -63,6 +68,63 @@ static void ReleaseEffects() {
     }
     s_fx = Effects();
 }
+
+bool Ffb_RequestReset() {
+    if (!g_cfg.enabled || g_cfg.nativeFfb || !InterlockedCompareExchange(&s_started, 0, 0)) return false;
+    InterlockedExchange(&s_resetRequested, 1);
+    return true;
+}
+
+void Ffb_SetMenuOpen(bool open) {
+    if (!g_cfg.enabled || g_cfg.nativeFfb) return;
+    InterlockedExchange(&s_menuOpen, open ? 1 : 0);
+    InterlockedExchange(&s_resumeRequested, 1);
+}
+
+static bool Lost(HRESULT hr) {
+    return hr == (HRESULT)DIERR_NOTEXCLUSIVEACQUIRED || hr == DIERR_INPUTLOST ||
+           hr == DIERR_NOTACQUIRED || hr == (HRESULT)DIERR_UNPLUGGED || hr == DIERR_OTHERAPPHASPRIO;
+}
+
+static bool EffectResult(HRESULT hr) {
+    if (SUCCEEDED(hr) && hr != DI_DOWNLOADSKIPPED) return true;
+    if (s_fx.ready) {
+        for (auto fx : {s_fx.constant, s_fx.spring, s_fx.damper, s_fx.friction, s_fx.sine})
+            if (fx) fx->Stop();
+    }
+    s_fx.ready = false;
+    s_fx.restartNeeded = true;
+    if (Lost(hr) || hr == DI_DOWNLOADSKIPPED) {
+        if (s_fx.dev) s_fx.dev->acquired = false;
+    } else s_fx.rebuildNeeded = true;
+    static HRESULT last = DI_OK;
+    static double logged = -1e9;
+    double now = Now();
+    if (hr != last || now - logged >= 5.0) {
+        Log("ffb: effect operation failed 0x%08lX; recovery scheduled", hr);
+        last = hr; logged = now;
+    }
+    return false;
+}
+
+static void ResetCachedParameters() {
+    s_fx.constTime = 0;
+    s_fx.springCoef = s_fx.damperCoef = s_fx.frictionCoef = -1;
+    s_fx.sineMag = 0xFFFFFFFF;
+}
+
+static bool ConfigureWheel(DeviceWrap* d) {
+    DIPROPDWORD p = {};
+    p.diph.dwSize = sizeof(p); p.diph.dwHeaderSize = sizeof(p.diph); p.diph.dwHow = DIPH_DEVICE;
+    p.dwData = DIPROPAUTOCENTER_OFF;
+    d->real->SetProperty(DIPROP_AUTOCENTER, &p.diph);
+    p.dwData = DI_FFNOMINALMAX;
+    d->real->SetProperty(DIPROP_FFGAIN, &p.diph);
+    HRESULT hr = d->real->SendForceFeedbackCommand(DISFFC_SETACTUATORSON);
+    return hr == DIERR_UNSUPPORTED || EffectResult(hr);
+}
+
+static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size);
 
 void Ffb_SetDirectInput(IDirectInput8A* real) {
     EnterCriticalSection(&g_diLock);
@@ -113,19 +175,35 @@ static IDirectInputEffect* MakeEffect(DeviceWrap* d, REFGUID type, const char* l
     HRESULT hr = d->real->CreateEffect(type, &e, &fx, nullptr);
     if (FAILED(hr)) {
         Log("ffb: CreateEffect(%s) failed 0x%08lX", label, hr);
+        if (Lost(hr)) EffectResult(hr);
         return nullptr;
     }
     return fx;
 }
 
-static void StartAll() {
+static bool StartAll() {
+    s_fx.restartNeeded = s_fx.rebuildNeeded = false;
+    bool ok = true, any = false;
     IDirectInputEffect* all[] = {s_fx.constant, s_fx.spring, s_fx.damper, s_fx.friction, s_fx.sine};
-    for (auto fx : all)
-        if (fx) fx->Start(1, 0);
-    // force everything to be re-sent
-    s_fx.constTime = 0;
-    s_fx.springCoef = s_fx.damperCoef = s_fx.frictionCoef = -1;
-    s_fx.sineMag = 0xFFFFFFFF;
+    DICONSTANTFORCE zero = {0};
+    DICONDITION condition = {};
+    condition.dwPositiveSaturation = condition.dwNegativeSaturation = DI_FFNOMINALMAX;
+    DIPERIODIC sine = {}; sine.dwPeriod = 25000;
+    void* parameters[] = {&zero, &condition, &condition, &condition, &sine};
+    DWORD sizes[] = {sizeof(zero), sizeof(condition), sizeof(condition), sizeof(condition), sizeof(sine)};
+    for (int i = 0; i < 5; ++i) {
+        if (!all[i]) continue;
+        any = true;
+        // Clear the last driving forces before restarting downloaded effects.
+        if (!SetParams(all[i], parameters[i], sizes[i]) || !EffectResult(all[i]->Start(1, 0))) ok = false;
+    }
+    ResetCachedParameters();
+    s_fx.ready = any && ok;
+    if (s_fx.ready) {
+        s_fx.gen = s_fx.dev->acquireGen;
+        s_fx.recoveryTime = Now();
+    }
+    return s_fx.ready;
 }
 
 static bool CreateEffects(DeviceWrap* d) {
@@ -133,13 +211,8 @@ static bool CreateEffects(DeviceWrap* d) {
     ReleaseEffects();
     s_fx.createTime = created;
     s_fx.dev = d;
-    d->real->SendForceFeedbackCommand(DISFFC_SETACTUATORSON);
-    DIPROPDWORD gain = {};
-    gain.diph.dwSize = sizeof(gain);
-    gain.diph.dwHeaderSize = sizeof(gain.diph);
-    gain.diph.dwHow = DIPH_DEVICE;
-    gain.dwData = DI_FFNOMINALMAX;
-    d->real->SetProperty(DIPROP_FFGAIN, &gain.diph);
+    s_fx.effectAxis = d->axisOfs;
+    if (!ConfigureWheel(d)) return false;
 
     DICONSTANTFORCE cf = {0};
     DICONDITION cond = {};
@@ -151,46 +224,40 @@ static bool CreateEffects(DeviceWrap* d) {
     s_fx.damper = MakeEffect(d, GUID_Damper, "damper", &cond, sizeof(cond));
     s_fx.friction = MakeEffect(d, GUID_Friction, "friction", &cond, sizeof(cond));
     s_fx.sine = MakeEffect(d, GUID_Sine, "sine", &per, sizeof(per));
-    s_fx.gen = d->acquireGen;
-    StartAll();
+    bool started = StartAll();
     Log("ffb: effects on '%s': constant=%d spring=%d damper=%d friction=%d sine=%d", d->name,
         !!s_fx.constant, !!s_fx.spring, !!s_fx.damper, !!s_fx.friction, !!s_fx.sine);
-    return s_fx.constant || s_fx.spring || s_fx.damper;
+    return started;
 }
 
-static bool Lost(HRESULT hr) {
-    return hr == DIERR_NOTEXCLUSIVEACQUIRED || hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED;
-}
-
-static void SetParams(IDirectInputEffect* fx, void* params, DWORD size) {
+static bool SetParams(IDirectInputEffect* fx, void* params, DWORD size) {
     DIEFFECT e = {};
     e.dwSize = sizeof(e);
     e.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
     e.cbTypeSpecificParams = size;
     e.lpvTypeSpecificParams = params;
     HRESULT hr = fx->SetParameters(&e, DIEP_TYPESPECIFICPARAMS);
-    if (Lost(hr)) s_fx.gen = -1;  // restart once the game re-acquires
+    return EffectResult(hr);
 }
 
 static void SetCondition(IDirectInputEffect* fx, LONG& last, float coef) {
     if (!fx) return;
     LONG c = (LONG)(Clamp(coef, 0.0f, 1.0f) * DI_FFNOMINALMAX);
     if (abs(c - last) < 50) return;
-    last = c;
     DICONDITION cond = {};
     cond.lPositiveCoefficient = cond.lNegativeCoefficient = c;
     cond.dwPositiveSaturation = cond.dwNegativeSaturation = DI_FFNOMINALMAX;
-    SetParams(fx, &cond, sizeof(cond));
+    if (SetParams(fx, &cond, sizeof(cond))) last = c;
 }
 
 static void SetConstant(float v, double now) {
     if (!s_fx.constant) return;
     LONG m = (LONG)lrintf(Clamp(v, -1.0f, 1.0f) * DI_FFNOMINALMAX);
     if (abs(m - s_fx.constMag) < 15 && now - s_fx.constTime < 0.05) return;
-    s_fx.constMag = m;
-    s_fx.constTime = now;
     DICONSTANTFORCE cf = {m};
-    SetParams(s_fx.constant, &cf, sizeof(cf));
+    if (SetParams(s_fx.constant, &cf, sizeof(cf))) {
+        s_fx.constMag = m; s_fx.constTime = now;
+    }
 }
 
 static void SetSine(float mag, float hz) {
@@ -200,17 +267,18 @@ static void SetSine(float mag, float hz) {
     bool periodChanged = !s_fx.sinePeriod || fabsf((float)period / (float)s_fx.sinePeriod - 1.0f) > 0.08f;
     if (abs((LONG)m - (LONG)s_fx.sineMag) < 30 && !periodChanged) return;
     if (!periodChanged) period = s_fx.sinePeriod;
-    s_fx.sineMag = m;
-    s_fx.sinePeriod = period;
     DIPERIODIC p = {};
     p.dwMagnitude = m;
     p.dwPeriod = period;
-    SetParams(s_fx.sine, &p, sizeof(p));
+    if (SetParams(s_fx.sine, &p, sizeof(p))) {
+        s_fx.sineMag = m; s_fx.sinePeriod = period;
+    }
 }
 
 // Normalised steering axis position (-1 left .. +1 right). Returns false if unavailable.
 static bool ReadAxis(DeviceWrap* d, double now, float* out) {
-    if (!d->acquired || d->axisOfs < 0 || d->dataSize == 0 || d->dataSize > 1024) return false;
+    if (!d->acquired || d->axisOfs < 0 || d->dataSize < sizeof(LONG) || d->dataSize > 1024 ||
+        (DWORD)d->axisOfs > d->dataSize - sizeof(LONG)) return false;
     if (now - s_fx.rangeTime > 1.0) {
         DIPROPRANGE r = {};
         r.diph.dwSize = sizeof(r);
@@ -225,7 +293,10 @@ static bool ReadAxis(DeviceWrap* d, double now, float* out) {
     }
     if (s_fx.rangeMax <= s_fx.rangeMin) return false;
     alignas(8) uint8_t buf[1024];
-    if (FAILED(d->real->GetDeviceState(d->dataSize, buf))) return false;
+    HRESULT hr = d->real->Poll();
+    if (Lost(hr)) { EffectResult(hr); return false; }
+    hr = d->real->GetDeviceState(d->dataSize, buf);
+    if (FAILED(hr)) { if (Lost(hr)) EffectResult(hr); return false; }
     LONG raw = *(LONG*)(buf + d->axisOfs);
     float mid = 0.5f * ((float)s_fx.rangeMin + (float)s_fx.rangeMax);
     float half = 0.5f * ((float)s_fx.rangeMax - (float)s_fx.rangeMin);
@@ -273,7 +344,6 @@ static BOOL CALLBACK FindFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
 static DeviceWrap* s_ownDev;
 
 static void TryFallbackDevice() {
-    s_triedFallback = true;
     HWND hwnd = FindGameWindow();
     if (!s_di || !hwnd) {
         Log("ffb: fallback skipped (di=%p hwnd=%p)", s_di, hwnd);
@@ -294,12 +364,139 @@ static void TryFallbackDevice() {
     strncpy(w->name, found.name, sizeof(w->name) - 1);
     static DIOBJECTDATAFORMAT odf = {&SteerAxisGuid(), 0, DIDFT_AXIS | DIDFT_ANYINSTANCE, 0};
     static DIDATAFORMAT df = {sizeof(DIDATAFORMAT), sizeof(DIOBJECTDATAFORMAT), DIDF_ABSAXIS, 4, 1, &odf};
-    w->SetDataFormat(&df);
-    w->SetCooperativeLevel(hwnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    if (FAILED(w->SetDataFormat(&df)) || FAILED(w->SetCooperativeLevel(hwnd, DISCL_EXCLUSIVE | DISCL_FOREGROUND))) {
+        real->Release(); delete w;
+        Log("ffb: fallback device setup failed; will retry");
+        return;
+    }
     Ffb_RegisterDevice(w);
     w->Acquire();
     s_ownDev = w;
     Log("ffb: game did not open a force feedback device; opened '%s' ourselves", found.name);
+}
+
+static bool GameFocused() {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(GetForegroundWindow(), &pid);
+    return pid == GetCurrentProcessId();
+}
+
+static bool s_focusKnown, s_focused;
+static void UpdateFocus(bool focused) {
+    if (s_focusKnown && focused == s_focused) return;
+    s_focusKnown = true; s_focused = focused;
+    if (!focused) {
+        for (auto fx : {s_fx.constant, s_fx.spring, s_fx.damper, s_fx.friction, s_fx.sine})
+            if (fx) fx->Stop();
+        s_fx.ready = false;
+        s_fx.restartNeeded = true;
+        return;
+    }
+    // The game's own focus handling can leave the wheel unacquired. Re-arm handles
+    // that previously worked, including ones explicitly released during Alt-Tab.
+    for (int i = 0; i < s_numDevs; ++i) {
+        DeviceWrap* d = s_devs[i];
+        if (!d->exclusive || d->acquireGen == 0) continue;
+        d->acquireWanted = true; d->acquired = false; d->acquireRetry = 0;
+    }
+    s_fx.restartNeeded = true;
+    s_fx.healthTime = s_fx.retryTime = 0;
+}
+
+static void CheckEffectHealth(double now) {
+    if (!s_fx.dev || now < s_fx.healthTime) return;
+    s_fx.healthTime = now + 0.5;
+    DWORD state = 0;
+    HRESULT hr = s_fx.dev->real->GetForceFeedbackState(&state);
+    if (Lost(hr)) { EffectResult(hr); return; }
+    if (SUCCEEDED(hr)) {
+        // Respect hardware power, safety and user switches. Missing flags mean unknown.
+        s_fx.inhibited = (state & (DIGFFS_POWEROFF | DIGFFS_SAFETYSWITCHOFF | DIGFFS_USERFFSWITCHOFF)) != 0;
+        if (s_fx.inhibited) {
+            s_fx.ready = false; s_fx.restartNeeded = true;
+            return;
+        }
+        if (state & DIGFFS_DEVICELOST) {
+            s_fx.dev->real->Unacquire();
+            s_fx.dev->acquired = false;
+            s_fx.ready = false; s_fx.rebuildNeeded = true;
+            return;
+        }
+        if (state & DIGFFS_EMPTY) { s_fx.ready = false; s_fx.restartNeeded = true; }
+        if (state & DIGFFS_PAUSED) {
+            HRESULT continued = s_fx.dev->real->SendForceFeedbackCommand(DISFFC_CONTINUE);
+            if (Lost(continued)) { EffectResult(continued); return; }
+            s_fx.ready = false; s_fx.restartNeeded = true;
+        }
+        if (state & DIGFFS_ACTUATORSOFF) {
+            if (!ConfigureWheel(s_fx.dev)) return;
+            s_fx.ready = false; s_fx.restartNeeded = true;
+        }
+    }
+    // Some drivers don't support device status (or misreport STOPPED). Check the
+    // individual effects too; unsupported status queries are not treated as loss.
+    for (auto fx : {s_fx.constant, s_fx.spring, s_fx.damper, s_fx.friction, s_fx.sine}) {
+        if (!fx) continue;
+        DWORD status = 0;
+        hr = fx->GetEffectStatus(&status);
+        if (hr == DIERR_UNSUPPORTED) continue;
+        if (hr == (HRESULT)DIERR_NOTDOWNLOADED || (SUCCEEDED(hr) && !(status & DIEGES_PLAYING))) {
+            s_fx.ready = false; s_fx.restartNeeded = true;
+        } else if (FAILED(hr)) EffectResult(hr);
+    }
+}
+
+// All wheel calls run under g_diLock. Retry only while focused, with bounded
+// frequency; healthy effects are neither reset nor restarted on every tick.
+static DeviceWrap* ServiceEffects(double now, bool focused, bool manual) {
+    UpdateFocus(focused);
+    if (!focused) return nullptr;
+    bool resume = InterlockedExchange(&s_resumeRequested, 0) != 0;
+    bool menu = InterlockedCompareExchange(&s_menuOpen, 0, 0) != 0;
+    if (resume || menu) {
+        for (int i = 0; i < s_numDevs; ++i) {
+            DeviceWrap* d = s_devs[i];
+            if (d->exclusive && d->acquireGen > 0) d->acquireWanted = true;
+        }
+        if (resume) s_fx.healthTime = s_fx.retryTime = 0;
+    }
+    if (manual) {
+        DeviceWrap* previous = s_fx.dev;
+        ReleaseEffects();
+        for (int i = 0; i < s_numDevs; ++i) {
+            DeviceWrap* d = s_devs[i];
+            if (!d->exclusive || (d != previous && d->acquireGen == 0 && !d->acquireWanted)) continue;
+            d->real->Unacquire();
+            d->acquired = false; d->acquireWanted = true; d->acquireRetry = 0;
+        }
+        s_fallbackNext = 0;
+        Log("ffb: manual restart requested (calibration kept)");
+    }
+    for (int i = 0; i < s_numDevs; ++i) {
+        DeviceWrap* d = s_devs[i];
+        if (!d->exclusive || !d->acquireWanted || d->acquired || now < d->acquireRetry) continue;
+        d->acquireRetry = now + 0.5;
+        d->Acquire();
+    }
+    DeviceWrap* d = PickDevice();
+    if (!d) return nullptr;
+    if (d != s_fx.dev) {
+        CreateEffects(d);
+        s_fx.createTime = now; s_fx.healthTime = now + 0.5; s_fx.retryTime = now + 0.5;
+    } else {
+        CheckEffectHealth(now);
+        if (!d->acquired || s_fx.inhibited) return nullptr;
+        bool none = !s_fx.constant && !s_fx.spring && !s_fx.damper && !s_fx.friction && !s_fx.sine;
+        bool changed = s_fx.gen != d->acquireGen || s_fx.effectAxis != d->axisOfs;
+        if (now >= s_fx.retryTime && (none || changed || s_fx.restartNeeded || s_fx.rebuildNeeded)) {
+            bool rebuild = none || s_fx.rebuildNeeded || s_fx.effectAxis != d->axisOfs;
+            bool ok = rebuild ? CreateEffects(d) : ConfigureWheel(d) && StartAll();
+            s_fx.healthTime = now + 0.5;
+            s_fx.retryTime = now + (ok ? 0.5 : 2.0);
+            if (ok) Log("ffb: wheel effects recovered on '%s'", d->name);
+        }
+    }
+    return d->acquired && s_fx.ready ? d : nullptr;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +693,7 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
 // Determine which constant-force sign turns the wheel right: a short push each way while in menus.
 // Returns true while the test owns the wheel.
 static bool PulseTest(double now, bool driving, Out& o) {
-    if (S.forceSign || !s_fx.constant || !S.haveAxis) return false;
+    if (S.forceSign || !s_fx.constant || !S.haveAxis || now - s_fx.recoveryTime < 0.3) return false;
     if (S.pulsePhase == 0) {
         if (driving || now < S.pulseNext || S.pulseTries >= 6 || fabsf(S.axisVel) > 0.05f || fabsf(S.axis) > 0.6f) return false;
         S.pulsePhase = 1;
@@ -531,6 +728,9 @@ static bool PulseTest(double now, bool driving, Out& o) {
 }
 
 static void Apply(const Out& o, double now) {
+    // Bring forces back gradually after acquisition/restart, rather than applying
+    // the previous driving torque immediately when focus returns.
+    float fade = Clamp((float)(now - s_fx.recoveryTime) / 0.25f, 0.0f, 1.0f);
     float sign = (float)S.forceSign * (g_cfg.invertForce ? -1.0f : 1.0f);
     float v = o.constant;
     if (S.pulsePhase == 0) {
@@ -541,11 +741,15 @@ static void Apply(const Out& o, double now) {
     } else {
         v *= g_cfg.invertForce ? -1.0f : 1.0f;
     }
-    SetConstant(v, now);
-    SetCondition(s_fx.spring, s_fx.springCoef, o.spring);
-    SetCondition(s_fx.damper, s_fx.damperCoef, o.damper);
-    SetCondition(s_fx.friction, s_fx.frictionCoef, o.friction);
-    SetSine(o.sineMag, o.sineHz);
+    SetConstant(v * fade, now);
+    if (!s_fx.ready) return;
+    SetCondition(s_fx.spring, s_fx.springCoef, o.spring * fade);
+    if (!s_fx.ready) return;
+    SetCondition(s_fx.damper, s_fx.damperCoef, o.damper * fade);
+    if (!s_fx.ready) return;
+    SetCondition(s_fx.friction, s_fx.frictionCoef, o.friction * fade);
+    if (!s_fx.ready) return;
+    SetSine(o.sineMag * fade, o.sineHz);
 }
 
 static DWORD WINAPI FfbThread(LPVOID) {
@@ -553,6 +757,9 @@ static DWORD WINAPI FfbThread(LPVOID) {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
     const double period = 1.0 / g_cfg.updateHz;
     double next = Now(), last = Now();
+    bool keyDown = false;
+    DeviceWrap* axisDevice = nullptr;
+    LONG axisGen = -1;
     for (;;) {
         double now = Now();
         if (now < next) {
@@ -567,20 +774,22 @@ static DWORD WINAPI FfbThread(LPVOID) {
         Telemetry t;
         Telemetry_Get(&t);
 
-        EnterCriticalSection(&g_diLock);
-        if (!s_triedFallback && s_numDevs == 0 && s_di && now - s_diTime > 10.0) TryFallbackDevice();
-        if (s_ownDev && !s_ownDev->acquired) s_ownDev->Acquire();
+        bool focused = GameFocused();
+        bool down = g_cfg.keyReset && (GetAsyncKeyState(g_cfg.keyReset) & 0x8000);
+        if (focused && down && !keyDown) Ffb_RequestReset();
+        keyDown = down;
+        bool manual = focused && InterlockedExchange(&s_resetRequested, 0) != 0;
 
-        DeviceWrap* dev = PickDevice();
-        if (dev) {
-            bool none = !s_fx.constant && !s_fx.spring && !s_fx.damper;
-            if (dev != s_fx.dev || (none && now - s_fx.createTime > 2.0)) {
-                CreateEffects(dev);
-                s_fx.createTime = now;
-            } else if (s_fx.gen != dev->acquireGen) {
-                s_fx.gen = dev->acquireGen;
-                StartAll();
-            }
+        EnterCriticalSection(&g_diLock);
+        DeviceWrap* dev = ServiceEffects(now, focused, manual);
+        if (focused && s_numDevs == 0 && s_di && now >= s_fallbackNext && (manual || now - s_diTime > 10.0)) {
+            s_fallbackNext = now + 3.0;
+            TryFallbackDevice();
+            dev = ServiceEffects(now, focused, false);
+        }
+        if (!dev || dev != axisDevice || dev->acquireGen != axisGen) {
+            S.haveAxis = false; S.axisVel = 0; S.pulsePhase = 0;
+            axisDevice = dev; axisGen = dev ? dev->acquireGen : -1;
         }
         if (dev) {
             float a;
@@ -597,7 +806,7 @@ static DWORD WINAPI FfbThread(LPVOID) {
         bool driving = t.driving && t.valid && (now - t.time) < 0.2;
 
         EnterCriticalSection(&g_diLock);
-        if (dev && dev == s_fx.dev) {
+        if (dev && dev == s_fx.dev && s_fx.ready && dev->acquired && focused) {
             PulseTest(now, driving, o);
             Apply(o, now);
         }
@@ -618,6 +827,9 @@ void Ffb_Start() {
     S.forceSign = g_cfg.forceSign;
     S.slip.sign = g_cfg.slipSign;
     S.right.sign = g_cfg.rightSign;
-    CreateThread(nullptr, 0, FfbThread, nullptr, 0, nullptr);
+    HANDLE thread = CreateThread(nullptr, 0, FfbThread, nullptr, 0, nullptr);
+    if (!thread) { Log("ffb: cannot start effect thread (%lu)", GetLastError()); return; }
+    InterlockedExchange(&s_started, 1);
+    CloseHandle(thread);
     Log("ffb: engine started at %d Hz", g_cfg.updateHz);
 }

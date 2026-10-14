@@ -382,7 +382,44 @@ void Game_CheckFrameMemory() {
     }
 }
 
-void Game_InstallHooks() {
+bool Game_ValidateHooks() {
+    const uint8_t* base = (const uint8_t*)GetModuleHandleA(nullptr);
+    const IMAGE_NT_HEADERS* nt = (const IMAGE_NT_HEADERS*)(base + ((const IMAGE_DOS_HEADER*)base)->e_lfanew);
+    if ((uintptr_t)base != 0x400000 || nt->OptionalHeader.SizeOfImage < 0x5C7000) {
+        Log("game: unsupported host image, VR inactive");
+        return false;
+    }
+    for (auto site : {std::make_pair(kCallViewSetup, kViewSetup), std::make_pair(kCallRenderScene, kRenderScene)}) {
+        const uint8_t* p = (const uint8_t*)site.first;
+        if (p[0] != 0xE8 || site.first + 5 + *(const int32_t*)(p + 1) != site.second) {
+            Log("game: incompatible render hook at 0x%X, VR inactive", (unsigned)site.first);
+            return false;
+        }
+    }
+    const uint8_t* res = (const uint8_t*)kGetResolution;
+    // Preserve the widescreen fix's existing resolution detour, provided it points to code.
+    if (res[0] == 0xE9) {
+        uintptr_t target = kGetResolution + 5 + *(const int32_t*)(res + 1);
+        MEMORY_BASIC_INFORMATION mem = {};
+        if (target == (uintptr_t)&hkGetResolution ||
+            !VirtualQuery((const void*)target, &mem, sizeof(mem)) || mem.State != MEM_COMMIT ||
+            (mem.Protect & (PAGE_GUARD | PAGE_NOACCESS)) ||
+            !(mem.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY))) {
+            Log("game: invalid resolution detour, VR inactive");
+            return false;
+        }
+    } else {
+        static const uint8_t expected[] = {0xA1, 0x1C, 0x18, 0x90, 0x00, 0x83, 0xF8, 0x05};
+        if (memcmp(res, expected, sizeof(expected)) != 0) {
+            Log("game: incompatible resolution function, VR inactive");
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Game_InstallHooks() {
+    if (!Game_ValidateHooks()) return false;
     EnlargeFrameMemory();
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);
     PatchRel32(kCallRenderScene, 0xE8, (void*)&hkRenderScene);
@@ -399,6 +436,7 @@ void Game_InstallHooks() {
     PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     Log("game: hooks installed");
+    return true;
 }
 
 bool Game_StereoThisFrame() { return s_stereoFrame; }
