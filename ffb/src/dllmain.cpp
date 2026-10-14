@@ -33,6 +33,18 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
     if (!strcmp(name, "GameController")) return &g_cfg.gameController;
     if (!strcmp(name, "MenuController")) return &g_cfg.menuController;
     if (!strcmp(name, "MenuAxes")) return &g_cfg.menuAxes;
+    if (!strcmp(name, "SelfAligningTorque")) return &g_cfg.satGain;
+    if (!strcmp(name, "SpeedCentering")) return &g_cfg.speedCentering;
+    if (!strcmp(name, "UndersteerLightening")) return &g_cfg.understeerLightening;
+    if (!strcmp(name, "RoadFeel")) return &g_cfg.roadGain;
+    if (!strcmp(name, "SurfaceRumble")) return &g_cfg.surfaceRumble;
+    if (!strcmp(name, "Curbs")) return &g_cfg.curbs;
+    if (!strcmp(name, "Collisions")) return &g_cfg.collisionGain;
+    if (!strcmp(name, "Scrapes")) return &g_cfg.scrapes;
+    if (!strcmp(name, "Landing")) return &g_cfg.landing;
+    if (!strcmp(name, "EngineVibration")) return &g_cfg.engineVibration;
+    if (!strcmp(name, "DamperLowSpeed")) return &g_cfg.damperLow;
+    if (!strcmp(name, "InvertForce")) return &g_cfg.invertForce;
     return nullptr;
 }
 

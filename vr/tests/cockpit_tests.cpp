@@ -52,7 +52,8 @@ static M4 Apply() {
 
 // Index buffer stand-in for the head reordering (Lock/Unlock/GetDesc only).
 struct FakeIb : IDirect3DIndexBuffer9 {
-    uint16_t data[6];
+    uint16_t data[4096];
+    UINT size = 12;
     HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void**) override { return E_NOINTERFACE; }
     ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
     ULONG STDMETHODCALLTYPE Release() override { return 1; }
@@ -69,7 +70,7 @@ struct FakeIb : IDirect3DIndexBuffer9 {
     HRESULT STDMETHODCALLTYPE GetDesc(D3DINDEXBUFFER_DESC* d) override {
         memset(d, 0, sizeof(*d));
         d->Format = D3DFMT_INDEX16;
-        d->Size = sizeof(data);
+        d->Size = size;
         return D3D_OK;
     }
 };
@@ -131,6 +132,81 @@ static void TestReloadedDriver() {
     Check(!GetDriver(solid), "replaced by a non-driver model");
     Cockpit_EndFrame();
     Check(s_retired.empty(), "retired drivers freed at the end of the frame");
+}
+
+// An interior with a steering wheel (a tilted tube ring) and a dashboard: the ring is found, its
+// triangles move to the end of the entry, and a turn to the right lifts the wheel's left side.
+static void TestSteeringWheel() {
+    const HeadPos* head = CarHead("TESTCAR_KIT00_INTERIOR_A");
+    Check(head != nullptr, "driver head known for the car");
+    const float tilt = 15.0f * 3.14159265f / 180.0f, radius = 0.16f;
+    const float n[3] = {cosf(tilt), 0, -sinf(tilt)}, up[3] = {sinf(tilt), 0, cosf(tilt)};
+    const float centre[3] = {head->v[0] + 0.45f, head->v[1], head->v[2] - 0.25f};
+    static float verts[4 * 24 + 4][3];
+    static uint16_t indices[4096];
+    int nv = 0, ni = 0;
+    for (int layer = 0; layer < 4; layer++) {       // inner/outer rim, front/back face
+        float r = radius + (layer == 1 || layer == 2 ? 0.01f : -0.01f), along = layer < 2 ? -0.01f : 0.01f;
+        for (int k = 0; k < 24; k++, nv++) {
+            float a = k * 2 * 3.14159265f / 24, left = r * cosf(a), high = r * sinf(a);
+            for (int c = 0; c < 3; c++) verts[nv][c] = centre[c] + n[c] * along + up[c] * high;
+            verts[nv][1] = centre[1] + left;
+        }
+    }
+    for (int layer = 0; layer < 4; layer++)
+        for (int k = 0; k < 24; k++) {
+            int a = layer * 24 + k, b = layer * 24 + (k + 1) % 24;
+            int c = ((layer + 1) % 4) * 24 + k, d = ((layer + 1) % 4) * 24 + (k + 1) % 24;
+            uint16_t quad[6] = {(uint16_t)a, (uint16_t)b, (uint16_t)c, (uint16_t)b, (uint16_t)d, (uint16_t)c};
+            for (uint16_t i : quad) indices[ni++] = i;
+        }
+    int dash = nv;                                  // dashboard, well in front of the wheel
+    const float dashQuad[4][3] = {{0.95f, -0.3f, -0.1f}, {0.95f, 0.3f, -0.1f}, {0.95f, -0.3f, 0.1f}, {0.95f, 0.3f, 0.1f}};
+    for (int k = 0; k < 4; k++, nv++)
+        for (int c = 0; c < 3; c++) verts[nv][c] = head->v[c] + dashQuad[k][c];
+    // Dashboard first in the index order, so the ring has to move behind it.
+    for (int i = ni - 1; i >= 0; i--) indices[i + 6] = indices[i];
+    uint16_t dashTris[6] = {(uint16_t)dash, (uint16_t)(dash + 1), (uint16_t)(dash + 2), (uint16_t)(dash + 1),
+                            (uint16_t)(dash + 3), (uint16_t)(dash + 2)};
+    memcpy(indices, dashTris, sizeof(dashTris));
+    ni += 6;
+
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16];
+    static FakeIb ib;
+    memcpy(ib.data, indices, ni * 2);
+    ib.size = ni * 2;
+    strcpy((char*)solid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = ni;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = ni / 3;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = &verts[0][0];
+    At<int>(entry, kEntryVertexBytes) = nv * 12;
+
+    g_cfg.steeringWheel = true;
+    SolidInfo* info = GetSolid(solid);
+    Wheel* w = info ? info->wheel : nullptr;
+    Check(w && w->ok, "steering wheel found in the interior");
+    Check(w->turned[0] == 192 && w->kept[0] == 2, "ring triangles selected, dashboard kept");
+    Check(indices[0] == dash && ib.data[0] == dash, "wheel triangles moved behind the dashboard");
+    for (int c = 0; c < 3; c++) Check(fabsf(w->centre[c] - centre[c]) < 0.005f, "wheel centre");
+    Check(fabsf(w->axis[0] - n[0]) < 0.005f && fabsf(w->axis[2] - n[2]) < 0.005f, "steering column tilt");
+
+    // Turning right by 90 degrees: the top of the rim goes to the driver's right (-y).
+    float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, turned[16];
+    TurnedMatrix(*w, 90.0f, identity, turned);
+    float top[3] = {w->centre[0] + up[0] * radius, w->centre[1], w->centre[2] + up[2] * radius};
+    float out[3];
+    for (int c = 0; c < 3; c++) out[c] = top[0] * turned[c] + top[1] * turned[4 + c] + top[2] * turned[8 + c] + turned[12 + c];
+    Check(out[1] < w->centre[1] - radius * 0.9f, "turning right moves the top of the wheel right");
+    Near(out[0] * n[0] + out[2] * n[2], w->centre[0] * n[0] + w->centre[2] * n[2], "wheel stays in its plane");
+    g_cfg.steeringWheel = false;
 }
 
 int main() {
@@ -208,5 +284,6 @@ int main() {
     s_head.time -= 1;
     Check(!Cockpit_ApplySeat(view), "expired observation releases seat");
     TestReloadedDriver();
-    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle and reloaded drivers");
+    TestSteeringWheel();
+    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers and steering wheel");
 }

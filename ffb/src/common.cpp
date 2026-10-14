@@ -121,8 +121,18 @@ void LoadConfig() {
     c.centerSpringParked = Clamp(ReadFloat(s, "CenterSpringParked", c.centerSpringParked), 0.0f, 1.0f);
     c.centerSpringSpeed = Clamp(ReadFloat(s, "CenterSpringSpeed", c.centerSpringSpeed), 10.0f, 400.0f);
     c.softLock = ReadFloat(s, "SoftLock", c.softLock);
+    c.speedCentering = ReadFloat(s, "SpeedCentering", c.speedCentering);
+    c.speedCenteringRef = Clamp(ReadFloat(s, "SpeedCenteringRef", c.speedCenteringRef), 10.0f, 400.0f);
+    c.understeerLightening = Clamp(ReadFloat(s, "UndersteerLightening", c.understeerLightening), 0.0f, 1.0f);
+    c.surfaceRumble = ReadFloat(s, "SurfaceRumble", c.surfaceRumble);
+    c.curbs = ReadFloat(s, "Curbs", c.curbs);
+    c.curbJerk = Clamp(ReadFloat(s, "CurbJerk", c.curbJerk), 20.0f, 10000.0f);
+    c.scrapes = ReadFloat(s, "Scrapes", c.scrapes);
+    c.landing = ReadFloat(s, "Landing", c.landing);
+    c.airborneForce = Clamp(ReadFloat(s, "AirborneForce", c.airborneForce), 0.0f, 1.0f);
+    c.forceDirection = Clamp(ReadInt(s, "ForceDirection", c.forceDirection), 0, 1);
     c.minForce = ReadFloat(s, "MinForce", c.minForce);
-    c.invertForce = ReadInt(s, "InvertForce", c.invertForce) != 0;
+    c.invertForce = ReadInt(s, "InvertForce", 0) != 0 ? 1.0f : 0.0f;
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
     c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 30, 1000);
     c.keyReset = Clamp(ReadInt(s, "KeyReset", c.keyReset), 0, 255);
@@ -140,7 +150,7 @@ void LoadConfig() {
         "cal(force=%d slip=%d right=%d) game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.satGain, c.satPeakAngle, c.driftAlign, c.damperLow, c.damperHigh,
         c.friction, c.standstillFriction, c.roadGain, c.collisionGain, c.engineVibration, c.brakeLockVibration,
-        c.menuSpring, c.centerSpring, c.centerSpringParked * 100.0f, c.centerSpringSpeed, c.softLock, c.minForce, c.invertForce, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign,
+        c.menuSpring, c.centerSpring, c.centerSpringParked * 100.0f, c.centerSpringSpeed, c.softLock, c.minForce, c.invertForce != 0, c.steerAxis, c.updateHz, c.forceSign, c.slipSign, c.rightSign,
         c.gameController > 0.5f ? "on" : "hidden");
 }
 
@@ -152,4 +162,8 @@ void SaveCalibration(int slipSign, int rightSign, int forceSign) {
     WritePrivateProfileStringA("Calibration", "SlipSign", buf, s_ini);
     snprintf(buf, sizeof(buf), "%d", rightSign);
     WritePrivateProfileStringA("Calibration", "RightSign", buf, s_ini);
+}
+
+void SaveForceDirection(int mode) {
+    WritePrivateProfileStringA("FFB", "ForceDirection", mode ? "1" : "0", s_ini);
 }

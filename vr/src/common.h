@@ -52,6 +52,7 @@ struct Config {
     bool  seat = true;               // bumper / hood camera: eyes at the driver model's head
     bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
+    bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
     int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;

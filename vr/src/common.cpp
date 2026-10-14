@@ -132,6 +132,7 @@ void LoadConfig() {
     c.seat = ReadInt(ini, "Seat", c.seat) != 0;
     c.hideHead = ReadInt(ini, "HideHead", c.hideHead) != 0;
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
+    c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
     c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);
     c.keySeatLeft = ReadInt(ini, "KeySeatLeft", c.keySeatLeft);

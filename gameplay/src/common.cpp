@@ -149,6 +149,7 @@ void LoadConfig() {
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
     c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);
     c.steerLinearity = Clamp(ReadFloat("Controls", "SteeringLinearity", c.steerLinearity), 0.5f, 3.0f);
+    c.steerSpeedSensitive = ReadInt("Controls", "SpeedSensitiveSteering", 0) != 0;
     c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
     c.gameController = ReadInt("Controls", "GameController", 1) != 0;
     c.menuController = ReadInt("Controls", "MenuController", c.menuController) != 0;

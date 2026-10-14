@@ -27,10 +27,33 @@ struct Telemetry {
     float rpmNorm;         // 0 idle .. 1 redline
     float rpm;
 
+    // Body motion along the car's own up axis (so slopes and hills don't count)
+    float vertVel;         // m/s
+    float vertAccel;       // m/s^2, smoothed over a few ticks
+    float vertJerk;        // m/s^3, change of vertAccel
+    float compAccel[2];    // front suspension compression acceleration (units/s^2)
+    float wheelbase;       // m, front to rear axle
+
+    // Road surface under each front tyre (the game's simsurface attributes)
+    float surfaceRumble[2];   // WheelEffectIntensity / 255 (the game's own per-surface rumble)
+    float surfaceHz[2];       // WheelEffectFrequency
+    float rollingResist[2];   // ROLLING_RESISTANCE (high on grass, dirt)
+
+    // Airborne: no wheel on the ground. Landings counted by seq with the speed they hit at.
+    bool     airborne;
+    float    airTime;      // s since the last wheel left the ground
+    uint32_t landSeq;
+    float    landSpeed;    // m/s downward along the car's up axis just before touching down
+
     // Collision impulses (accumulated by the game thread, consumed by FFB thread by seq)
     uint32_t hitSeq;
     float    hitMag;       // m/s velocity change
     float    hitLat;       // lateral share of the velocity change (-1..1, +rightGuess)
+    float    hitLon;       // forward share of the velocity change (-1..1, + = pushed forward)
+    // Lighter contacts (wall scrapes, taps): acceleration spikes above the smoothed acceleration
+    uint32_t scrapeSeq;
+    float    scrapeLat;    // lateral share of that spike (-1..1, +rightGuess)
+    float    scrapeMag;    // m/s^2 above the smoothed acceleration
 };
 
 bool Telemetry_Install();

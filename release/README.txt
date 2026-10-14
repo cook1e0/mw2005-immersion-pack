@@ -29,6 +29,11 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.12.1: replace the three scripts
+fsmw_*.asi plugins and ffbtool.exe. A bound wheel
+now steers the car directly (full lock at SteeringLock), the car's steering wheel turns with yours, and
+the force feedback has new effects (F4 > Force feedback). See FIXES.md.
+
 Upgrading from v0.12.0: replace scripts
 fsmw_vr.asi and scripts
 fsmw_gameplay.asi. Fixes

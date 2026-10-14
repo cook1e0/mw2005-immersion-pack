@@ -25,6 +25,13 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Centring spring in menus, pause, cutscenes | `LocalPlayer::CanDoFFB` (pause / AI / NIS) |
 | Centring spring while driving (`CenterSpring`) | grows with speed: `CenterSpringParked` of it at standstill, all of it from `CenterSpringSpeed` km/h |
 | Soft lock (`SoftLock`) | wheel position past the gameplay mod's `[Controls] SteeringLock` |
+| Speed centring (`SpeedCentering`): `-K * v * sin(angle)` | car speed and the wheel's angle as a share of the steering lock |
+| Understeer lightening (`UndersteerLightening`) | front slip past the peak, or yaw rate below what the front wheel angle and wheelbase ask for |
+| Surface rumble (`SurfaceRumble`) | the tyre's road surface (`simsurface` WheelEffectFrequency / Intensity): grass, dirt, gravel |
+| Kerbs (`Curbs`, `CurbJerk`) | jerk of the body's vertical motion in its own frame (slopes and crests stay below `CurbJerk`), side from the front suspension |
+| Impacts (`Collisions`) | head-on: a shake both ways; side and angled: a one-way kick (direction of the velocity change) |
+| Wall scrapes (`Scrapes`) | acceleration spikes above the smoothed acceleration: pull toward the wall and a fast rumble |
+| Airborne and landings (`AirborneForce`, `Landing`) | no wheel on the ground: steering forces drop; touching down: a jolt from the downward speed |
 
 ## First run: automatic calibration
 
@@ -38,6 +45,11 @@ position and saves the results in `nfsmw_ffb.ini` `[Calibration]`:
    comes from a speed-dependent centring spring instead of the tyre model.
 
 Watch `nfsmw_ffb.log` for `calibration:` lines. Set the values back to `0` to re-detect.
+
+The direction test measures each push against the wheel's drift just before it. Some drivers ignore
+negative force magnitudes: when a wheel reacts to pushes one way only, the mod switches to giving
+the side as the effect's direction (`ForceDirection=1`) and tests again. `ffbtool test [n]` tries
+both on FFB device `n` (some wheels, e.g. Fanatec, show up as two devices of the same name).
 
 ## Recovery and restart
 

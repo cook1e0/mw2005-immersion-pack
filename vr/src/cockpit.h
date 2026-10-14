@@ -11,3 +11,6 @@ bool Cockpit_ApplySeat(M4& view);
 void Cockpit_EndFrame();
 // Seat adjustment keys, once per frame.
 void Cockpit_Keys();
+// The physical wheel's angle in degrees (+ = right), set by the gameplay mod through
+// NfsmwVr_Setting("SteeringWheelAngle"); the player car's steering wheel is drawn turned by it.
+extern float g_steeringWheelAngle;

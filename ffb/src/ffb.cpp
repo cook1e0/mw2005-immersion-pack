@@ -20,6 +20,7 @@
 #include <string.h>
 #include <mmsystem.h>
 #include <stdlib.h>
+#include <algorithm>
 
 static const float kPi = 3.14159265f;
 
@@ -107,7 +108,9 @@ static bool EffectResult(HRESULT hr) {
     return false;
 }
 
+static LONG s_constDir;
 static void ResetCachedParameters() {
+    s_constDir = 0;   // unknown: the next update sends the direction
     s_fx.constTime = 0;
     s_fx.springCoef = s_fx.damperCoef = s_fx.frictionCoef = -1;
     s_fx.sineMag = 0xFFFFFFFF;
@@ -225,8 +228,12 @@ static bool CreateEffects(DeviceWrap* d) {
     s_fx.friction = MakeEffect(d, GUID_Friction, "friction", &cond, sizeof(cond));
     s_fx.sine = MakeEffect(d, GUID_Sine, "sine", &per, sizeof(per));
     bool started = StartAll();
-    Log("ffb: effects on '%s': constant=%d spring=%d damper=%d friction=%d sine=%d", d->name,
-        !!s_fx.constant, !!s_fx.spring, !!s_fx.damper, !!s_fx.friction, !!s_fx.sine);
+    // Some wheels show up as two force feedback devices of the same name: log which one this is.
+    DIDEVCAPS caps = {};
+    caps.dwSize = sizeof(caps);
+    d->real->GetCapabilities(&caps);
+    Log("ffb: effects on '%s' (%lu axes, %lu buttons): constant=%d spring=%d damper=%d friction=%d sine=%d", d->name,
+        caps.dwAxes, caps.dwButtons, !!s_fx.constant, !!s_fx.spring, !!s_fx.damper, !!s_fx.friction, !!s_fx.sine);
     return started;
 }
 
@@ -250,12 +257,33 @@ static void SetCondition(IDirectInputEffect* fx, LONG& last, float coef) {
     if (SetParams(fx, &cond, sizeof(cond))) last = c;
 }
 
+// ForceDirection=1 sends the side as the effect's direction (+1 / -1) with a positive magnitude,
+// for drivers that ignore negative magnitudes; the direction is only resent when it flips.
 static void SetConstant(float v, double now) {
     if (!s_fx.constant) return;
     LONG m = (LONG)lrintf(Clamp(v, -1.0f, 1.0f) * DI_FFNOMINALMAX);
     if (abs(m - s_fx.constMag) < 15 && now - s_fx.constTime < 0.05) return;
     DICONSTANTFORCE cf = {m};
-    if (SetParams(s_fx.constant, &cf, sizeof(cf))) {
+    bool ok;
+    if (g_cfg.forceDirection) {
+        LONG dir = m < 0 ? -1 : 1;
+        cf.lMagnitude = labs(m);
+        DWORD axes[1] = {AxisOfs(s_fx.dev)};
+        LONG dirs[1] = {dir};
+        DIEFFECT e = {};
+        e.dwSize = sizeof(e);
+        e.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
+        e.cAxes = 1;
+        e.rgdwAxes = axes;
+        e.rglDirection = dirs;
+        e.cbTypeSpecificParams = sizeof(cf);
+        e.lpvTypeSpecificParams = &cf;
+        ok = EffectResult(s_fx.constant->SetParameters(&e, DIEP_TYPESPECIFICPARAMS | (dir != s_constDir ? DIEP_DIRECTION : 0)));
+        if (ok) s_constDir = dir;
+    } else {
+        ok = SetParams(s_fx.constant, &cf, sizeof(cf));
+    }
+    if (ok) {
         s_fx.constMag = m; s_fx.constTime = now;
     }
 }
@@ -501,6 +529,21 @@ static DeviceWrap* ServiceEffects(double now, bool focused, bool manual) {
 
 // ---------------------------------------------------------------------------
 // Force model
+//
+// Constant force (+ = turn the wheel right), built from:
+//   tyre      self-aligning torque from the front slip angle and load (goes light past the peak)
+//   centring  -SpeedCentering * v * sin(steering angle): none parked, stronger with speed and lock
+//   understeer both of the above lose UndersteerLightening when the front tyres are past their grip
+//             (slip beyond the peak, or the car yawing less than the steering asks for)
+//   road      front suspension movement, left vs. right
+//   surface   square-wave rumble at the game's own per-surface frequency and intensity, and a pull
+//             toward the rougher side
+//   kerbs     jerk of the body's vertical motion in its own frame above CurbJerk: a short push
+//             away from the side that hit (both sides: a short shake)
+//   impacts   head-on: a decaying shake both ways; side and angled: a one-way kick
+//   scrapes   acceleration spikes beside a wall: pull toward the contact + rumble
+//   air       limp in the air (AirborneForce of the steering forces), a jolt on landing
+// Spring, damper and friction effects add the speed-dependent centring spring, weight and scrub.
 // ---------------------------------------------------------------------------
 struct Out {
     float constant = 0, spring = 0, damper = 0, friction = 0, sineMag = 0, sineHz = 30;
@@ -530,22 +573,35 @@ struct Calib {
 static struct State {
     float fade = 0;               // 0 = menus .. 1 = driving
     uint32_t lastSeq = 0;
-    uint32_t lastHitSeq = 0;
-    bool  haveHitSeq = false;
+    uint32_t lastHitSeq = 0, lastScrapeSeq = 0, lastLandSeq = 0;
+    bool  haveSeqs = false;
     float loadRef = 0;
-    float sat = 0, road = 0;      // smoothed components
+    float sat = 0, road = 0, centre = 0;   // smoothed components
     float roadTarget = 0, roadVib = 0;
+    float understeer = 0;         // 0..1, smoothed
+    float air = 1;                // 1 on the ground .. AirborneForce in the air
+    float surfacePhase = 0;
     double joltTime = -1;
     float joltAmp = 0;
     int   joltFlip = 1;
+    bool  joltShake = false;      // head-on: both ways
+    double curbTime = -1;
+    float curbAmp = 0;
+    int   curbSide = 0;
+    double scrapeUntil = -1;
+    float scrapeAmp = 0;
+    int   scrapeSide = 0;
+    double landTime = -1;
+    float landAmp = 0;
     Calib slip, right;
     int   forceSign = 0;
-    // force direction pulse test
-    int   pulsePhase = 0, pulseTries = 0;
+    // force direction test: rest, push right, rest, push left (each measured against the drift)
+    int   pulsePhase = 0, pulseTries = 0, pulseOneWay = 0;
     double pulseTime = 0, pulseNext = 0;
-    float pulseAxis[3];
+    float pulseAxis[5];
     float axis = 0, axisPrev = 0, axisVel = 0;
     bool  haveAxis = false;
+    LONG  lastDir = 1;
     double logTime = 0, statTime = 0;
     int   clipCount = 0, tickCount = 0;
 } S;
@@ -566,6 +622,7 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     float slipSign = (float)S.slip.sign;
     float rightSign = (float)(S.right.sign ? S.right.sign : 1);
     float speed = t.speed;
+    const float peak = Clamp(c.satPeakAngle, 1.0f, 30.0f) * kPi / 180.0f;
 
     // --- self-aligning torque -------------------------------------------------------------
     float onF = (t.onGround[0] ? 1.0f : 0.0f) + (t.onGround[1] ? 1.0f : 0.0f);
@@ -581,7 +638,6 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
 
     float satTarget = 0.0f, precalSpring = 0.0f;
     if (slipSign != 0.0f) {
-        float peak = Clamp(c.satPeakAngle, 1.0f, 30.0f) * kPi / 180.0f;
         float x = slipSign * alphaRaw / peak;
         float shape = x * expf(0.5f * (1.0f - x * x)) + c.driftAlign * tanhf(0.5f * x);
         satTarget = -c.satGain * shape * loadF * vs;  // tyre pulls the wheel back toward the direction of travel
@@ -589,6 +645,38 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
         precalSpring = c.satGain * 0.6f * vs * (onF * 0.5f);
     }
     S.sat += (satTarget - S.sat) * Clamp(dt / 0.015f, 0.0f, 1.0f);
+
+    // --- speed-sensitive centring: -K * v * sin(steering angle) ----------------------------
+    // The angle is the wheel's, as a share of the steering lock (where the front wheels are at full
+    // lock, 45 degrees, with the gameplay mod's direct steering).
+    float centreTarget = 0.0f;
+    if (S.haveAxis && driving) {
+        float lockShare = c.softLockAt < 0.98f ? c.softLockAt : 1.0f;
+        float theta = Clamp(S.axis / lockShare, -1.5f, 1.5f) * (45.0f * kPi / 180.0f);
+        float v = Clamp(speed * 3.6f / c.speedCenteringRef, 0.0f, 1.5f);
+        centreTarget = -c.speedCentering * v * sinf(theta) * (onF * 0.5f);
+    }
+    S.centre += (centreTarget - S.centre) * Clamp(dt / 0.02f, 0.0f, 1.0f);
+
+    // --- understeer: front tyres past their grip ---------------------------------------------
+    float under = 0.0f;
+    if (driving && onF > 0 && speed > 5.0f) {
+        float alphaF = fabsf(alphaRaw), alphaR = fabsf(t.rearSlipAngle);
+        under = Smoothstep(1.0f, 1.6f, alphaF / peak);
+        // Yawing less than the steered front wheels ask for (single-track model), while the front
+        // slides more than the rear: the car is pushing wide.
+        float steer = fabsf(t.steer);
+        if (steer > 0.03f && t.wheelbase > 1.0f && alphaF > alphaR * 1.2f) {
+            float expected = speed * tanf(std::min(steer, 0.8f)) / t.wheelbase;
+            if (expected > 0.15f) under = std::max(under, Smoothstep(0.85f, 0.5f, fabsf(t.yawRate) / expected));
+        }
+    }
+    S.understeer += (under - S.understeer) * Clamp(dt / 0.08f, 0.0f, 1.0f);
+    float lighten = 1.0f - Clamp(c.understeerLightening, 0.0f, 1.0f) * S.understeer;
+
+    // --- airborne: the wheel goes limp ---------------------------------------------------------
+    float airTarget = driving && t.airborne ? c.airborneForce : 1.0f;
+    S.air += (airTarget - S.air) * Clamp(dt / (airTarget < S.air ? 0.05f : 0.15f), 0.0f, 1.0f);
 
     // --- road: front suspension movement ----------------------------------------------------
     if (newSample) {
@@ -600,52 +688,122 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     S.roadTarget *= expf(-dt / 0.05f);
     S.road += (S.roadTarget - S.road) * Clamp(dt / 0.01f, 0.0f, 1.0f);
 
-    // --- collisions -------------------------------------------------------------------------
-    if (!S.haveHitSeq) {
-        S.lastHitSeq = t.hitSeq;
-        S.haveHitSeq = true;
-    } else if (t.hitSeq != S.lastHitSeq) {
+    // --- surface rumble -----------------------------------------------------------------------
+    float surface = 0.0f;
+    if (driving && onF > 0) {
+        float rough[2] = {t.onGround[0] ? t.surfaceRumble[0] : 0.0f, t.onGround[1] ? t.surfaceRumble[1] : 0.0f};
+        float amount = c.surfaceRumble * Clamp(std::max(rough[0], rough[1]) * 1.5f, 0.0f, 1.0f) * Smoothstep(1.0f, 8.0f, speed);
+        float hzBase = std::max(t.surfaceHz[0], t.surfaceHz[1]);
+        float hz = Clamp((hzBase > 0 ? hzBase : 18.0f) * Clamp(speed / 15.0f, 0.4f, 1.5f), 6.0f, 40.0f);
+        S.surfacePhase += dt * hz;
+        S.surfacePhase -= floorf(S.surfacePhase);
+        surface = (S.surfacePhase < 0.5f ? 0.5f : -0.5f) * amount;
+        // One side on the grass pulls the wheel that way.
+        surface += 0.3f * c.surfaceRumble * rightSign * (rough[1] - rough[0]) * Smoothstep(2.0f, 10.0f, speed);
+    }
+
+    // --- events: impacts, kerbs, scrapes, landings -------------------------------------------
+    if (!S.haveSeqs) {
+        S.lastHitSeq = t.hitSeq; S.lastScrapeSeq = t.scrapeSeq; S.lastLandSeq = t.landSeq;
+        S.haveSeqs = true;
+    }
+    if (t.hitSeq != S.lastHitSeq) {
         S.lastHitSeq = t.hitSeq;
         if (driving) {
             S.joltTime = now;
+            S.joltShake = fabsf(t.hitLon) > 0.75f;       // head-on (or from behind)
             S.joltAmp = c.collisionGain * Clamp(t.hitMag / 10.0f, 0.25f, 1.0f);
             float lat = t.hitLat * rightSign;
-            S.joltFlip = fabsf(lat) > 0.3f ? (lat > 0 ? 1 : -1) : -S.joltFlip;
-            if (c.logTelemetry) Log("hit: dv=%.2f lat=%.2f amp=%.2f", t.hitMag, t.hitLat, S.joltAmp);
+            S.joltFlip = lat > 0 ? 1 : -1;               // kicked the way the car was shoved
+            if (c.logTelemetry) Log("hit: dv=%.2f lat=%.2f lon=%.2f amp=%.2f %s", t.hitMag, t.hitLat, t.hitLon, S.joltAmp,
+                                    S.joltShake ? "head-on" : "kick");
         }
     }
+    if (t.scrapeSeq != S.lastScrapeSeq) {
+        S.lastScrapeSeq = t.scrapeSeq;
+        if (driving && speed > 2.0f) {
+            S.scrapeUntil = now + 0.25;
+            S.scrapeAmp = c.scrapes * Clamp(t.scrapeMag / 40.0f, 0.3f, 1.0f);
+            S.scrapeSide = t.scrapeLat * rightSign > 0 ? 1 : -1;   // the car was pushed this way
+        }
+    }
+    if (t.landSeq != S.lastLandSeq) {
+        S.lastLandSeq = t.landSeq;
+        if (driving && t.landSpeed > 1.0f) {
+            S.landTime = now;
+            S.landAmp = c.landing * Clamp(t.landSpeed / 6.0f, 0.2f, 1.0f);
+            if (c.logTelemetry) Log("landing: %.1f m/s, amp %.2f", t.landSpeed, S.landAmp);
+        }
+    }
+    if (newSample && driving && onF > 0 && speed > 2.0f && fabsf(t.vertJerk) > c.curbJerk && now - S.curbTime > 0.1) {
+        float side = rightSign * (fabsf(t.compAccel[1]) - fabsf(t.compAccel[0]));   // > 0: the right wheel hit
+        float both = fabsf(t.compAccel[0]) + fabsf(t.compAccel[1]);
+        S.curbTime = now;
+        S.curbAmp = c.curbs * Clamp(fabsf(t.vertJerk) / (c.curbJerk * 5.0f), 0.25f, 1.0f);
+        S.curbSide = both > 0 && fabsf(side) > 0.3f * both ? (side > 0 ? 1 : -1) : 0;
+        if (c.logTelemetry) Log("kerb: jerk %.0f side %d amp %.2f", t.vertJerk, S.curbSide, S.curbAmp);
+    }
+
     float jolt = 0.0f, joltVib = 0.0f;
     if (S.joltTime >= 0) {
         float jt = (float)(now - S.joltTime);
-        if (jt > 0.6f) {
+        if (jt > 0.5f) {
             S.joltTime = -1;
-        } else {
-            float env = S.joltAmp * expf(-jt / 0.09f);
-            jolt = S.joltFlip * env * cosf(2.0f * kPi * 8.0f * jt);
+        } else if (S.joltShake) {
+            float env = S.joltAmp * expf(-jt / 0.07f);
+            jolt = S.joltFlip * env * cosf(2.0f * kPi * 14.0f * jt);
             joltVib = env * 0.5f;
+        } else {
+            float env = S.joltAmp * 0.8f * expf(-jt / 0.1f);
+            jolt = S.joltFlip * env;
+            joltVib = env * 0.3f;
         }
+    }
+    float curb = 0.0f;
+    if (S.curbTime >= 0) {
+        float ct = (float)(now - S.curbTime);
+        if (ct > 0.08f) S.curbTime = -1;
+        else if (S.curbSide) curb = -S.curbSide * S.curbAmp * sinf(kPi * ct / 0.08f);   // away from the kerb
+        else curb = S.curbAmp * 0.7f * sinf(2.0f * kPi * 25.0f * ct);
+    }
+    float scrape = 0.0f, scrapeVib = 0.0f;
+    if (now < S.scrapeUntil) {
+        float env = Clamp((float)(S.scrapeUntil - now) / 0.1f, 0.0f, 1.0f);
+        scrape = -S.scrapeSide * S.scrapeAmp * 0.35f * env;   // toward the wall: against the push
+        scrapeVib = S.scrapeAmp * 0.5f * env;
+    }
+    float land = 0.0f;
+    if (S.landTime >= 0) {
+        float lt = (float)(now - S.landTime);
+        if (lt > 0.3f) S.landTime = -1;
+        else land = S.landAmp * expf(-lt / 0.06f) * cosf(2.0f * kPi * 9.0f * lt);
     }
 
     // --- vibration --------------------------------------------------------------------------
     float engine = driving ? c.engineVibration * (0.4f + 0.6f * t.rpmNorm) * (1.0f - 0.6f * Smoothstep(0.0f, 20.0f, speed)) : 0.0f;
-    float engineHz = Clamp(t.rpm / 60.0f * 2.0f, 15.0f, 60.0f);
+    float engineHz = Clamp(t.rpm / 60.0f, 10.0f, 100.0f);   // one ripple per crank turn
     float lock = (driving && (t.brakeLocked[0] || t.brakeLocked[1]) && speed > 3.0f) ? c.brakeLockVibration : 0.0f;
-    float road = driving ? S.roadVib : 0.0f;
-    o.sineMag = (engine + lock + road + (S.forceSign ? 0.0f : joltVib)) * S.fade;
-    o.sineHz = lock > engine && lock > road ? 22.0f : (road > engine ? 30.0f : engineHz);
+    float road = driving ? S.roadVib * S.air : 0.0f;
+    float vib[4] = {engine, lock, road, scrapeVib};
+    float hzs[4] = {engineHz, 22.0f, 30.0f, 45.0f};
+    int strongest = 0;
+    for (int i = 1; i < 4; i++) if (vib[i] > vib[strongest]) strongest = i;
+    o.sineMag = (engine + lock + road + scrapeVib + (S.forceSign ? 0.0f : joltVib)) * S.fade;
+    o.sineHz = hzs[strongest];
 
     // --- conditions -------------------------------------------------------------------------
     float damperDrive = c.damperLow + (c.damperHigh - c.damperLow) * Smoothstep(0.0f, 25.0f, speed);
-    o.damper = damperDrive * S.fade + c.damperHigh * (1.0f - S.fade);
-    o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade + c.friction * (1.0f - S.fade);
+    o.damper = damperDrive * S.fade * std::max(S.air, 0.3f) + c.damperHigh * (1.0f - S.fade);
+    o.friction = (c.friction + c.standstillFriction * (1.0f - Smoothstep(0.5f, 5.0f, speed))) * S.fade * S.air + c.friction * (1.0f - S.fade);
     // Centring spring: weak when parked, full from CenterSpringSpeed up (speed is in m/s).
     float springSpeed = Clamp(speed * 3.6f / Clamp(c.centerSpringSpeed, 10.0f, 400.0f), 0.0f, 1.0f);
     float centre = c.centerSpring * (c.centerSpringParked + (1.0f - c.centerSpringParked) * springSpeed);
-    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade;
+    o.spring = c.menuSpring * (1.0f - S.fade) + (precalSpring + centre) * S.fade * S.air * lighten;
 
     // --- constant ---------------------------------------------------------------------------
-    float total = (S.sat + S.road + (S.forceSign ? jolt : 0.0f)) * S.fade;
-    o.constant = total;
+    float steering = ((S.sat + S.centre) * lighten + S.road + surface) * S.air;
+    float events = S.forceSign ? jolt + curb + scrape + land : 0.0f;
+    o.constant = (steering + events) * S.fade;
 
     // master gain
     o.constant *= c.gain;
@@ -683,48 +841,68 @@ static void Compute(const Telemetry& t, double now, float dt, Out& o) {
     if (c.logTelemetry && now - S.logTime > 0.1) {
         S.logTime = now;
         Log("tel: drv=%d v=%.1f fwd=%.1f slip=%.3f/%.3f rear=%.3f load=%.0f/%.0f(ref %.0f) comp=%.2f/%.2f steer=%.3f "
-            "max=%.1f yaw=%.2f rpm=%.0f(%.2f) axis=%.3f | sat=%.3f road=%.3f jolt=%.3f const=%.3f spr=%.2f dmp=%.2f fr=%.2f vib=%.3f@%.0f",
+            "yaw=%.2f rpm=%.0f axis=%.3f air=%d(%.2f) jerk=%.0f surf=%.2f/%.2f@%.0f roll=%.2f/%.2f | sat=%.3f centre=%.3f "
+            "under=%.2f road=%.3f surf=%.3f const=%.3f spr=%.2f dmp=%.2f fr=%.2f vib=%.3f@%.0f",
             driving, speed, t.fwdSpeed, t.slipAngle[0], t.slipAngle[1], t.rearSlipAngle, t.load[0], t.load[1], S.loadRef,
-            t.compVel[0], t.compVel[1], t.steer, t.maxSteer, t.yawRate, t.rpm, t.rpmNorm, S.axis, S.sat, S.road, jolt,
-            o.constant, o.spring, o.damper, o.friction, o.sineMag, o.sineHz);
+            t.compVel[0], t.compVel[1], t.steer, t.yawRate, t.rpm, S.axis, t.airborne, t.airTime, t.vertJerk,
+            t.surfaceRumble[0], t.surfaceRumble[1], std::max(t.surfaceHz[0], t.surfaceHz[1]), t.rollingResist[0],
+            t.rollingResist[1], S.sat, S.centre, S.understeer, S.road, surface, o.constant, o.spring, o.damper,
+            o.friction, o.sineMag, o.sineHz);
     }
 }
 
-// Determine which constant-force sign turns the wheel right: a short push each way while in menus.
+// Which constant-force sign turns the wheel right: in menus, the wheel rests, gets a short push
+// one way, rests, and a push the other way. Each push is measured against the drift in the rest
+// before it, so a wheel still settling doesn't decide it. A wheel that moves for one push but not
+// the other is likely ignoring negative magnitudes: the test switches to negative directions.
 // Returns true while the test owns the wheel.
 static bool PulseTest(double now, bool driving, Out& o) {
     if (S.forceSign || !s_fx.constant || !S.haveAxis || now - s_fx.recoveryTime < 0.3) return false;
     if (S.pulsePhase == 0) {
-        if (driving || now < S.pulseNext || S.pulseTries >= 6 || fabsf(S.axisVel) > 0.05f || fabsf(S.axis) > 0.6f) return false;
+        if (driving || now < S.pulseNext || S.pulseTries >= 8 || fabsf(S.axisVel) > 0.05f || fabsf(S.axis) > 0.6f) return false;
         S.pulsePhase = 1;
         S.pulseTime = now;
         S.pulseAxis[0] = S.axis;
         S.pulseTries++;
     }
     float t = (float)(now - S.pulseTime);
-    const float push = 0.3f, len = 0.12f;
+    const float push = 0.35f, len = 0.13f;
     o = Out();
-    if (S.pulsePhase == 1) {
-        o.constant = push;
-        if (t >= len) { S.pulseAxis[1] = S.axis; S.pulsePhase = 2; S.pulseTime = now; }
-    } else if (S.pulsePhase == 2) {
-        o.constant = -push;
-        if (t >= len) { S.pulseAxis[2] = S.axis; S.pulsePhase = 3; S.pulseTime = now; }
-    } else {
-        o.constant = 0;
-        S.pulsePhase = 0;
-        float d1 = S.pulseAxis[1] - S.pulseAxis[0], d2 = S.pulseAxis[2] - S.pulseAxis[1];
-        if (fabsf(d1) > 0.004f && fabsf(d2) > 0.004f && (d1 > 0) != (d2 > 0)) {
-            S.forceSign = d1 > 0 ? 1 : -1;
-            Log("calibration: force direction detected, ForceSign=%d (moves %.4f / %.4f)", S.forceSign, d1, d2);
-            SaveCalibration(S.slip.sign, S.right.sign, S.forceSign);
-        } else {
-            Log("calibration: force direction test inconclusive (moves %.4f / %.4f), retrying later", d1, d2);
-            S.pulseNext = now + 8.0;
+    static const float kPush[5] = {0, 0, 1, 0, -1};     // by phase: 1 rest, 2 right, 3 rest, 4 left
+    if (S.pulsePhase <= 4) {
+        o.constant = push * kPush[S.pulsePhase];
+        if (t >= len) {
+            S.pulseAxis[S.pulsePhase] = S.axis;
+            S.pulsePhase++;
+            S.pulseTime = now;
         }
+        if (S.pulsePhase <= 4) return true;
+    }
+    o.constant = 0;
+    S.pulsePhase = 0;
+    float drift1 = S.pulseAxis[1] - S.pulseAxis[0], drift2 = S.pulseAxis[3] - S.pulseAxis[2];
+    float d1 = (S.pulseAxis[2] - S.pulseAxis[1]) - drift1, d2 = (S.pulseAxis[4] - S.pulseAxis[3]) - drift2;
+    const float moved = 0.004f;
+    if (fabsf(d1) > moved && fabsf(d2) > moved && (d1 > 0) != (d2 > 0)) {
+        S.forceSign = d1 > 0 ? 1 : -1;
+        Log("calibration: force direction detected, ForceSign=%d (moves %.4f / %.4f beyond drift, %s)", S.forceSign,
+            d1, d2, g_cfg.forceDirection ? "negative directions" : "negative magnitudes");
+        SaveCalibration(S.slip.sign, S.right.sign, S.forceSign);
         return false;
     }
-    return true;
+    bool oneWay = (fabsf(d1) > moved) != (fabsf(d2) > moved);
+    if (oneWay && !g_cfg.forceDirection && ++S.pulseOneWay >= 2) {
+        g_cfg.forceDirection = 1;
+        SaveForceDirection(1);
+        Log("calibration: the wheel only reacts to one force direction; sending negative directions instead "
+            "(ForceDirection=1)");
+        S.pulseNext = now + 1.0;
+        return false;
+    }
+    Log("calibration: force direction test inconclusive (moves %.4f / %.4f beyond drift %.4f / %.4f), retrying later%s",
+        d1, d2, drift1, drift2, fabsf(d1) <= moved && fabsf(d2) <= moved ? " - no reaction: is this the wheel's FFB device?" : "");
+    S.pulseNext = now + 8.0;
+    return false;
 }
 
 static void Apply(const Out& o, double now) {

@@ -154,11 +154,12 @@ static bool AnyUsable(const std::vector<Binding>& list) {
 // Steering, -1 left .. +1 right: the first usable axis binding, scaled so that SteeringLock
 // degrees of wheel rotation (of WheelRotation in all) give full lock, then shaped by
 // SteeringLinearity (output = input ^ linearity, so full lock stays at the steering lock).
-static bool ReadSteer(float* out) {
+static bool ReadSteer(float* out, float* wheelDeg) {
     for (auto& b : s_steer) {
         if (b.kind != BK_AXIS || !BindingUsable(b)) continue;
         float v = ((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f;
         if (b.invert) v = -v;
+        *wheelDeg = v * g_cfg.wheelRotation * 0.5f;
         v *= g_cfg.wheelRotation / g_cfg.steeringLock;
         float dz = g_cfg.steerDeadzone, a = fabsf(v);
         a = a <= dz ? 0.0f : (a - dz) / (1.0f - dz);
@@ -430,8 +431,8 @@ static DWORD WINAPI InputThread(LPVOID) {
         for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
 
         // Driving controls.
-        float steer = 0.0f, pedals[2] = {};
-        bool steerBound = ReadSteer(&steer);
+        float steer = 0.0f, wheelDeg = 0.0f, pedals[2] = {};
+        bool steerBound = ReadSteer(&steer, &wheelDeg);
         bool pedalBound[2];
         pedalBound[0] = ReadPedal(s_pedal[0], g_cfg.throttleRest, focus, &pedals[0]);
         pedalBound[1] = ReadPedal(s_pedal[1], g_cfg.brakeRest, focus, &pedals[1]);
@@ -444,6 +445,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         EnterCriticalSection(&s_lock);
         s_snap.steerBound = steerBound;
         s_snap.steer = steer;
+        s_snap.wheelDeg = wheelDeg;
         for (int i = 0; i < 2; i++) {
             s_snap.pedalBound[i] = pedalBound[i];
             s_snap.pedal[i] = pedals[i];

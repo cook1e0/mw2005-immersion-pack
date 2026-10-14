@@ -37,6 +37,18 @@ struct Config {
     float centerSpringParked = 0.3f; // fraction of it at standstill (rises linearly with speed)
     float centerSpringSpeed = 150.0f; // km/h where the centring spring reaches full strength
     float softLock = 0.8f;          // push-back past the steering lock
+    // Synthetic effects on top of the tyre model
+    float speedCentering = 0.35f;   // aligning torque -K * v * sin(steering angle), at SpeedCenteringRef
+    float speedCenteringRef = 120.0f; // km/h where it reaches its full strength (keeps growing to 1.5x)
+    float understeerLightening = 0.5f; // steering force lost when the front tyres are past their grip
+    float surfaceRumble = 0.35f;    // rumble on rough surfaces (grass, dirt, gravel), the game's own per surface
+    float curbs = 0.5f;             // kicks from kerbs and rumble strips (body jerk in the car's frame)
+    float curbJerk = 300.0f;        // jerk (m/s^3) that counts as a kerb strike; crests and slopes stay below
+    float scrapes = 0.4f;           // wall scrapes and taps: pull toward the contact and a fast rumble
+    float landing = 0.6f;           // jolt on landing a jump (the wheel goes limp in the air)
+    float airborneForce = 0.1f;     // share of the steering forces left while airborne
+    int   forceDirection = 0;       // how a negative force is sent: 0 = negative magnitude, 1 = negative
+                                    // direction (for drivers that ignore negative magnitudes)
     float gameController = 1.0f;    // 0 = the game reads controllers as untouched (gameplay mod's
                                     // [Controls] GameController; live from its F4 menu)
     float menuController = 1.0f;    // controller buttons and hats in the game's menus
@@ -44,7 +56,7 @@ struct Config {
     float softLockAt = 1.0f;        // wheel position (fraction of full travel) of the steering lock;
                                     // set by the gameplay mod's [Controls] SteeringLock, 1 = off
     float minForce = 0.0f;          // wheel deadband compensation (0..0.2)
-    bool  invertForce = false;      // flip constant-force direction
+    float invertForce = 0.0f;       // 1 = flip constant-force direction (a 0/1 float: live from the F4 menu)
     int   steerAxis = 0;            // 0=X 1=Y 2=Z 3=RX 4=RY 5=RZ 6=Slider0
     int   updateHz = 200;
     int   keyReset = VK_F10;        // restart mod effects without restarting the game; 0 = off
@@ -57,6 +69,7 @@ struct Config {
 extern Config g_cfg;
 void LoadConfig();
 void SaveCalibration(int slipSign, int rightSign, int forceSign);
+void SaveForceDirection(int mode);
 
 // Directory containing speed.exe (with trailing backslash).
 const char* GameDir();

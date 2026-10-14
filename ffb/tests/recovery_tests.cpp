@@ -11,6 +11,7 @@ static double testTime = 1;
 double Now() { return testTime; }
 void Log(const char*, ...) {}
 void SaveCalibration(int, int, int) {}
+void SaveForceDirection(int) {}
 void Telemetry_Get(Telemetry* out) { memset(out, 0, sizeof(*out)); }
 
 struct Driver;
@@ -103,6 +104,10 @@ static HRESULT WINAPI Command(IDirectInputDevice8A* self, DWORD command) {
     if (command == DISFFC_CONTINUE) d->state &= ~DIGFFS_PAUSED;
     return DI_OK;
 }
+static HRESULT WINAPI Caps(IDirectInputDevice8A*, LPDIDEVCAPS caps) {
+    caps->dwAxes = 1; caps->dwButtons = 0; caps->dwFlags = DIDC_FORCEFEEDBACK;
+    return DI_OK;
+}
 static HRESULT WINAPI Create(IDirectInputDevice8A* self, REFGUID kind, const DIEFFECT*, IDirectInputEffect** out, IUnknown*) {
     Driver* d = D(self);
     if (!d->acquired) return DIERR_NOTEXCLUSIVEACQUIRED;
@@ -121,10 +126,83 @@ static DeviceWrap* Open(Driver& driver) {
 static DeviceWrap* Service(double now, bool focus = true, bool manual = false) {
     testTime = now; return ServiceEffects(now, focus, manual);
 }
+// The force model on synthetic telemetry (driving straight at speed, wheel turned right).
+static Telemetry Driving(double now, uint32_t seq) {
+    Telemetry t;
+    memset(&t, 0, sizeof(t));
+    t.seq = seq; t.time = now; t.driving = t.valid = true;
+    t.speed = t.fwdSpeed = 30.0f;
+    t.onGround[0] = t.onGround[1] = true;
+    t.load[0] = t.load[1] = 4000;
+    t.wheelsOnGround = 4;
+    t.wheelbase = 2.6f;
+    t.rpm = 4000; t.rpmNorm = 0.5f;
+    return t;
+}
+
+static float Settle(Telemetry t, double& now, uint32_t& seq, int ticks = 60) {
+    Out o;
+    for (int i = 0; i < ticks; i++) {
+        now += 0.005; t.seq = ++seq; t.time = now;
+        Compute(t, now, 0.005f, o);
+    }
+    return o.constant;
+}
+
+static void TestForceModel() {
+    g_cfg = Config();
+    g_cfg.satGain = 0; g_cfg.roadGain = 0; g_cfg.centerSpring = 0; g_cfg.surfaceRumble = 0;
+    S = State();
+    S.forceSign = 1; S.slip.sign = 1; S.right.sign = 1;
+    S.haveAxis = true; S.axis = 0.4f;
+    double now = 100;
+    uint32_t seq = 0;
+    Telemetry t = Driving(now, seq);
+
+    // Speed-sensitive centring pulls a wheel turned right back to the left, more at speed.
+    float fast = Settle(t, now, seq);
+    assert(fast < -0.05f);
+    t.speed = t.fwdSpeed = 8.0f;
+    float slow = Settle(t, now, seq);
+    assert(slow < 0 && slow > fast);
+    t.speed = t.fwdSpeed = 30.0f;
+
+    // Understeer: front slip far past the peak and the car not turning: lighter.
+    t.slipAngle[0] = t.slipAngle[1] = 0.2f;     // ~11 degrees, peak 6
+    t.steer = 0.1f; t.yawRate = 0.1f;
+    float pushing = Settle(t, now, seq, 120);
+    assert(fabsf(pushing) < fabsf(fast) * 0.7f);
+    t.slipAngle[0] = t.slipAngle[1] = 0; t.steer = 0; t.yawRate = 0;
+    Settle(t, now, seq, 120);
+
+    // Airborne: the wheel goes limp; touching down kicks it.
+    t.airborne = true; t.wheelsOnGround = 0;
+    float air = Settle(t, now, seq);
+    assert(fabsf(air) < fabsf(fast) * 0.2f);
+    t.airborne = false; t.wheelsOnGround = 4; t.landSeq = 1; t.landSpeed = 5.0f;
+    Out o;
+    now += 0.005; t.seq = ++seq; t.time = now;
+    Compute(t, now, 0.005f, o);
+    assert(S.landTime == now && S.landAmp > 0.3f);
+    S.landTime = -1;
+
+    // A kerb under the right front wheel pushes the wheel left (away from it).
+    S.axis = 0; Settle(t, now, seq);
+    t.vertJerk = 2000; t.compAccel[1] = 50; t.compAccel[0] = 2;
+    now += 0.005; t.seq = ++seq; t.time = now;
+    Compute(t, now, 0.005f, o);
+    t.vertJerk = 0; t.compAccel[0] = t.compAccel[1] = 0;
+    now += 0.03; t.seq = ++seq; t.time = now;
+    Compute(t, now, 0.005f, o);
+    assert(S.curbSide == 1 && o.constant < -0.05f);
+
+    g_cfg = Config();
+}
+
 int main() {
     InitializeCriticalSection(&g_diLock);
     void* vt[32] = {};
-    vt[2] = (void*)&ReleaseDevice; vt[5] = (void*)&Range; vt[6] = (void*)&Property;
+    vt[2] = (void*)&ReleaseDevice; vt[3] = (void*)&Caps; vt[5] = (void*)&Range; vt[6] = (void*)&Property;
     vt[7] = (void*)&AcquireDevice; vt[8] = (void*)&UnacquireDevice; vt[9] = (void*)&DeviceState;
     vt[18] = (void*)&Create; vt[21] = (void*)&ForceState; vt[22] = (void*)&Command; vt[25] = (void*)&PollDevice;
     Driver driver = {}; driver.vtable = vt;
@@ -248,5 +326,6 @@ int main() {
     assert(Service(12.4) == d && limited.starts == 1);
     assert(Service(13.4) == d && limited.starts == 1);
     d->Release(); assert(limited.effects.empty());
-    puts("FFB recovery tests passed");
+    TestForceModel();
+    puts("FFB recovery and force model tests passed");
 }

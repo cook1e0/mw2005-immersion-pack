@@ -113,6 +113,7 @@ Everything is in `nfsmw_vr.ini`. The useful ones:
 - **`Resolution` / `ResolutionScale`:** each eye renders at the headset's recommended size by default. Lower `ResolutionScale` for more fps.
 - **`LevelRoll` / `LevelPitch`:** how much of the car's body roll and pitch to remove from your view. By default roll is removed and pitch is kept.
 - **`HudDistance` / `HudWidth`:** placement of the floating HUD panel.
+- **`SteeringWheel`:** the car's steering wheel turns with your wheel, by the same angle (needs the gameplay mod with a bound steering axis and `[Controls] WheelRotation` set to your wheel's rotation). The wheel is found in each car's interior model; the log says `steering wheel at ...` or why not.
 - **`NearZ`:** near clip plane in metres (default 0.05; the game's own is 0.5). Lower it if the dashboard or wheel close to your eyes is cut off; raise it if distant surfaces flicker. 0 = the game's own.
 
 ## Recording

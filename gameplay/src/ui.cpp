@@ -243,13 +243,20 @@ const struct {
     {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
     {MOD_FFB, "GameController", 1.0f},
     {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
+    {MOD_FFB, "SelfAligningTorque", 0.75f}, {MOD_FFB, "SpeedCentering", 0.35f}, {MOD_FFB, "UndersteerLightening", 0.5f},
+    {MOD_FFB, "RoadFeel", 0.5f}, {MOD_FFB, "SurfaceRumble", 0.35f}, {MOD_FFB, "Curbs", 0.5f},
+    {MOD_FFB, "Collisions", 0.8f}, {MOD_FFB, "Scrapes", 0.4f}, {MOD_FFB, "Landing", 0.6f},
+    {MOD_FFB, "EngineVibration", 0.02f}, {MOD_FFB, "DamperLowSpeed", 0.35f}, {MOD_FFB, "InvertForce", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
     {MOD_VR, "NearZ", 0.05f},
+    {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
 };
 enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
     FFB_MENUCONTROLLER, FFB_MENUAXES,
-    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, EXT_COUNT
+    FFB_SAT, FFB_SPEEDCENTRE, FFB_UNDERSTEER, FFB_ROAD, FFB_SURFACE, FFB_CURBS, FFB_COLLISIONS, FFB_SCRAPES,
+    FFB_LANDING, FFB_ENGINE, FFB_DAMPER, FFB_INVERT,
+    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -385,6 +392,7 @@ const Item kItems[] = {
     {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
+    {TOGGLE, "Speed-sensitive steering", "Controls", "SpeedSensitiveSteering", &g_cfg.steerSpeedSensitive, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Controller input in game menus", "Controls", "MenuController", &g_cfg.menuController, 0, 0, 0, 0, nullptr, 0},
@@ -408,6 +416,20 @@ const Item kItems[] = {
     {NUMBER, "Centring when parked", "FFB", "CenterSpringParked", &s_ext[FFB_CENTERPARKED], 0.0f, 1.0f, 0.05f, 100, "%.0f%% of it", 0},
     {NUMBER, "Full centring from", "FFB", "CenterSpringSpeed", &s_ext[FFB_CENTERSPEED], 20.0f, 300.0f, 10.0f, 1, "%.0f km/h", 0},
     {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Reverse force direction", "FFB", "InvertForce", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("STEERING FEEL"),
+    {NUMBER, "Tyre feel", "FFB", "SelfAligningTorque", &s_ext[FFB_SAT], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speed centring", "FFB", "SpeedCentering", &s_ext[FFB_SPEEDCENTRE], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Understeer lightening", "FFB", "UndersteerLightening", &s_ext[FFB_UNDERSTEER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Damping", "FFB", "DamperLowSpeed", &s_ext[FFB_DAMPER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("ROAD AND EFFECTS"),
+    {NUMBER, "Road bumps", "FFB", "RoadFeel", &s_ext[FFB_ROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Kerbs", "FFB", "Curbs", &s_ext[FFB_CURBS], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Collisions", "FFB", "Collisions", &s_ext[FFB_COLLISIONS], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Landings", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Engine vibration", "FFB", "EngineVibration", &s_ext[FFB_ENGINE], 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -1169,6 +1191,7 @@ const struct {
     {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game. A soft lock (FFB) stops it there."},
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
+    {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: the game's wheel mode, with less lock at speed."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
@@ -1178,6 +1201,18 @@ const struct {
     {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
     {&s_ext[FFB_CENTERSPEED], "Speed where the centring spring reaches full strength."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
+    {&s_ext[FFB_INVERT], "1 if every force pushes the wrong way (the wheel runs away from centre). Normally detected automatically."},
+    {&s_ext[FFB_SAT], "Steering weight from the front tyres: heavy while they grip, light past the limit."},
+    {&s_ext[FFB_SPEEDCENTRE], "Pull back to centre that grows with speed and steering angle. None when parked."},
+    {&s_ext[FFB_UNDERSTEER], "How much lighter the wheel gets when the front tyres slide (understeer)."},
+    {&s_ext[FFB_DAMPER], "Weight that resists fast wheel movement, mostly at low speed. Stops oscillation."},
+    {&s_ext[FFB_ROAD], "Kicks from the front suspension: bumps, dips, landings."},
+    {&s_ext[FFB_SURFACE], "Rumble on grass, dirt and gravel, with a pull toward the rough side."},
+    {&s_ext[FFB_CURBS], "Short kicks from kerbs and rumble strips, away from the side that hit."},
+    {&s_ext[FFB_COLLISIONS], "Head-on hits shake the wheel both ways; side and angled hits kick it one way."},
+    {&s_ext[FFB_SCRAPES], "Rubbing a wall: a pull toward it and a fast rumble."},
+    {&s_ext[FFB_LANDING], "Jolt when landing a jump. The wheel goes limp while the car is in the air."},
+    {&s_ext[FFB_ENGINE], "Engine ripple at the crank frequency, mostly at low speed."},
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
@@ -1856,6 +1891,8 @@ void Ui_Frame() {
     if (float* ma = ExtSetting(FFB_MENUAXES)) *ma = g_cfg.menuAxes ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
     InputSnapshot in = Input_Get();
+    // The cockpit's steering wheel turns with the bound wheel (VR mod, also on a flat screen).
+    if (float* angle = ExtSetting(VR_WHEELANGLE)) *angle = in.steerBound ? in.wheelDeg : 0.0f;
     // [Controls] RecenterVr works everywhere, not only while driving.
     static uint32_t recenters = in.recenters;
     if (in.recenters != recenters) {

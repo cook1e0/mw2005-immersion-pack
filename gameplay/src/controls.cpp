@@ -19,7 +19,20 @@
 #include "input.h"
 #include <math.h>
 
+// Steering type for SuspensionRacer::DoHumanSteering: -1 = the game's (gamepad on PC, as no
+// ISteeringWheel device exists), else ISteeringWheel::SteeringType (1 speed-sensitive wheel,
+// 2 speed-insensitive wheel). Set on the game thread before FetchInput.
+extern "C" { volatile int g_steerType = -1; }
+
 namespace {
+
+// DoHumanSteering picks the steering type in ebx (0 = gamepad without a wheel device) and passes
+// it to CalculateMaxSteering. As a gamepad the game remaps the input, scales the lock from 40
+// degrees parked down to ~3 at speed and limits how fast the front wheels turn; as a wheel the
+// input maps straight to the lock. The call is retargeted to a stub that swaps the type in.
+constexpr uintptr_t kSteerTypePush = 0x69E89D;      // push ebx; push ebp; mov ecx, esi
+constexpr uintptr_t kCallMaxSteering = 0x69E8A1;    // call SuspensionRacer::CalculateMaxSteering
+constexpr uintptr_t kCalculateMaxSteering = 0x68E9E0;
 
 constexpr uintptr_t kDoFetchInput = 0x6E8AC0;       // void SimSystem::DoFetchInput(IInputPlayer*)
 constexpr uintptr_t kReceiveAction = 0x6440B0;      // bool ActionQueue::ReceiveAction(const ActionData&)
@@ -56,6 +69,24 @@ struct {
     bool logged = false;
 } s;
 
+}  // namespace
+
+// The type also stays in ebx for DoHumanSteering's own gamepad branch (remap and ramp), which is
+// tested right after the call; ebx is restored by its epilogue.
+__asm__(
+    ".text\n"
+    "_Controls_SteerTypeStub:\n"
+    "    movl _g_steerType, %eax\n"
+    "    testl %eax, %eax\n"
+    "    js 1f\n"
+    "    movl %eax, %ebx\n"
+    "    movl %eax, 8(%esp)\n"          // CalculateMaxSteering's steer_type argument
+    "1:  movl $0x68E9E0, %eax\n"
+    "    jmp *%eax\n");
+extern "C" void Controls_SteerTypeStub();
+
+namespace {
+
 void Send(void* queue, int port, int id, float value) {
     ActionData a = {id, port, value};
     ((ReceiveAction_t)kReceiveAction)(queue, &a);
@@ -71,6 +102,11 @@ void Inject(void* ip) {
     s.player = ip;
 
     float steer = in.steerBound ? in.steer : 0.0f;
+    int type = in.steerBound ? (g_cfg.steerSpeedSensitive ? 1 : 2) : -1;
+    if (type != g_steerType) {
+        g_steerType = type;
+        Log("controls: steering %s", type < 0 ? "as the game's (gamepad)" : type == 1 ? "as a speed-sensitive wheel" : "direct (wheel)");
+    }
     struct { bool bound; float value; } want[7] = {
         {in.steerBound, std::max(-steer, 0.0f)},
         {in.steerBound, std::max(steer, 0.0f)},
@@ -145,5 +181,10 @@ void Controls_Install() {
         return;
     }
     WriteRel(kDoFetchInput, 0xE9, (void*)&Hook_DoFetchInput);
+    if (Expect(kSteerTypePush, {0x53, 0x55, 0x8B, 0xCE, 0xE8}) &&
+        kCallMaxSteering + 5 + *(const int32_t*)(kCallMaxSteering + 1) == kCalculateMaxSteering)
+        WriteRel(kCallMaxSteering, 0xE8, (void*)&Controls_SteerTypeStub);
+    else
+        Log("controls: unexpected steering code, wheel steering type unavailable");
     Log("controls: installed");
 }

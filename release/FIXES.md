@@ -1,3 +1,25 @@
+### v0.13.0: direct wheel steering, turning steering wheel, new force feedback
+
+- **Wheel steering:** a bound wheel used to reach the game as a gamepad: a few degrees of front
+  wheel lock at speed (40 parked, ~3 at top speed) and a slow steering ramp, so half the wheel's
+  rotation barely steered. The game's own real-wheel mode is now used: the front wheels follow
+  the wheel directly, full lock (45 degrees) at `[Controls] SteeringLock`, at any speed. F4 >
+  Controls > Speed-sensitive steering restores a lock that shrinks with speed.
+- **Turning steering wheel:** the player car's steering wheel turns with yours, by the same angle,
+  in every car with a modelled wheel (found automatically in the interior model; 36 of 38 cars).
+  `[VR] SteeringWheel=0` turns it off. Works in VR and on a flat screen.
+- **Force feedback:** new speed-sensitive centring (`-K * v * sin(angle)`), understeer lightening,
+  surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
+  vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
+  scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
+- **Force direction fix:** with `ForceSign=0` (direction test never passed) every constant force
+  was silently zero, leaving only springs and vibration. The test now measures against the
+  wheel's drift and switches to sending the direction separately (`ForceDirection=1`) for drivers
+  that ignore negative forces. `ffbtool test [n]` checks a wheel by hand; F4 has "Reverse force
+  direction".
+
+**Upgrading from v0.12.1:** replace all three plugins and `ffbtool.exe`. Keep your `.ini` files.
+
 ### v0.12.1: cockpit crash and garbage polygons fixed, settings kept
 
 - **VR cockpit crash:** the VR mod's driver-model cache was never refreshed. After the game

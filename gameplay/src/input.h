@@ -21,6 +21,7 @@ struct InputSnapshot {
     // [Controls]: driving controls fed to the game as its own actions (controls.cpp)
     bool  steerBound = false;
     float steer = 0.0f;         // -1 full left .. +1 full right, after the steering lock
+    float wheelDeg = 0.0f;      // the wheel's own angle in degrees (+ right), from WheelRotation
     bool  pedalBound[2] = {};   // accelerate, brake
     float pedal[2] = {};        // 0 = up .. 1 = floored
     uint32_t buttonBound = 0;   // bit per Button: some binding is usable

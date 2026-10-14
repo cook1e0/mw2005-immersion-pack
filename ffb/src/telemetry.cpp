@@ -5,6 +5,7 @@
 #include "telemetry.h"
 #include <math.h>
 #include <string.h>
+#include <algorithm>
 
 #define THISCALL __attribute__((thiscall))
 
@@ -33,6 +34,7 @@ static inline Vec3 operator-(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z
 static inline Vec3 operator*(Vec3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
 static inline float Dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 static inline float Len(Vec3 a) { return sqrtf(Dot(a, a)); }
+static inline Vec3 Cross(Vec3 a, Vec3 b) { return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}; }
 static inline Vec3 Norm(Vec3 a) { float l = Len(a); return l > 1e-6f ? a * (1.0f / l) : Vec3{0, 0, 0}; }
 
 template <class R> static inline R VCall0(void* obj, int off) {
@@ -52,15 +54,31 @@ static CRITICAL_SECTION s_lock;
 static Telemetry s_cur;          // published sample
 static uint32_t s_seq;
 
+// SuspensionRacer::Tire (derived from Wheel): road surface and air time
+enum { kTireAirTime = 0x68, kTireSurface = 0x9C };
+// The surface is an Attrib::Instance (layout pointer at +8) of class simsurface
+enum { kInstLayout = 0x08, kSurfRollingResistance = 0xE4, kSurfEffectFrequency = 0xF8, kSurfEffectIntensity = 0xFA };
+
 // Game-thread history
 static struct {
     bool  have;
     double time;
     Vec3  vel, fwd, pos;
-    float comp[2];
+    float comp[2], compVel[2];
+    float vertVel, vertAccel;
+    Vec3  accelSmooth;
     uint32_t hitSeq;
-    float hitMag, hitLat;
+    float hitMag, hitLat, hitLon;
+    uint32_t scrapeSeq;
+    float scrapeLat, scrapeMag;
+    double airSince;
+    bool  airborne;
+    uint32_t landSeq;
+    float landSpeed;
 } s_prev;
+
+// A pointer the game keeps inside its own heap: readable, not one of the small sentinel values.
+static bool Plausible(uintptr_t p) { return p >= 0x10000 && p < 0x7FFF0000; }
 
 static void Publish(const Telemetry& t) {
     EnterCriticalSection(&s_lock);
@@ -82,6 +100,12 @@ static void Sample(void* player) {
     t.hitSeq = s_prev.hitSeq;
     t.hitMag = s_prev.hitMag;
     t.hitLat = s_prev.hitLat;
+    t.hitLon = s_prev.hitLon;
+    t.scrapeSeq = s_prev.scrapeSeq;
+    t.scrapeLat = s_prev.scrapeLat;
+    t.scrapeMag = s_prev.scrapeMag;
+    t.landSeq = s_prev.landSeq;
+    t.landSpeed = s_prev.landSpeed;
 
     // CanDoFFB() covers pause, AI-controlled player car, cutscenes - but also the in-game
     // rumble option, which we don't want to depend on.
@@ -123,11 +147,19 @@ static void Sample(void* player) {
     t.maxSteer = VCall0<float>(susp, kGetMaxSteering) * 360.0f;
     t.wheelsOnGround = VCall0<int>(susp, kGetNumWheelsOnGround);
 
-    // Brake lock lives on the concrete SuspensionRacer::Tire, only read it for that class.
+    // Brake lock and the road surface live on the concrete SuspensionRacer::Tire, only read them
+    // for that class.
     if (*(uintptr_t*)susp == addr::VT_SuspensionRacer_ISuspension) {
         for (int i = 0; i < 2; ++i) {
             uintptr_t tire = *(uintptr_t*)((char*)susp + 0x168 + i * 4);
-            if (tire) t.brakeLocked[i] = *(uint8_t*)(tire + 0x134) != 0;
+            if (!Plausible(tire)) continue;
+            t.brakeLocked[i] = *(uint8_t*)(tire + 0x134) != 0;
+            uintptr_t layout = *(uintptr_t*)(tire + kTireSurface + kInstLayout);
+            if (!t.onGround[i] || !Plausible(layout)) continue;
+            t.rollingResist[i] = *(float*)(layout + kSurfRollingResistance);
+            t.surfaceHz[i] = *(uint16_t*)(layout + kSurfEffectFrequency);
+            t.surfaceRumble[i] = *(uint8_t*)(layout + kSurfEffectIntensity) / 255.0f;
+            if (!(t.rollingResist[i] >= 0.0f && t.rollingResist[i] < 100.0f)) t.rollingResist[i] = 0.0f;
         }
     }
 
@@ -147,7 +179,26 @@ static void Sample(void* player) {
     Vec3 v = (vel[0] + vel[1] + vel[2] + vel[3]) * 0.25f;
     t.fwdSpeed = Dot(v, fwd);
     t.speed = Len(v);
+    t.wheelbase = Len(front - rear);
+    // The car's up axis (world Z is up; the guessed right may point either way).
+    Vec3 up = Norm(Cross(fwd, right));
+    if (up.z < 0) up = up * -1.0f;
+    t.vertVel = Dot(v, up);
     t.valid = true;
+
+    // Airborne from the moment no wheel touches; a landing is the first contact after 0.15 s.
+    double now = t.time;
+    bool air = t.wheelsOnGround == 0;
+    if (air && !s_prev.airborne) s_prev.airSince = now;
+    if (!air && s_prev.airborne && now - s_prev.airSince > 0.15 && s_prev.have) {
+        s_prev.landSeq++;
+        s_prev.landSpeed = std::max(0.0f, -s_prev.vertVel);
+        t.landSeq = s_prev.landSeq;
+        t.landSpeed = s_prev.landSpeed;
+    }
+    s_prev.airborne = air;
+    t.airborne = air && now - s_prev.airSince > 0.1;
+    t.airTime = air ? (float)(now - s_prev.airSince) : 0.0f;
 
     double dt = s_prev.have ? t.time - s_prev.time : 0.0;
     bool continuous = s_prev.have && dt > 0.0005 && dt < 0.1 && Len(front - s_prev.pos) < 10.0f;
@@ -155,20 +206,51 @@ static void Sample(void* player) {
         float fdt = (float)dt;
         t.dt = fdt;
         t.yawRate = Dot(fwd - s_prev.fwd, right) / fdt;
-        for (int i = 0; i < 2; ++i) t.compVel[i] = (comp[i] - s_prev.comp[i]) / fdt;
+        for (int i = 0; i < 2; ++i) {
+            t.compVel[i] = (comp[i] - s_prev.comp[i]) / fdt;
+            t.compAccel[i] = (t.compVel[i] - s_prev.compVel[i]) / fdt;
+        }
+        // Vertical acceleration in the car's frame, lightly smoothed (the sim ticks unevenly), and
+        // its jerk: driving over a crest changes it slowly, a kerb strike within a tick or two.
+        float accelNow = (t.vertVel - s_prev.vertVel) / fdt;
+        float k = std::min(1.0f, fdt / 0.03f);
+        t.vertAccel = s_prev.vertAccel + (accelNow - s_prev.vertAccel) * k;
+        t.vertJerk = (t.vertAccel - s_prev.vertAccel) / fdt;
 
         // Impacts: velocity changes far beyond what tyres/brakes can produce (~1.5 g).
         Vec3 dv = v - s_prev.vel;
         float dvLen = Len(dv);
         float accel = dvLen / fdt;
+        Vec3 a = dv * (1.0f / fdt);
         if (accel > 40.0f && dvLen > 0.6f) {
             s_prev.hitSeq++;
             s_prev.hitMag = dvLen;
             s_prev.hitLat = Dot(dv, right) / dvLen;
+            s_prev.hitLon = Dot(dv, fwd) / dvLen;
             t.hitSeq = s_prev.hitSeq;
             t.hitMag = s_prev.hitMag;
             t.hitLat = s_prev.hitLat;
+            t.hitLon = s_prev.hitLon;
+        } else {
+            // Cornering and braking change the acceleration smoothly; a scrape or tap spikes it.
+            Vec3 spike = a - s_prev.accelSmooth;
+            float lat = Dot(spike, right), mag = Len(spike);
+            if (mag > 15.0f && fabsf(lat) > 0.5f * mag && t.wheelsOnGround >= 2) {
+                s_prev.scrapeSeq++;
+                s_prev.scrapeLat = lat / mag;
+                s_prev.scrapeMag = mag;
+                t.scrapeSeq = s_prev.scrapeSeq;
+                t.scrapeLat = s_prev.scrapeLat;
+                t.scrapeMag = s_prev.scrapeMag;
+            }
         }
+        s_prev.accelSmooth = s_prev.accelSmooth + (a - s_prev.accelSmooth) * std::min(1.0f, fdt / 0.15f);
+        s_prev.vertAccel = t.vertAccel;
+        for (int i = 0; i < 2; ++i) s_prev.compVel[i] = t.compVel[i];
+    } else {
+        s_prev.vertAccel = 0.0f;
+        s_prev.accelSmooth = {0, 0, 0};
+        for (int i = 0; i < 2; ++i) s_prev.compVel[i] = 0.0f;
     }
     s_prev.have = true;
     s_prev.time = t.time;
@@ -177,6 +259,7 @@ static void Sample(void* player) {
     s_prev.pos = front;
     s_prev.comp[0] = comp[0];
     s_prev.comp[1] = comp[1];
+    s_prev.vertVel = t.vertVel;
 
     Publish(t);
 }
