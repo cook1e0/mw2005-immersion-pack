@@ -198,6 +198,7 @@ void BlowEngine(uint8_t* eng);
 void AddDamage(uint8_t* eng, float add, float impact);
 void PopTires(uint8_t* eng);
 float PlayerDamage(uint8_t* eng);
+bool IsStaging(uint8_t* eng);
 
 uint8_t* PlayerEngine(void* ip) {
     uint8_t* vehicle = Field<uint8_t*>((uint8_t*)ip, kIP_Vehicle);
@@ -262,6 +263,18 @@ void MissShift(uint8_t* eng) {
     if (g_cfg.grindSound) PlayMoment(g_cfg.grindSound);
 }
 
+// A shift refused for lack of clutch: [Shifter] MisshiftChance of MisshiftDamage car damage.
+void MisshiftDamage(uint8_t* eng) {
+    if (!g_cfg.damage || g_cfg.misshiftChance <= 0.0f || g_cfg.misshiftDamage <= 0.0f || IsStaging(eng)) return;
+    static uint32_t seed = (uint32_t)(Now() * 1e6) | 1;
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    if ((seed >> 8) * (1.0f / 16777216.0f) >= g_cfg.misshiftChance) return;
+    Log("shift: misshift damages the car (+%.0f%%)", g_cfg.misshiftDamage * 100.0f);
+    AddDamage(eng, g_cfg.misshiftDamage, 0.0f);
+}
+
 void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     void* trans = eng + kER_Transmission;
     int cur = TransGear(trans);
@@ -297,7 +310,10 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
         if (cur != G_NEUTRAL) TransShift(trans, G_NEUTRAL);
         if (s.refused != want) {
             Log("shift: %s refused (%s)", GearName(want), refuse);
-            if (g_cfg.grind && refuse[0] == 'c') MissShift(eng);   // "clutch not pressed"
+            if (refuse[0] == 'c') {   // "clutch not pressed"
+                if (g_cfg.grind) MissShift(eng);
+                MisshiftDamage(eng);
+            }
         }
         if (refuse[0] == 'c') s.missed = true;
         s.refused = want;
@@ -372,6 +388,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         if (Now() - lastRefused > 0.2) {
             Log("shift: %s refused (clutch not pressed)", delta > 0 ? "up" : "down");
             if (g_cfg.grind) MissShift(eng);
+            MisshiftDamage(eng);
         }
         lastRefused = Now();
         delta = 0;

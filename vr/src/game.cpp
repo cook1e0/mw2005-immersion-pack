@@ -70,6 +70,7 @@ constexpr int kCamPosition = 0x40;
 constexpr int kCamDirection = 0x50;
 constexpr int kCamTarget = 0x60;
 constexpr int kCamTargetDistance = 0xB0;
+constexpr int kCamNearZ = 0xBC;  // used by sub_6CF400 unless its 2nd argument (a float) is non-zero
 constexpr int kCamFov = 0xC4;
 constexpr int kCameraParamsSize = 0xD4;
 
@@ -144,6 +145,21 @@ void __stdcall hkGetResolution(int* w, int* h) {
     }
 }
 
+// sub_6CF400's first setup argument overrides the camera's near plane when non-zero: [VR] NearZ
+// replaces it for the player view so the cockpit right in front of the eyes isn't clipped.
+uint32_t NearArg(void* cam) {
+    if (!(g_cfg.nearZ > 0.0f)) return s_setupArgs[0];
+    static float logged = -1;
+    if (g_cfg.nearZ != logged) {
+        float game = s_setupArgs[0] ? *(const float*)&s_setupArgs[0] : cam ? At<float>(cam, kCamNearZ) : 0.0f;
+        Log("game: near plane %.3f m (game's %.3f m)", g_cfg.nearZ, game);
+        logged = g_cfg.nearZ;
+    }
+    uint32_t bits;
+    memcpy(&bits, &g_cfg.nearZ, sizeof(bits));
+    return bits;
+}
+
 void __fastcall hkViewSetup(void* platInfo, void* edx, void* view, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
     if ((uintptr_t)view == kPlayerView) {
         s_setupArgs[0] = a2;
@@ -210,7 +226,7 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
         At<int>(rt, kRtHeight) = (int)(100000.0f * (hy / hx) / scale + 0.5f);
     }
     void* plat = At<void*>(view, kViewPlatInfo);
-    oViewSetup(plat, nullptr, view, s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+    oViewSetup(plat, nullptr, view, NearArg(cam), s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
     if (rt) {
         At<int>(rt, kRtWidth) = savedW;
         At<int>(rt, kRtHeight) = savedH;
@@ -246,7 +262,7 @@ void __cdecl hkRenderScene() {
                 centre.relOrientation.w = 1;
                 ApplyEyeToCamera(cam, seated, centre);
                 oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
-                           s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+                           NearArg(cam), s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
                 seat = true;
             }
         }

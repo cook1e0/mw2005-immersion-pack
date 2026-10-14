@@ -244,11 +244,12 @@ const struct {
     {MOD_FFB, "GameController", 1.0f},
     {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
+    {MOD_VR, "NearZ", 0.01f},
 };
 enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
     FFB_MENUCONTROLLER, FFB_MENUAXES,
-    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, EXT_COUNT
+    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -395,6 +396,7 @@ const Item kItems[] = {
     BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
+    BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
     RESET_,
     RESET_GAME_,
 
@@ -419,6 +421,8 @@ const Item kItems[] = {
     {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
     {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Misshift damage chance", "Shifter", "MisshiftChance", &g_cfg.misshiftChance, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Misshift damage", "Shifter", "MisshiftDamage", &g_cfg.misshiftDamage, 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
     HEADER_("CLUTCH"),
     {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
     {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
@@ -503,6 +507,8 @@ const Item kItems[] = {
     {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
+    HEADER_("VIEW"),
+    {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
 
     PAGE_("MENU AND TESTING"),
@@ -1175,6 +1181,10 @@ const struct {
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
+    {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
+    {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
+    {&g_cfg.misshiftChance, "Chance that a shift without the clutch (a misshift) damages the car. Needs car damage on."},
+    {&g_cfg.misshiftDamage, "Car damage done by a damaging misshift."},
     {&g_cfg.sequential, "H-pattern shifter, or sequential shift up / shift down."},
     {&g_cfg.requireClutch, "A gear only goes in with the clutch pressed."},
     {&g_cfg.shiftPedal, "How far the clutch must be pressed to count for a shift."},
@@ -1845,7 +1855,14 @@ void Ui_Frame() {
     if (float* mc = ExtSetting(FFB_MENUCONTROLLER)) *mc = g_cfg.menuController ? 1.0f : 0.0f;
     if (float* ma = ExtSetting(FFB_MENUAXES)) *ma = g_cfg.menuAxes ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
-    UpdateMenu(Input_Get(), st.driving);
+    InputSnapshot in = Input_Get();
+    // [Controls] RecenterVr works everywhere, not only while driving.
+    static uint32_t recenters = in.recenters;
+    if (in.recenters != recenters) {
+        recenters = in.recenters;
+        Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
+    }
+    UpdateMenu(in, st.driving);
     if (!st.driving) return;
     if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
 

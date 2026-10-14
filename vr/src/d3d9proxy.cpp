@@ -618,7 +618,7 @@ DWORD WINAPI Proxy_D3DPERF_GetStatus() {
 int WINAPI Proxy_NfsmwVr_Loaded() { return 1; }
 
 // For the gameplay mod's F4 menu (found by these exports, like the FFB mod's NfsmwFfb_Setting).
-// Live [VR] values: HudWidth, HudDistance, HudHeight, ScreenWidth, ScreenDistance. Null if
+// Live [VR] values: HudWidth, HudDistance, HudHeight, ScreenWidth, ScreenDistance, NearZ. Null if
 // unknown, or in a copy that isn't the one running (an .asi next to the d3d9.dll proxy).
 float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!s_active || !name) return nullptr;
@@ -627,6 +627,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "HudHeight")) return &g_cfg.hudHeight;
     if (!strcmp(name, "ScreenWidth")) return &g_cfg.screenWidth;
     if (!strcmp(name, "ScreenDistance")) return &g_cfg.screenDistance;
+    if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;
     return nullptr;
 }
 

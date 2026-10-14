@@ -144,6 +144,7 @@ void LoadConfig() {
     c.throttleRest = ReadInt("Controls", "AccelerateRest", -1);
     c.brakeRest = ReadInt("Controls", "BrakeRest", -1);
     for (int i = 0; i < 6; i++) c.button[i] = ReadStr("Controls", kButtonKeys[i], "");
+    c.recenterVr = ReadStr("Controls", "RecenterVr", "");
     c.wheelRotation = Clamp(ReadFloat("Controls", "WheelRotation", c.wheelRotation), 90.0f, 1800.0f);
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
     c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);
@@ -173,6 +174,8 @@ void LoadConfig() {
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
     c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xBC2DFA2F").c_str(), nullptr, 0);
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
+    c.misshiftChance = Clamp(ReadFloat("Shifter", "MisshiftChance", c.misshiftChance), 0.0f, 1.0f);
+    c.misshiftDamage = Clamp(ReadFloat("Shifter", "MisshiftDamage", c.misshiftDamage), 0.0f, 1.0f);
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
     c.revLimiter = ReadInt("Engine", "RevLimiter", 0) != 0;

@@ -106,6 +106,8 @@ void LoadConfig() {
     c.screenWidth = ReadFloat(ini, "ScreenWidth", c.screenWidth);
     c.hudDistance = ReadFloat(ini, "HudDistance", c.hudDistance);
     c.hudWidth = ReadFloat(ini, "HudWidth", c.hudWidth);
+    c.nearZ = ReadFloat(ini, "NearZ", c.nearZ);
+    if (!(c.nearZ >= 0.0f)) c.nearZ = 0.0f;
     c.hudHeight = ReadFloat(ini, "HudHeight", c.hudHeight);
     char bridge[16] = "auto";
     GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
@@ -137,6 +139,7 @@ void LoadConfig() {
     c.keySeatUp = ReadInt(ini, "KeySeatUp", c.keySeatUp);
     c.keySeatDown = ReadInt(ini, "KeySeatDown", c.keySeatDown);
     c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);
-    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f bridge=%d fakeHmd=%d",
-        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.bridge, c.fakeHmd);
+    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f nearZ=%.3f bridge=%d fakeHmd=%d",
+        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.nearZ, c.bridge,
+        c.fakeHmd);
 }

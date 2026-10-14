@@ -1,3 +1,15 @@
+### Unreleased: cockpit near plane, VR recentre binding, misshift damage
+
+- **VR near clip plane:** the player view's near plane is now `[VR] NearZ` (default 0.01 m, was
+  the game's own), so the dashboard, wheel and pillars right in front of the eyes are no longer
+  cut off. Adjustable live in F4 > VR > Near clip plane. 0 in the ini restores the game's value.
+  Very low values can make distant surfaces flicker (depth precision).
+- **Recenter VR view binding:** F4 > Controls > Recenter VR view binds any key, wheel or button
+  to the VR mod's recentre (same as F8). Works while driving and in the game's menus.
+- **Misshift damage:** a shift refused for lack of clutch has a 50% chance of doing 5% car damage
+  (`[Shifter] MisshiftChance`, `MisshiftDamage`, also in F4 > Shifter and clutch). Needs car damage
+  on; `MisshiftChance=0` turns it off.
+
 ### v0.11.2: recovery and regression fixes
 
 - **Force feedback recovery:** reacquires previously working wheels after Alt-Tab or focus

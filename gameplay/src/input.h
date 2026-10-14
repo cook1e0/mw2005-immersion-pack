@@ -15,6 +15,7 @@ struct InputSnapshot {
     uint32_t hits = 0;          // ... of [Damage] DebugDamage
     uint32_t pops = 0;          // ... of [Tires] DebugPopTires
     uint32_t menu = 0;          // ... of [UI] Menu
+    uint32_t recenters = 0;     // ... of [Controls] RecenterVr
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 
     // [Controls]: driving controls fed to the game as its own actions (controls.cpp)

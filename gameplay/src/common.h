@@ -67,6 +67,7 @@ struct Config {
     bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works
     bool  menuController = true;    // controller buttons and hats in the game's menus (needs FFB mod)
     bool  menuAxes = false;         // analog axes in menus; off prevents pedal scrolling
+    std::string recenterVr;         // recentres the VR view (the VR mod's recentre key), also outside the F4 menu
 
     // [Shifter]
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7
@@ -84,6 +85,8 @@ struct Config {
     bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
     uint32_t grindSound = 0xBC2DFA2F; // ... with this sound moment (the totaled car's engine failure), 0 = none
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
+    float misshiftChance = 0.5f;    // chance that a shift refused for lack of clutch damages the car
+    float misshiftDamage = 0.05f;   // ... and how much car damage it does (needs [Damage] Damage=1)
 
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
     bool  engineWear = true;
