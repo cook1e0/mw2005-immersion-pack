@@ -305,11 +305,15 @@ static void TestDevice() {
     Device_Service(3.6, true, false);
     assert(Device_Service(4.4, true, false) == d && driver.effects.size() == 1 && driver.effects[0]->playing);
     // A hardware safety switch is respected: no restart while it is off.
-    driver.state |= DIGFFS_SAFETYSWITCHOFF;
+    const DWORD healthy = DIGFFS_ACTUATORSON | DIGFFS_POWERON | DIGFFS_SAFETYSWITCHON;
+    driver.state = (healthy & ~DIGFFS_SAFETYSWITCHON) | DIGFFS_SAFETYSWITCHOFF;
     driver.effects[0]->playing = false;
     int starts = driver.starts;
     assert(!Device_Service(5.0, true, false) && !Device_Service(5.6, true, false) && driver.starts == starts);
-    driver.state &= ~DIGFFS_SAFETYSWITCHOFF;
+    char status[200];
+    Ffb_Status(status, sizeof(status));
+    assert(strstr(status, "switched off"));
+    driver.state = healthy;
     Device_Service(6.2, true, false);
     assert(Device_Service(6.8, true, false) == d);
     // A manual restart rebuilds the effect.
@@ -317,6 +321,17 @@ static void TestDevice() {
     Device_Service(7.0, true, true);
     Device_Service(7.6, true, false);
     assert(Device_Service(8.2, true, false) == d && driver.creates == creates + 1);
+    // A nonsense state report (a Fanatec base answered 0x011FF66D: "power off" and "safety switch
+    // off" bits among random ones) must not stop the force.
+    driver.state = 0x011FF66D;
+    for (double t = 8.4; t < 9.6; t += 0.1) assert(Device_Service(t, true, false) == d);
+    Ffb_Status(status, sizeof(status));
+    assert(strstr(status, "Running on 'Test wheel'"));
+    driver.state = healthy;
+    // Focus lost: the status says why the force stopped.
+    Device_Service(9.7, false, false);
+    Ffb_Status(status, sizeof(status));
+    assert(strstr(status, "not in front"));
     d->Release();
     assert(driver.effects.empty());
 }

@@ -13,6 +13,8 @@ void Ffb_Start();
 bool Ffb_RequestReset();
 // F4 menu: a short push to the right. False when mod forces are inactive.
 bool Ffb_RequestTest();
+// F4 menu: one line saying whether a wheel is hooked and what, if anything, holds the force up.
+int Ffb_Status(char* out, int len);
 // F4 menu: "n: name (axes, buttons)" of the nth FFB device in Windows' order; returns the count.
 int Ffb_DeviceName(int index, char* out, int len);
 // The gameplay overlay opened or closed: re-check the wheel.

@@ -1,6 +1,7 @@
 #include "ffb_device.h"
 #include "ffb.h"
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@ struct Output {
     bool ready = false;             // playing and accepting updates
     bool rebuild = false;           // recreate before the next start
     bool inhibited = false;         // hardware power / safety switch off
+    bool stateIgnored = false;      // the device's state reports are nonsense: not used
     double startTime = 0, healthTime = 0, retryTime = 0;
     LONG sent = 0;                  // last magnitude sent
     LONG sentDir = 0;               // last direction sent (0 = unknown)
@@ -31,6 +33,24 @@ struct Output {
 } s_out;
 
 bool s_focusKnown, s_focused;
+
+// What the device layer is doing, for F4 and the log (logged when it changes).
+CRITICAL_SECTION s_statusLock;
+bool s_statusInit;
+char s_status[200];
+void SetStatus(const char* fmt, ...) {
+    char buf[200];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (!s_statusInit) { InitializeCriticalSection(&s_statusLock); s_statusInit = true; }
+    EnterCriticalSection(&s_statusLock);
+    bool changed = strcmp(buf, s_status) != 0;
+    if (changed) strcpy(s_status, buf);
+    LeaveCriticalSection(&s_statusLock);
+    if (changed) Log("ffb: status: %s", buf);
+}
 DeviceWrap* s_ownDev;               // the fallback device, if we opened one
 double s_fallbackNext;
 
@@ -167,7 +187,21 @@ void CheckHealth(double now) {
     DWORD state = 0;
     HRESULT hr = s_out.dev->real->GetForceFeedbackState(&state);
     if (Lost(hr)) { Check(hr, "reading the wheel state"); return; }
-    if (SUCCEEDED(hr)) {
+    // Some drivers report nonsense here: a Fanatec base answered with different random values each
+    // time (0x005FF6AD, 0x011FF66D, ...), "power off" and "safety switch off" among them, which
+    // stopped every force. Only a report made of known flags, without contradictions, counts.
+    const DWORD known = DIGFFS_EMPTY | DIGFFS_STOPPED | DIGFFS_PAUSED | DIGFFS_ACTUATORSON | DIGFFS_ACTUATORSOFF |
+                        DIGFFS_POWERON | DIGFFS_POWEROFF | DIGFFS_SAFETYSWITCHON | DIGFFS_SAFETYSWITCHOFF |
+                        DIGFFS_USERFFSWITCHON | DIGFFS_USERFFSWITCHOFF | DIGFFS_DEVICELOST;
+    auto both = [&](DWORD a, DWORD b) { return (state & a) && (state & b); };
+    bool plausible = !(state & ~known) && !both(DIGFFS_ACTUATORSON, DIGFFS_ACTUATORSOFF) &&
+                     !both(DIGFFS_POWERON, DIGFFS_POWEROFF) && !both(DIGFFS_SAFETYSWITCHON, DIGFFS_SAFETYSWITCHOFF) &&
+                     !both(DIGFFS_USERFFSWITCHON, DIGFFS_USERFFSWITCHOFF);
+    if (SUCCEEDED(hr) && !plausible && !s_out.stateIgnored) {
+        s_out.stateIgnored = true;
+        Log("ffb: '%s' reports an impossible force feedback state 0x%08lX; ignoring its state reports", s_out.dev->name, state);
+    }
+    if (SUCCEEDED(hr) && plausible) {
         s_out.inhibited = (state & (DIGFFS_POWEROFF | DIGFFS_SAFETYSWITCHOFF | DIGFFS_USERFFSWITCHOFF)) != 0;
         if (s_out.inhibited) { s_out.ready = false; return; }
         if (state & DIGFFS_DEVICELOST) {
@@ -187,6 +221,7 @@ void CheckHealth(double now) {
     DWORD status = 0;
     hr = s_out.fx->GetEffectStatus(&status);
     if (hr == DIERR_UNSUPPORTED) return;
+    if (SUCCEEDED(hr) && (status & ~(DWORD)(DIEGES_PLAYING | DIEGES_EMULATED))) return;   // nonsense, as above
     if (hr == (HRESULT)DIERR_NOTDOWNLOADED || (SUCCEEDED(hr) && !(status & DIEGES_PLAYING))) s_out.ready = false;
     else if (FAILED(hr)) Check(hr, "reading the effect status");
 }
@@ -274,7 +309,10 @@ BOOL CALLBACK NameFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
 
 DeviceWrap* Device_Service(double now, bool focused, bool manualRestart) {
     UpdateFocus(focused);
-    if (!focused) return nullptr;
+    if (!focused) {
+        SetStatus("Paused: the game window is not in front (click it, or Alt-Tab to it)");
+        return nullptr;
+    }
     if (manualRestart) {
         DeviceWrap* previous = s_out.dev;
         ReleaseEffect();
@@ -297,7 +335,11 @@ DeviceWrap* Device_Service(double now, bool focused, bool manualRestart) {
         d->Acquire();
     }
     DeviceWrap* d = PickDevice();
-    if (!d) return nullptr;
+    if (!d) {
+        if (!s_numDevs) SetStatus("Waiting: the game has not opened a force feedback device");
+        else SetStatus("Waiting: '%s' is not acquired yet", s_devs[0]->name);
+        return nullptr;
+    }
     if (d != s_out.dev) {
         ReleaseEffect();
         s_out.dev = d;
@@ -305,15 +347,26 @@ DeviceWrap* Device_Service(double now, bool focused, bool manualRestart) {
         s_out.retryTime = 0;
     }
     CheckHealth(now);
-    if (!d->acquired || s_out.inhibited) return nullptr;
+    if (!d->acquired) { SetStatus("Waiting: '%s' is not acquired", d->name); return nullptr; }
+    if (s_out.inhibited) { SetStatus("Off: '%s' reports its force feedback switched off", d->name); return nullptr; }
     bool needStart = !s_out.ready || s_out.gen != d->acquireGen || s_out.axis != d->axisOfs || !s_out.fx;
     if (needStart && now >= s_out.retryTime) {
         bool ok = StartEffect(d, now);
         s_out.healthTime = now + 0.5;
         s_out.retryTime = now + (ok ? 0.5 : 2.0);
         if (ok) Log("ffb: wheel force running on '%s'", d->name);
+        else SetStatus("Retrying: '%s' would not start the force (see nfsmw_ffb.log)", d->name);
     }
-    return d->acquired && s_out.ready ? d : nullptr;
+    if (d->acquired && s_out.ready) {
+        DIDEVCAPS caps = {};
+        caps.dwSize = sizeof(caps);
+        static DeviceWrap* capsDev;
+        static DWORD axes, buttons;
+        if (capsDev != d && SUCCEEDED(d->real->GetCapabilities(&caps))) { capsDev = d; axes = caps.dwAxes; buttons = caps.dwButtons; }
+        SetStatus("Running on '%s' (%lu axes, %lu buttons)", d->name, axes, buttons);
+        return d;
+    }
+    return nullptr;
 }
 
 void Device_Send(float force, double now) {
@@ -436,6 +489,15 @@ void Ffb_UnregisterDevice(DeviceWrap* dev) {
         ffb::s_out.dev = nullptr;
         Log("ffb: force released with device '%s'", dev->name);
     }
+}
+
+int Ffb_Status(char* out, int len) {
+    if (!out || len <= 0) return 0;
+    if (!ffb::s_statusInit) { snprintf(out, len, "Starting..."); return 0; }
+    EnterCriticalSection(&ffb::s_statusLock);
+    snprintf(out, len, "%s", ffb::s_status[0] ? ffb::s_status : "Starting...");
+    LeaveCriticalSection(&ffb::s_statusLock);
+    return (int)strlen(out);
 }
 
 int Ffb_DeviceName(int index, char* out, int len) {

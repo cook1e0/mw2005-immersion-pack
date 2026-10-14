@@ -4,6 +4,7 @@
 #include "dinput_wrap.h"
 #include "ffb.h"
 #include "telemetry.h"
+#include <stdio.h>
 #include <string.h>
 #include <initializer_list>
 
@@ -19,6 +20,12 @@ extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 extern "C" int __cdecl NfsmwFfb_Reset() { return s_active && Ffb_RequestReset() ? 1 : 0; }
 extern "C" int __cdecl NfsmwFfb_Test() { return s_active && Ffb_RequestTest() ? 1 : 0; }
 extern "C" int __cdecl NfsmwFfb_DeviceName(int index, char* out, int len) { return s_active ? Ffb_DeviceName(index, out, len) : 0; }
+extern "C" int __cdecl NfsmwFfb_Status(char* out, int len) {
+    if (!out || len <= 0) return 0;
+    if (!s_active || !g_cfg.enabled) { snprintf(out, len, "Off: [FFB] Enabled=0"); return 0; }
+    if (g_cfg.nativeFfb) { snprintf(out, len, "Off: the game's own force feedback (NativeFFB=1)"); return 0; }
+    return Ffb_Status(out, len);
+}
 extern "C" void __cdecl NfsmwFfb_MenuOpen(int open) { if (s_active) Ffb_SetMenuOpen(open != 0); }
 
 // Live settings for the gameplay mod (its F4 menu and [Controls]), by [FFB] key name. Null if

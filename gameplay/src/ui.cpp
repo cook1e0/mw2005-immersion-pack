@@ -342,13 +342,48 @@ bool VrRecenter() {
 }
 
 // The FFB mod's devices in Windows' order: "n: name (axes, buttons)", and how many there are.
+// Looking the names up opens every controller, far too slow to do every frame (the menu lagged):
+// cached, refreshed every few seconds.
 int FfbDeviceName(int index, std::string* name) {
-    HMODULE m = ExtModule(MOD_FFB);
-    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_DeviceName") : nullptr;
-    char buf[160] = {};
-    int count = f ? ((int(__cdecl*)(int, char*, int))f)(index, buf, sizeof(buf)) : 0;
-    if (name) *name = buf[0] ? buf : (f ? "No such device" : "Needs the updated FFB mod");
-    return count;
+    static std::vector<std::string> names;
+    static double fetched = -1e9;
+    static bool exported = false;
+    if (Now() - fetched > 3.0) {
+        fetched = Now();
+        names.clear();
+        HMODULE m = ExtModule(MOD_FFB);
+        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_DeviceName") : nullptr;
+        exported = f != nullptr;
+        if (f) {
+            char buf[160] = {};
+            int count = ((int(__cdecl*)(int, char*, int))f)(0, buf, sizeof(buf));
+            for (int i = 0; i < count && i < 16; i++) {
+                buf[0] = 0;
+                ((int(__cdecl*)(int, char*, int))f)(i, buf, sizeof(buf));
+                names.push_back(buf);
+            }
+        }
+    }
+    if (name) {
+        if (index >= 0 && index < (int)names.size()) *name = names[index];
+        else *name = exported ? "No such device" : "Needs the updated FFB mod";
+    }
+    return (int)names.size();
+}
+
+// The FFB mod's status line: whether a wheel is hooked and what holds the force up.
+std::string FfbStatus() {
+    static std::string text;
+    static double fetched = -1e9;
+    if (Now() - fetched > 0.25) {
+        fetched = Now();
+        HMODULE m = ExtModule(MOD_FFB);
+        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Status") : nullptr;
+        char buf[200] = {};
+        if (f) ((int(__cdecl*)(char*, int))f)(buf, sizeof(buf));
+        text = f ? buf : (m ? "Needs the updated FFB mod" : "No FFB mod");
+    }
+    return text;
 }
 
 bool FfbTest() {
@@ -434,6 +469,7 @@ const Item kItems[] = {
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
+    {ACTION, "Status", nullptr, "FfbStatus", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
     {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -713,6 +749,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
+    if (it.kind == ACTION && strcmp(it.key, "FfbStatus") == 0) return FfbStatus();
     if (it.kind == ACTION) return "Go";
     if (it.kind == RESET) return s_menu.resetArmed >= 0 && Now() - s_menu.resetTime < 3.0 ? "Sure?" : "Reset";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
@@ -967,6 +1004,10 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
+            return;
+        }
+        if (strcmp(it.key, "FfbStatus") == 0) {
+            Note(FfbStatus());
             return;
         }
         if (strcmp(it.key, "TestFfb") == 0) {
@@ -1307,6 +1348,8 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
+    if (it.kind == ACTION && strcmp(it.key, "FfbStatus") == 0)
+        return "Whether a wheel is hooked up for force feedback, and if not, what is holding it up. Changes are written to nfsmw_ffb.log too.";
     if (it.kind == ACTION && strcmp(it.key, "TestFfb") == 0)
         return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
@@ -1686,6 +1729,18 @@ void ValueWidget(int i, float w, float k) {
             break;
         }
         case ACTION:
+            if (strcmp(it.key, "FfbStatus") == 0) {
+                // The FFB mod's status: green while the force runs, orange while something holds it up.
+                std::string status = FfbStatus();
+                bool running = status.compare(0, 7, "Running") == 0;
+                ImGui::AlignTextToFramePadding();
+                ImGui::PushStyleColor(ImGuiCol_Text, running ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.65f, 0.2f, 1.0f));
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+                ImGui::TextUnformatted(status.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+                break;
+            }
             if (ImGui::Button("Go", ImVec2(w * 0.4f, 0))) {
                 s_menu.sel = i;
                 Change(i, +1);

@@ -37,6 +37,15 @@ constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
 // in a headset. The pass returns at once when the player view's rain has no drops on screen.
 constexpr uintptr_t kCallScreenRain = 0x6DF7EC;   // call sub_6D4620 in ___eDisplayFrame
 constexpr uintptr_t kScreenRain = 0x6D4620;       // cdecl, 1 arg
+// Reflections: elSetupEnvMap puts the reflection "eye" 2.78 m from the car (or model) toward the
+// camera position it is given. In the cockpit the camera sits next to the car's centre, so a few
+// centimetres of head movement swung that direction, and every car and window reflection with
+// it. Both of these (cdecl, 6 args, the 5th/4th is the camera position) get the seat position.
+constexpr uintptr_t kCloneLightContext = 0x502580;  // (ctx, local_world, world_view, cam_pos, view, old)
+constexpr uintptr_t kSetupLightContext = 0x502520;  // (ctx, rig, local_world, world_view, cam_pos, view)
+constexpr uintptr_t kCallsCloneLightContext[] = {0x74E474, 0x74F62E, 0x74F7D6, 0x74F968, 0x74FBC4,
+                                                 0x74FFAB, 0x750158, 0x75031A, 0x7504F8};
+constexpr uintptr_t kCallsSetupLightContext[] = {0x502AAF, 0x73BB67, 0x73BB89};
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -207,6 +216,11 @@ void __fastcall hkViewSetup(void* platInfo, void* edx, void* view, uint32_t a2, 
 // Moves the camera to an eye: V_eye = V_game * inverse(eyePoseInCameraSpace).
 // The game's camera space is +x right, +y down, +z forward; OpenXR's is +x right,
 // +y up, -z forward, so S = diag(1,-1,-1) converts between them.
+// While the eyes render: the head-free seat camera position, and the eye camera's position.
+bool s_envPosSet = false;
+float s_envPos[4];
+const float* s_eyePos = nullptr;
+
 void ApplyEyeToCamera(void* cam, const uint8_t* savedParams, const EyeView& eye) {
     M4 V;
     memcpy(&V, savedParams + kCamMatrix, sizeof(V));
@@ -350,6 +364,18 @@ void __cdecl hkRenderScene() {
         }
     }
 
+    {
+        M4 V;
+        memcpy(&V, base + kCamMatrix, sizeof(V));
+        M4 W = MInvRigid(V);
+        s_envPos[0] = W.m[3][0];
+        s_envPos[1] = W.m[3][1];
+        s_envPos[2] = W.m[3][2];
+        s_envPos[3] = 1.0f;
+        s_eyePos = &At<float>(cam, kCamPosition);
+        s_envPosSet = true;
+    }
+
     D3D_BeginEyes();
     for (int eye = 0; eye < 2; eye++) {
         if (eye > 0) D3D_ResetForNextEye();
@@ -358,6 +384,7 @@ void __cdecl hkRenderScene() {
         oRenderScene();
         if (eye == 0) D3D_CaptureEye(0);
     }
+    s_envPosSet = false;
 
     memcpy(cam, saved, sizeof(saved));
     oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
@@ -409,6 +436,23 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
+}
+
+// Swaps in the seat position when `pos` is the eye camera's (not some other point).
+const float* EnvPos(const float* pos) {
+    if (!s_envPosSet || !pos || !s_eyePos) return pos;
+    float dx = pos[0] - s_eyePos[0], dy = pos[1] - s_eyePos[1], dz = pos[2] - s_eyePos[2];
+    return dx * dx + dy * dy + dz * dz < 0.01f ? s_envPos : pos;
+}
+
+int __cdecl hkCloneLightContext(void* ctx, void* local, void* worldView, const float* pos, void* view, void* old) {
+    return ((int(__cdecl*)(void*, void*, void*, const float*, void*, void*))kCloneLightContext)(
+        ctx, local, worldView, EnvPos(pos), view, old);
+}
+
+int __cdecl hkSetupLightContext(void* ctx, void* rig, void* local, void* worldView, const float* pos, void* view) {
+    return ((int(__cdecl*)(void*, void*, void*, void*, const float*, void*))kSetupLightContext)(
+        ctx, rig, local, worldView, EnvPos(pos), view);
 }
 
 void __cdecl hkScreenRain(int arg) {
@@ -522,6 +566,10 @@ bool Game_InstallHooks() {
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
+    for (uintptr_t site : kCallsCloneLightContext)
+        PatchCall(site, kCloneLightContext, (void*)&hkCloneLightContext, "car reflections");
+    for (uintptr_t site : kCallsSetupLightContext)
+        PatchCall(site, kSetupLightContext, (void*)&hkSetupLightContext, "world reflections");
     Log("game: hooks installed");
     return true;
 }

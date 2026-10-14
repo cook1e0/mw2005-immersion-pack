@@ -19,6 +19,18 @@
 - **VR: reflections no longer turn with your head:** the glow and specular passes (the bloom and the
   wet-road / paint highlights laid over the image) share the player's camera but were set up once
   per frame from the game's camera; each eye now sets them up from its own view.
+- **VR: car and window reflections stay put when you move your head:** the game places the
+  reflection viewpoint 2.78 m from each car and model in the direction of the camera. In the
+  cockpit the camera sits close to the car's centre, so a few centimetres of head movement swung
+  that direction around and every reflection with it. The eyes now use the seat position for it.
+- **Force feedback status:** F4 > Force feedback starts with a status line: "Running on '<wheel>'"
+  in green, or what is holding the force up (game window not in front, no device opened yet,
+  device not acquired, ...). Status changes are written to `nfsmw_ffb.log`.
+- **Force feedback on the Fanatec CSL DD:** the wheel reports nonsense force feedback states
+  (random flags, "power off" and "safety switch off" among them), which made the mod think the
+  safety switch was off and send nothing. Impossible states are now ignored.
+- **F4 menu lag on the force feedback page fixed:** the device list was looked up (opening every
+  controller) on every frame; it is cached now.
 - **VR: no raindrops on the screen** in the headset (they stuck to your eyes); the rain itself
   stays. `[VR] ScreenRain=1` brings them back.
 - **Force feedback rebuilt from scratch for direct drive wheels:** a new modular core
