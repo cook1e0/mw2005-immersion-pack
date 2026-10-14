@@ -64,7 +64,8 @@ struct Config {
     float steerDeadzone = 0.0f;     // ignored travel around the centre, fraction of full steering
     float steerLinearity = 1.0f;    // steering response curve exponent: 1 = linear, >1 = finer near the centre
     float steerSensitivity = 1.0f;  // multiplies the steering: 2 = full lock at half the SteeringLock
-    bool  steerSpeedSensitive = false; // bound wheel: the game's speed-sensitive wheel steering (less lock at speed)
+    bool  steerSpeedSensitive = false; // bound wheel: less front wheel lock the faster you go
+    float steerSpeedSensitivity = 0.85f; // how much less: the share of the lock taken away at high speed
                                     // instead of direct steering (full lock at any speed, no steering ramp)
     float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
     bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works

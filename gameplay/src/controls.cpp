@@ -35,18 +35,19 @@ constexpr uintptr_t kSteerTypePush = 0x69E89D;      // push ebx; push ebp; mov e
 constexpr uintptr_t kCallMaxSteering = 0x69E8A1;    // call SuspensionRacer::CalculateMaxSteering
 constexpr uintptr_t kCalculateMaxSteering = 0x68E9E0;
 
-// The game's speed-sensitive wheel lock is not linear in the wheel: it grows up to 1.4 times as
-// the wheel turns further (by the recent average input), and up to ~1.7 times off the throttle or
-// on the brakes. Turning the wheel twice as far could more than double the steering, and lifting
-// mid-corner tightened it. For a bound wheel in that mode the lock is computed here instead: the
-// game's speed table and the car's steering tuning only, so the front wheels follow the wheel in
-// proportion at every speed. Countersteering may still go past it, up to the rear tyres' slip
-// angle, as in the game (needed to catch a slide with only a few degrees of lock at speed).
-constexpr uintptr_t kTableGetValue = 0x6533B0;       // float Table::GetValue(float) (thiscall)
-constexpr uintptr_t kSteeringWheelRangeTable = 0x8F8F44;
+// Speed-sensitive wheel steering, rewritten for a wheel. The game's version was made for pads:
+//  - its lock grew up to 1.4 times as the wheel turned further (by the recent average input), and
+//    up to ~1.7 times off the throttle or on the brakes: progressive, and lifting tightened a turn
+//  - its speed table kinks (45 degrees parked, 15 at 64 km/h, 11, 8, then 7 flat)
+//  - while countersteering it widened the lock to the rear tyres' slip angle, and dropped it back
+//    the moment the wheel crossed over: the front wheels jumped as a slide was caught
+// Here the lock is one smooth curve of speed (SteeringLockShare) times the car's steering tuning,
+// so the front wheels always follow the wheel in proportion. In a slide the lock widens with the
+// rear tyres' slip angle on both sides alike, so it changes only as the slide does: enough lock
+// to catch it, and no jump when the wheel crosses centre.
 constexpr uintptr_t kRadToDeg = 0x890960;            // the game's ANGLE2DEG factor
 constexpr float kAbsoluteMaxSteering = 45.0f;
-constexpr int kState_LocalVelZ = 0x48, kState_SteerInput = 0x8C;
+constexpr int kState_LocalVelZ = 0x48;
 constexpr int kRacer_Vehicle = 0x48, kRacer_RearTires = 0x1BC, kTire_SlipAngle = 0x118;
 constexpr int kVehicle_GetTunings = 0xCC;            // vtable slot: const Physics::Tunings*
 
@@ -88,19 +89,20 @@ struct {
 }  // namespace
 
 static float __attribute__((thiscall)) LinearMaxSteering(uint8_t* racer, const uint8_t* state, int) {
-    float lock = ((float(__attribute__((thiscall))*)(void*, float))kTableGetValue)(
-        (void*)kSteeringWheelRangeTable, *(const float*)(state + kState_LocalVelZ));
+    float kmh = fabsf(*(const float*)(state + kState_LocalVelZ)) * 3.6f;
+    float lock = kAbsoluteMaxSteering * SteeringLockShare(kmh, g_cfg.steerSpeedSensitivity);
     void* vehicle = *(void**)(racer + kRacer_Vehicle);
     if (vehicle) {
         auto get = (const float* (__attribute__((thiscall))*)(void*))(*(uintptr_t**)vehicle)[kVehicle_GetTunings / 4];
         const float* tunings = get(vehicle);
         if (tunings) lock *= *tunings * 0.2f + 1.0f;
     }
-    float input = *(const float*)(state + kState_SteerInput);
     const float k = *(const float*)kRadToDeg;
     uintptr_t rearLeft = *(uintptr_t*)(racer + kRacer_RearTires), rearRight = *(uintptr_t*)(racer + kRacer_RearTires + 4);
-    if (input > 0.0f && rearRight) lock = std::max(lock, *(const float*)(rearRight + kTire_SlipAngle) * k);
-    else if (input < 0.0f && rearLeft) lock = std::max(lock, -*(const float*)(rearLeft + kTire_SlipAngle) * k);
+    if (rearLeft && rearRight) {
+        float slip = 0.5f * (fabsf(*(const float*)(rearLeft + kTire_SlipAngle)) + fabsf(*(const float*)(rearRight + kTire_SlipAngle))) * k;
+        if (slip > 0.0f && slip < 90.0f) lock = std::max(lock, slip);
+    }
     return std::min(std::max(lock, 0.0f), kAbsoluteMaxSteering);
 }
 

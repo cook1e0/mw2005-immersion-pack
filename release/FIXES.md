@@ -36,11 +36,16 @@
 - **Steering weight with speed-sensitive steering:** the tyre force used the full 45 degree lock
   even when the game allowed only a few degrees at speed, so it peaked a quarter of the way in and
   went light beyond. It now uses the game's actual lock and keeps building as you turn in.
-- **Linear speed-sensitive steering:** the game's wheel mode raised the lock up to 1.4 times the
-  further the wheel was turned, and up to 1.7 times off the throttle or on the brakes, so steering
-  felt progressive. With a bound wheel the lock now comes from the game's speed table and the car's
-  steering tuning only (countersteering can still go further, as in the game). Set Steering
-  linearity back to 1.0 if you used it to compensate.
+- **Speed-sensitive wheel steering rewritten for a wheel:** the game's version was made for pads.
+  Its lock grew up to 1.4 times the further the wheel was turned and up to 1.7 times off the
+  throttle or on the brakes (progressive steering, lifting tightened a turn), its speed table
+  kinked (45 degrees parked, 15 at 64 km/h, then 11, 8, 7), and while countersteering it widened
+  the lock to the rear tyres' slip angle and dropped it back the moment the wheel crossed centre,
+  so the front wheels jumped as a slide was caught. Now the lock is one smooth curve of speed
+  (F4 > Controls > Speed sensitivity, 85% is close to the game's own values) times the car's
+  steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
+  lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
+  it to compensate. The drift assist and stability control are left as the game has them.
 - **Force feedback status:** F4 > Force feedback starts with a status line: "Running on '<wheel>'"
   in green, or what is holding the force up (game window not in front, no device opened yet,
   device not acquired, ...). Status changes are written to `nfsmw_ffb.log`.
