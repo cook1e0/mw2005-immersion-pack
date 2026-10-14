@@ -12,7 +12,7 @@ damage and more). Install any of them, or all three.
 
 ## Install
 
-1. Download `nfsmw05-mod.zip` from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest).
+1. Download the `nfsmw05-mod-v*.zip` package from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest).
 2. Copy `dinput8.dll` ([Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader))
    next to `speed.exe`. Skip this if you already have it, e.g. from the
    [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw).
@@ -68,8 +68,8 @@ all three mods run alongside it. Two things about the fix itself:
 - `ffb/`, `gameplay/`: MSYS2 with the mingw32 toolchain, run `./build.sh` (`./build.sh install`
   copies into `C:\Games\NFSMW`, or `$NFSMW_DIR`: as `scripts\nfsmw_*.asi` if that is installed,
   otherwise as the proxy DLL).
-- Release zip: build all three, then `./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll`
-  (the x86 loader) writes `dist/nfsmw05-mod.zip`.
+- Release zip: build all three, then `./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll v0.11.0`
+  (the x86 loader and the version being released) writes `dist/nfsmw05-mod-v0.11.0.zip`.
 
 ## Credits
 

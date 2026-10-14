@@ -1,12 +1,22 @@
 #!/bin/sh
-# Assembles dist/nfsmw05-mod.zip from the three builds (run vr/build.cmd, ffb/build.sh and
-# gameplay/build.sh first). Usage: ./package.sh <Ultimate ASI Loader x86 dinput8.dll>
+# Assembles dist/nfsmw05-mod-<version>.zip from the three builds (run vr/build.cmd,
+# ffb/build.sh and gameplay/build.sh first).
+# Usage: ./package.sh <Ultimate ASI Loader x86 dinput8.dll> <version, e.g. v0.11.0>
 set -e
 cd "$(dirname "$0")"
 LOADER="$1"
-[ -f "$LOADER" ] || { echo "usage: ./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll"; exit 1; }
-OUT=dist/nfsmw05-mod
-rm -rf "$OUT" dist/nfsmw05-mod.zip
+VERSION="$2"
+[ -f "$LOADER" ] || { echo "usage: ./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll vX.Y.Z"; exit 1; }
+case "$VERSION" in
+    v[0-9]*) ;;
+    *) echo "version must start with v and a digit (e.g. v0.11.0)"; exit 1 ;;
+esac
+case "$VERSION" in
+    *[!a-zA-Z0-9._-]*) echo "invalid version: use letters, digits, dots, underscores or hyphens"; exit 1 ;;
+esac
+OUT="dist/nfsmw05-mod-$VERSION"
+ZIP="$OUT.zip"
+rm -rf "$OUT" "$ZIP"
 mkdir -p "$OUT/scripts"
 cp "$LOADER" "$OUT/dinput8.dll"
 cp vr/bin/d3d9.dll "$OUT/scripts/nfsmw_vr.asi"
@@ -16,5 +26,5 @@ cp vr/bin/nfsmw_vr_host.exe ffb/build/ffbtool.exe "$OUT/"
 cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini "$OUT/scripts/"
 cp release/README.txt release/FIXES.md release/LICENSE-asi-loader.txt LICENSE "$OUT/"
 cp gameplay/third_party/imgui/LICENSE.txt "$OUT/LICENSE-imgui.txt"
-pwsh -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath 'dist/nfsmw05-mod.zip'"
-echo "packaged dist/nfsmw05-mod.zip"
+pwsh -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath '$ZIP'"
+echo "packaged $ZIP"
