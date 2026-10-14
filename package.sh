@@ -26,5 +26,6 @@ cp vr/bin/nfsmw_vr_host.exe vr/bin/nfsmw_crashdump.exe ffb/build/ffbtool.exe "$O
 cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini "$OUT/scripts/"
 cp release/README.txt release/FIXES.md release/LICENSE-asi-loader.txt LICENSE "$OUT/"
 cp gameplay/third_party/imgui/LICENSE.txt "$OUT/LICENSE-imgui.txt"
-pwsh -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath '$ZIP'"
+PS=pwsh; command -v pwsh >/dev/null || PS=powershell
+$PS -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath '$ZIP'"
 echo "packaged $ZIP"
