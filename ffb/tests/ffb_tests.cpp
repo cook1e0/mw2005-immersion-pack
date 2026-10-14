@@ -4,6 +4,7 @@
 #include "../src/dinput_wrap.cpp"
 #include "../src/ffb_device.cpp"
 #include "../src/ffb_model.cpp"
+#include "../src/ffb_effects.cpp"
 #include "../src/ffb_engine.cpp"
 #include <assert.h>
 #include <stdio.h>
@@ -152,7 +153,13 @@ static Telemetry Car(float speed, float vLatFront = 0) {
     t.wheelbase = 2.6f;
     return t;
 }
-static WheelState Wheel(float pos, float vel = 0) { WheelState w; w.known = true; w.pos = pos; w.vel = vel; return w; }
+static WheelState Wheel(float pos, float vel = 0) {
+    WheelState w;
+    w.known = true;
+    w.pos = pos;
+    w.vel = w.velSmooth = vel;
+    return w;
+}
 
 static void TestModel() {
     ModelParams p;
@@ -193,6 +200,134 @@ static void TestModel() {
     Telemetry menu = {};
     f = m.Compute(menu, Wheel(0.8f), p, 0.0f, 0.0025f);      // past 2/3 of the lock: full spring
     assert(NearZero(f.aligning) && fabsf(f.centering + p.menuCentering) < 1e-4f);
+
+    // Friction is smooth through standstill: a wheel all but still feels almost none of it, so
+    // the quantised position readings don't flip it back and forth (the buzz standing still).
+    float still = fabsf(m.Compute(Car(0), Wheel(0.0f, 0.005f), p, 1.0f, 0.0025f).friction);
+    float turning = fabsf(m.Compute(Car(0), Wheel(0.0f, 0.5f), p, 1.0f, 0.0025f).friction);
+    assert(still < 0.15f * turning);
+
+    // Centre weight: once moving, a few degrees off centre already pull back clearly, more than
+    // the friction holds the wheel; none parked.
+    {
+        ModelParams q;
+        q.aligning = 0;
+        q.centering = 0;
+        Model cm;
+        float small = cm.Compute(Car(30), Wheel(0.01f), q, 1.0f, 0.0025f).centering;
+        assert(small < -0.05f && -small > q.friction * 0.4f);
+        assert(cm.Compute(Car(30), Wheel(-0.01f), q, 1.0f, 0.0025f).centering > 0.05f);
+        assert(NearZero(cm.Compute(Car(0), Wheel(0.01f), q, 1.0f, 0.0025f).centering));
+    }
+
+    // The game's actual steering lock is used for the tyres' slip angle: with a 7 degree lock at
+    // speed, half the wheel's lock is 3.5 degrees at the road, short of the grip peak.
+    {
+        Model lm;
+        Telemetry fast = Car(40);
+        fast.maxSteerDeg = 7.0f;
+        for (int i = 0; i < 2000; i++) lm.Compute(fast, Wheel(0.5f), p, 1.0f, 0.0025f);
+        assert(fabsf(lm.RoadLock() - 7.0f) < 0.1f);
+        float half = fabsf(lm.Compute(fast, Wheel(0.5f), p, 1.0f, 0.0025f).aligning);
+        float full = fabsf(lm.Compute(fast, Wheel(1.0f), p, 1.0f, 0.0025f).aligning);
+        assert(full > half);                                   // still building, not falling off
+        // Measured from the front wheels' angle when the game reports no lock.
+        Model mm;
+        Telemetry slow = Car(10);
+        slow.steerDeg = -11.0f;                                // half the lock on the wheel: 22 degrees
+        for (int i = 0; i < 2000; i++) mm.Compute(slow, Wheel(0.5f), p, 1.0f, 0.0025f);
+        assert(fabsf(mm.RoadLock() - 22.0f) < 0.2f);
+    }
+}
+
+// --- effects --------------------------------------------------------------------------------------
+static void TestEffects() {
+    EffectParams p;
+    float dt = 0.0025f;
+    double now = 100;
+    // Engine: a vibration (both ways) that stops without revs.
+    {
+        Effects fx;
+        Telemetry t = Car(0);
+        t.rpm = 900;
+        t.rpmNorm = 0.05f;
+        float lo = 0, hi = 0;
+        for (int i = 0; i < 400; i++) {
+            float e = fx.Step(t, 1.0f, now + i * dt, dt, p).engine;
+            lo = std::min(lo, e);
+            hi = std::max(hi, e);
+        }
+        assert(hi > 0.02f && lo < -0.02f && hi <= p.engine + 1e-5f);
+        t.rpm = 0;
+        assert(NearZero(fx.Step(t, 1.0f, now, dt, p).engine));
+        p.engine = 0;
+        t.rpm = 900;
+        assert(NearZero(fx.Step(t, 1.0f, now, dt, p).engine));
+        p = EffectParams();
+    }
+    // Kerbs: the right front wheel hit from below kicks the wheel right, then it dies away.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        t.seq = 1;
+        fx.Step(t, 1.0f, now, dt, p);
+        t.seq = 2;
+        t.bump[1] = 1.0f;
+        // (A shake rides on the kick: averaged over one of its cycles.)
+        auto kick = [&](Effects& e, Telemetry& tt) {
+            float sum = 0;
+            for (int i = 0; i < 13; i++) sum += e.Step(tt, 1.0f, now + i * dt, dt, p).kerb;
+            return sum / 13;
+        };
+        float first = kick(fx, t);
+        assert(first > 0.05f);
+        float later = 0;
+        for (int i = 0; i < 200; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).kerb;   // same tick: no new hit
+        assert(fabsf(later) < 0.02f);
+        t.seq = 3;
+        t.bump[1] = 0;
+        t.bump[0] = 1.0f;
+        assert(kick(fx, t) < -0.05f);                          // left wheel: kicked left
+    }
+    // Crashes: a hit pushing the car's nose left jolts the wheel left first; a light prop (no
+    // impulse) still gives a clear knock; nothing in menus.
+    {
+        Effects fx;
+        Telemetry t = Car(25);
+        fx.Step(t, 1.0f, now, dt, p);
+        t.hitSeq = 1;
+        t.hitSpeed = 20;
+        t.hitImpulse = 0;
+        t.hitLat = -1;
+        float peak = 0;
+        for (int i = 0; i < 20; i++) peak = std::min(peak, fx.Step(t, 1.0f, now + i * dt, dt, p).crash);
+        assert(peak < -0.15f);
+        float after = fx.Step(t, 1.0f, now + 1.0, dt, p).crash;
+        assert(NearZero(after));
+        Effects menu;
+        Telemetry m = Car(25);
+        menu.Step(m, 0.0f, now, dt, p);
+        m.hitSeq = 5;
+        m.hitSpeed = 20;
+        assert(NearZero(menu.Step(m, 0.0f, now + 0.02, dt, p).crash));
+    }
+    // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        t.scrapeTime = now;
+        t.scrapeSpeed = 15;
+        t.scrapeLat = -1;                                      // wall on the right pushes the car left
+        float sum = 0, lo = 0, hi = 0;
+        for (int i = 0; i < 20; i++) {
+            float e = fx.Step(t, 1.0f, now + i * dt, dt, p).scrape;
+            sum += e;
+            lo = std::min(lo, e);
+            hi = std::max(hi, e);
+        }
+        assert(sum > 0 && hi - lo > 0.1f);                     // pulls right, toward the wall, and grinds
+        assert(NearZero(fx.Step(t, 1.0f, now + 0.5, dt, p).scrape));
+    }
 }
 
 // --- engine safety chain ----------------------------------------------------------------------------
@@ -240,6 +375,24 @@ static void TestEngine() {
         guard = shaky.Update(t, true, pos, now, 0.0025f, 0.0).guard;
     }
     assert(guard > 0.9f);
+
+    // The effects' vibrations reach the wheel although they change faster than the slew limit,
+    // and still never past MaxForce.
+    g_cfg = Config();
+    g_cfg.engineRumble = 1.0f;
+    Engine rumble;
+    t = Car(0);
+    t.rpm = 1800;
+    t.rpmNorm = 0.3f;
+    float lo = 0, hi = 0;
+    for (int i = 0; i < 800; i++) {
+        now += 0.0025;
+        t.time = now;
+        float o = rumble.Update(t, true, 0.0f, now, 0.0025f, 0.0).out;
+        assert(fabsf(o) <= g_cfg.maxForce + 1e-5f);
+        if (i > 400) { lo = std::min(lo, o); hi = std::max(hi, o); }
+    }
+    assert(hi > 0.1f && lo < -0.1f);
 }
 
 // --- device ----------------------------------------------------------------------------------
@@ -337,6 +490,7 @@ static void TestDevice() {
 }
 
 int main() {
+    TestEffects();
     InitializeCriticalSection(&g_diLock);
     TestFilters();
     TestModel();

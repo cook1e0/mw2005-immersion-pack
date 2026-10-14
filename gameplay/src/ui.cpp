@@ -250,12 +250,15 @@ const struct {
     {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
     {MOD_VR, "HideArms", 1.0f},
+    {MOD_FFB, "CentreWeight", 0.3f}, {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.5f},
+    {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
-    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS, EXT_COUNT
+    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -482,9 +485,16 @@ const Item kItems[] = {
     HEADER_("STEERING FEEL"),
     {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centre weight", "FFB", "CentreWeight", &s_ext[FFB_CENTREWEIGHT], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Friction", "FFB", "Friction", &s_ext[FFB_FRICTION], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("EFFECTS"),
+    {NUMBER, "Engine rumble", "FFB", "EngineRumble", &s_ext[FFB_ENGINE], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Kerbs and bumps", "FFB", "Kerbs", &s_ext[FFB_KERBS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Road surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -1267,7 +1277,7 @@ const struct {
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
     {&g_cfg.steerSensitivity, "How much the car steers for a given wheel angle. Higher: quicker steering (full lock sooner)."},
-    {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: the game's wheel mode, with less lock at speed."},
+    {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: less lock the faster you go (the game's wheel table), still in proportion to your wheel."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
@@ -1278,6 +1288,12 @@ const struct {
     {&s_ext[FFB_SLEW], "How fast the force may change, full scale per second. Lower is gentler on the hands."},
     {&s_ext[FFB_ALIGNING], "Weight from the front tyres: heavy while they grip, light past the limit, pulling into the countersteer in a slide."},
     {&s_ext[FFB_CENTERING], "Spring back to centre, growing with speed."},
+    {&s_ext[FFB_CENTREWEIGHT], "Firm hold around straight ahead once moving: a few degrees off centre already pull back, so you hold the wheel against it instead of it staying wherever you leave it."},
+    {&s_ext[FFB_ENGINE], "Engine vibration, at the engine's revs. Mostly felt standing still."},
+    {&s_ext[FFB_KERBS], "A kick toward the side of a front wheel that hits a kerb, bump or pothole, and a short shake."},
+    {&s_ext[FFB_SURFACE], "The game's own rumble for the surface under the front tyres: grass, gravel, dirt, rumble strips."},
+    {&s_ext[FFB_CRASHES], "A jolt when you hit something: cars, walls, and props such as benches, sign posts and fences."},
+    {&s_ext[FFB_SCRAPES], "Grinding while the car slides along a wall, and a pull toward it."},
     {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
     {&s_ext[FFB_FRICTION], "Constant resistance, like a real steering rack."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},

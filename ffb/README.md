@@ -26,13 +26,21 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 |---|---|
 | Steering weight (self-aligning torque) | the front axle's direction of travel vs. where the front wheels point (the tyres' slip angle), scaled by front tyre load; heaviest at `GripPeakAngle`, light past it (understeer) |
 | Countersteer in a slide | the same: the front axle travels sideways, the wheel is pulled that way (`DriftAlign`) |
-| Centring | a spring that grows with speed (`Centering`, `CenteringParked`, `CenteringSpeed`) |
-| Damping and friction | the wheel's own speed: weight against fast movement, scrub when parked |
+| Centring | a spring that grows with speed (`Centering`, `CenteringParked`, `CenteringSpeed`), and a firm hold around straight ahead once moving (`CentreWeight`) |
+| Damping and friction | the wheel's own speed: weight against fast movement, scrub when parked; the friction is smooth through standstill, so a wheel held still doesn't buzz |
 | Soft lock | the wheel past the gameplay mod's `[Controls] SteeringLock` |
 | Menus, pause, cutscenes | a light centring spring (`MenuCentering`) |
+| Engine | a vibration at the engine's firing frequency, strongest standing still (`EngineRumble`) |
+| Kerbs and bumps | a front wheel's suspension compressing suddenly: a kick toward that side and a short shake (`Kerbs`) |
+| Road surface | the game's own rumble for the surface under the front tyres (`SurfaceRumble`) |
+| Crashes | the game's collision reports for the player car: cars, walls and props (benches, sign posts); a jolt sideways from the side hit, then a short shake (`Crashes`) |
+| Wall scrapes | contact sliding along a wall: grinding and a pull toward it (`Scrapes`) |
 
-Next steps (not in this version yet): road texture and surface rumble, jump lightening and
-landings, crash jolts, wall scraping.
+The tyres' slip angle uses the game's actual front wheel lock (with speed-sensitive steering only
+a few degrees at speed), so the steering keeps getting heavier as you turn in instead of going
+light halfway.
+
+Next steps (not in this version yet): jump lightening and landings.
 
 ## How it works
 

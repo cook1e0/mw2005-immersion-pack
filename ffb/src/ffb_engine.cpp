@@ -1,15 +1,19 @@
 // The FFB loop, at [FFB] UpdateHz (400 by default):
 //
 //   1. the latest car sample (telemetry, about 60 Hz) and the wheel's position and speed
-//   2. the force model: aligning torque, centring, damping, friction, soft lock
+//   2. the force model: aligning torque, centring, damping, friction, soft lock; and the effects:
+//      engine, kerbs, surface, crashes, scrapes
 //   3. the safety chain:
 //        the aligning torque (driven by the game's physics steps) through a low-pass
 //        the oscillation guard: more damping and less gain while the wheel shakes by itself
 //        master gain, soft limiter (no clipping) scaled to MaxForce, slew-rate limit
+//        the effects added after the slew limit (their vibrations are quicker than it allows),
+//        through their own soft limit
 //        fade-in after the force (re)starts, a final clamp and a guard against invalid numbers
 //   4. the device sends it as one constant force
 #include "ffb.h"
 #include "ffb_device.h"
+#include "ffb_effects.h"
 #include "ffb_filters.h"
 #include "ffb_model.h"
 #include "telemetry.h"
@@ -22,6 +26,7 @@ namespace ffb {
 // Everything the engine computes in one step, for the tests and the telemetry log.
 struct Step {
     ForceParts parts;
+    EffectParts effects;
     float aligningSmoothed = 0, guard = 0, raw = 0, limited = 0, out = 0;
 };
 
@@ -45,6 +50,7 @@ public:
             wheelVel_ = velFilter_.Step(velRaw_, dt, 30.0f);
             w.pos = wheelPos;
             w.vel = wheelVel_;
+            w.velSmooth = velSmoothFilter_.Step(velRaw_, dt, 15.0f);
         } else {
             haveWheel_ = false;
         }
@@ -61,6 +67,7 @@ public:
         p.centering = c.centering;
         p.centeringParked = c.centeringParked;
         p.centeringSpeed = c.centeringSpeed;
+        p.centreWeight = c.centreWeight;
         p.damping = c.damping;
         p.friction = c.friction;
         p.parkingFriction = c.parkingFriction;
@@ -69,12 +76,22 @@ public:
         p.menuCentering = c.menuCentering;
         s.parts = model_.Compute(t, w, p, drive_, dt);
 
+        EffectParams ep;
+        ep.engine = c.engineRumble;
+        ep.kerbs = c.kerbs;
+        ep.surface = c.surfaceRumble;
+        ep.crashes = c.crashes;
+        ep.scrapes = c.scrapes;
+        s.effects = effects_.Step(t, drive_, now, dt, ep);
+        float fx = s.effects.Sum();
+
         // The aligning torque follows the game's physics steps: smooth it. The other parts follow
         // the wheel itself at full rate.
         s.aligningSmoothed = alignFilter_.Step(s.parts.aligning, dt, c.smoothingHz);
 
         // A wheel shaking by itself: up to triple the damping and half the gain until it settles.
-        s.guard = c.oscillationGuard ? guard_.Step(w.vel, dt) : 0.0f;
+        // (The effects shake the wheel on purpose: the guard doesn't watch it while they do.)
+        s.guard = c.oscillationGuard ? guard_.Step(fabsf(fx) > 0.03f ? 0.0f : w.vel, dt) : 0.0f;
         if (guard_.tripped) Log("ffb: wheel oscillating - damping raised until it settles");
         float steering = s.aligningSmoothed + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
         s.raw = steering * c.gain * (1.0f - 0.5f * s.guard) + s.parts.softLock;
@@ -83,7 +100,8 @@ public:
         s.limited = SoftLimit(s.raw, c.limitKnee) * c.maxForce;
         float slewed = slew_.Step(s.limited, dt, c.slewRate);
         float fade = Clampf((float)(now - startTime) / 0.5f, 0.0f, 1.0f);
-        s.out = isfinite(slewed) ? Clampf(slewed * fade, -c.maxForce, c.maxForce) : 0.0f;
+        float total = slewed + SoftLimit(fx * c.gain, c.limitKnee) * c.maxForce;
+        s.out = isfinite(total) ? Clampf(total * fade, -c.maxForce, c.maxForce) : 0.0f;
         if (!isfinite(slewed)) slew_.Reset(0);
 
         // Statistics for the log: how often the soft limiter is working.
@@ -103,10 +121,12 @@ public:
     void ResetStats() { ticks_ = limiting_ = 0; }
     float Drive() const { return drive_; }
     float WheelVel() const { return wheelVel_; }
+    float RoadLock() const { return model_.RoadLock(); }
 
 private:
     Model model_;
-    LowPass2 alignFilter_, velFilter_;
+    Effects effects_;
+    LowPass2 alignFilter_, velFilter_, velSmoothFilter_;
     SlewLimiter slew_;
     OscillationGuard guard_;
     float drive_ = 0, lastPos_ = 0, velRaw_ = 0, wheelVel_ = 0;
@@ -180,11 +200,13 @@ DWORD WINAPI FfbThread(LPVOID) {
 
         if (g_cfg.logTelemetry && now - logTime > 0.1) {
             logTime = now;
-            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f(ref) onF=%d wheel=%.3f/%.2f | align=%.3f(%.3f) "
-                "centre=%.3f damp=%.3f fric=%.3f lock=%.3f guard=%.2f raw=%.3f out=%.3f",
+            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) "
+                "rpm=%.0f bump=%.2f/%.2f surf=%.2f@%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
+                "fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
+                engine.RoadLock(), t.maxSteerDeg, t.steerDeg, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
-                s.guard, s.raw, s.out);
+                s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.guard, s.raw, s.out);
         }
         if (now - statTime > 30.0) {
             if (engine.Limiting() > engine.Ticks() / 10)

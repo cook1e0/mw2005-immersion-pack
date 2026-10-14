@@ -23,6 +23,24 @@
   reflection viewpoint 2.78 m from each car and model in the direction of the camera. In the
   cockpit the camera sits close to the car's centre, so a few centimetres of head movement swung
   that direction around and every reflection with it. The eyes now use the seat position for it.
+- **Force feedback effects:** engine rumble (at the engine's revs, mostly standing still), kerbs and
+  bumps (a kick toward the front wheel that was hit from below, and a short shake), the game's road
+  surface rumble, crash jolts from the game's own collision reports (cars, walls, and props such as
+  benches, sign posts and fences) and wall scrapes (grinding and a pull toward the wall). Each has
+  its own slider in F4 > Force feedback > Effects.
+- **No more buzzing standing still:** the friction flipped direction with every tiny wheel
+  movement; it is now smooth through standstill.
+- **Centre weight:** once moving, the wheel pulls back to straight ahead from a few degrees off,
+  so you hold it against the pull instead of it staying wherever you leave it (F4 > Force feedback
+  > Centre weight). Friction is lighter at speed.
+- **Steering weight with speed-sensitive steering:** the tyre force used the full 45 degree lock
+  even when the game allowed only a few degrees at speed, so it peaked a quarter of the way in and
+  went light beyond. It now uses the game's actual lock and keeps building as you turn in.
+- **Linear speed-sensitive steering:** the game's wheel mode raised the lock up to 1.4 times the
+  further the wheel was turned, and up to 1.7 times off the throttle or on the brakes, so steering
+  felt progressive. With a bound wheel the lock now comes from the game's speed table and the car's
+  steering tuning only (countersteering can still go further, as in the game). Set Steering
+  linearity back to 1.0 if you used it to compensate.
 - **Force feedback status:** F4 > Force feedback starts with a status line: "Running on '<wheel>'"
   in green, or what is holding the force up (game window not in front, no device opened yet,
   device not acquired, ...). Status changes are written to `nfsmw_ffb.log`.

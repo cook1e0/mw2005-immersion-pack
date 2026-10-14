@@ -24,6 +24,29 @@ struct Telemetry {
     float frontLoad;       // N, both front tyres
     int   frontOnGround;   // front wheels touching the ground (0..2)
     int   wheelsOnGround;  // 0..4
+    float maxSteerDeg;     // the game's current front wheel lock, degrees (0 = unknown)
+    float steerDeg;        // the front wheels' angle now, degrees (either sign convention)
+
+    float rpm;             // engine
+    float rpmNorm;         // 0 idle .. 1 redline
+
+    // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
+    // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
+    float bump[2];
+    // Road surface under the front tyres: the game's own rumble for it (0..1, grass, gravel, rumble
+    // strips) and its frequency in Hz.
+    float surfaceRumble;
+    float surfaceHz;
+
+    // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
+    // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.
+    uint32_t hitSeq;
+    float    hitSpeed;     // m/s, closing speed along the contact normal
+    float    hitImpulse;   // the game's impulse on the car (light objects give little)
+    float    hitLat;       // -1..1: the push on the car's nose to the right (+) or left (-)
+    double   scrapeTime;   // Now() of the latest sliding contact
+    float    scrapeSpeed;  // m/s along the wall
+    float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)
 };
 
 bool Telemetry_Install();

@@ -122,6 +122,12 @@ void LoadConfig() {
     c.parkingFriction = Clamp(ReadFloat(s, "ParkingFriction", c.parkingFriction), 0.0f, 1.0f);
     c.softLock = Clamp(ReadFloat(s, "SoftLock", c.softLock), 0.0f, 1.0f);
     c.menuCentering = Clamp(ReadFloat(s, "MenuCentering", c.menuCentering), 0.0f, 1.0f);
+    c.centreWeight = Clamp(ReadFloat(s, "CentreWeight", c.centreWeight), 0.0f, 1.0f);
+    c.engineRumble = Clamp(ReadFloat(s, "EngineRumble", c.engineRumble), 0.0f, 1.0f);
+    c.kerbs = Clamp(ReadFloat(s, "Kerbs", c.kerbs), 0.0f, 2.0f);
+    c.surfaceRumble = Clamp(ReadFloat(s, "SurfaceRumble", c.surfaceRumble), 0.0f, 2.0f);
+    c.crashes = Clamp(ReadFloat(s, "Crashes", c.crashes), 0.0f, 2.0f);
+    c.scrapes = Clamp(ReadFloat(s, "Scrapes", c.scrapes), 0.0f, 2.0f);
     c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);
     // ForceSign moved from [Calibration] (written by older versions) to [FFB].
     int legacySign = ReadInt("Calibration", "ForceSign", 0);
@@ -140,9 +146,10 @@ void LoadConfig() {
     c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, gameplayIni) ? 1.0f : 0.0f;
     Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d | aligning=%.2f "
         "peak=%.1f drift=%.2f load=%.2f centering=%.2f (%.0f%% parked, full at %.0f km/h) damping=%.2f friction=%.2f/%.2f "
-        "softlock=%.2f menu=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
+        "softlock=%.2f menu=%.2f centre=%.2f | engine=%.2f kerbs=%.2f surface=%.2f crashes=%.2f scrapes=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.aligning,
         c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.centering, c.centeringParked * 100.0f, c.centeringSpeed, c.damping,
-        c.friction, c.parkingFriction, c.softLock, c.menuCentering, (int)c.device, c.forceSign, c.reverse > 0.5f,
+        c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.centreWeight, c.engineRumble, c.kerbs,
+        c.surfaceRumble, c.crashes, c.scrapes, (int)c.device, c.forceSign, c.reverse > 0.5f,
         c.forceDirection, c.restartEffects, c.steerAxis, c.updateHz, c.gameController > 0.5f ? "on" : "hidden");
 }

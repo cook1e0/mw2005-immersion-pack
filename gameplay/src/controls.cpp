@@ -23,6 +23,7 @@
 // ISteeringWheel device exists), else ISteeringWheel::SteeringType (1 speed-sensitive wheel,
 // 2 speed-insensitive wheel). Set on the game thread before FetchInput.
 extern "C" { volatile int g_steerType = -1; }
+extern "C" { void* g_linearMaxSteering = nullptr; }
 
 namespace {
 
@@ -33,6 +34,21 @@ namespace {
 constexpr uintptr_t kSteerTypePush = 0x69E89D;      // push ebx; push ebp; mov ecx, esi
 constexpr uintptr_t kCallMaxSteering = 0x69E8A1;    // call SuspensionRacer::CalculateMaxSteering
 constexpr uintptr_t kCalculateMaxSteering = 0x68E9E0;
+
+// The game's speed-sensitive wheel lock is not linear in the wheel: it grows up to 1.4 times as
+// the wheel turns further (by the recent average input), and up to ~1.7 times off the throttle or
+// on the brakes. Turning the wheel twice as far could more than double the steering, and lifting
+// mid-corner tightened it. For a bound wheel in that mode the lock is computed here instead: the
+// game's speed table and the car's steering tuning only, so the front wheels follow the wheel in
+// proportion at every speed. Countersteering may still go past it, up to the rear tyres' slip
+// angle, as in the game (needed to catch a slide with only a few degrees of lock at speed).
+constexpr uintptr_t kTableGetValue = 0x6533B0;       // float Table::GetValue(float) (thiscall)
+constexpr uintptr_t kSteeringWheelRangeTable = 0x8F8F44;
+constexpr uintptr_t kRadToDeg = 0x890960;            // the game's ANGLE2DEG factor
+constexpr float kAbsoluteMaxSteering = 45.0f;
+constexpr int kState_LocalVelZ = 0x48, kState_SteerInput = 0x8C;
+constexpr int kRacer_Vehicle = 0x48, kRacer_RearTires = 0x1BC, kTire_SlipAngle = 0x118;
+constexpr int kVehicle_GetTunings = 0xCC;            // vtable slot: const Physics::Tunings*
 
 constexpr uintptr_t kDoFetchInput = 0x6E8AC0;       // void SimSystem::DoFetchInput(IInputPlayer*)
 constexpr uintptr_t kReceiveAction = 0x6440B0;      // bool ActionQueue::ReceiveAction(const ActionData&)
@@ -71,8 +87,26 @@ struct {
 
 }  // namespace
 
+static float __attribute__((thiscall)) LinearMaxSteering(uint8_t* racer, const uint8_t* state, int) {
+    float lock = ((float(__attribute__((thiscall))*)(void*, float))kTableGetValue)(
+        (void*)kSteeringWheelRangeTable, *(const float*)(state + kState_LocalVelZ));
+    void* vehicle = *(void**)(racer + kRacer_Vehicle);
+    if (vehicle) {
+        auto get = (const float* (__attribute__((thiscall))*)(void*))(*(uintptr_t**)vehicle)[kVehicle_GetTunings / 4];
+        const float* tunings = get(vehicle);
+        if (tunings) lock *= *tunings * 0.2f + 1.0f;
+    }
+    float input = *(const float*)(state + kState_SteerInput);
+    const float k = *(const float*)kRadToDeg;
+    uintptr_t rearLeft = *(uintptr_t*)(racer + kRacer_RearTires), rearRight = *(uintptr_t*)(racer + kRacer_RearTires + 4);
+    if (input > 0.0f && rearRight) lock = std::max(lock, *(const float*)(rearRight + kTire_SlipAngle) * k);
+    else if (input < 0.0f && rearLeft) lock = std::max(lock, -*(const float*)(rearLeft + kTire_SlipAngle) * k);
+    return std::min(std::max(lock, 0.0f), kAbsoluteMaxSteering);
+}
+
 // The type also stays in ebx for DoHumanSteering's own gamepad branch (remap and ramp), which is
-// tested right after the call; ebx is restored by its epilogue.
+// tested right after the call; ebx is restored by its epilogue. A speed-sensitive wheel (1) goes
+// to LinearMaxSteering (same arguments, thiscall).
 __asm__(
     ".text\n"
     "_Controls_SteerTypeStub:\n"
@@ -81,6 +115,12 @@ __asm__(
     "    js 1f\n"
     "    movl %eax, %ebx\n"
     "    movl %eax, 8(%esp)\n"          // CalculateMaxSteering's steer_type argument
+    "    cmpl $1, %eax\n"
+    "    jne 1f\n"
+    "    movl _g_linearMaxSteering, %eax\n"
+    "    testl %eax, %eax\n"
+    "    jz 1f\n"
+    "    jmp *%eax\n"
     "1:  movl $0x68E9E0, %eax\n"
     "    jmp *%eax\n");
 extern "C" void Controls_SteerTypeStub();
@@ -183,7 +223,10 @@ void Controls_Install() {
     WriteRel(kDoFetchInput, 0xE9, (void*)&Hook_DoFetchInput);
     if (Expect(kSteerTypePush, {0x53, 0x55, 0x8B, 0xCE, 0xE8}) &&
         kCallMaxSteering + 5 + *(const int32_t*)(kCallMaxSteering + 1) == kCalculateMaxSteering)
+    {
+        g_linearMaxSteering = (void*)&LinearMaxSteering;
         WriteRel(kCallMaxSteering, 0xE8, (void*)&Controls_SteerTypeStub);
+    }
     else
         Log("controls: unexpected steering code, wheel steering type unavailable");
     Log("controls: installed");

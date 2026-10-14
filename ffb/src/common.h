@@ -42,6 +42,14 @@ struct Config {
     float parkingFriction = 0.15f;  // extra friction near standstill (tyre scrub)
     float softLock = 0.8f;          // end stop at the game's steering lock
     float menuCentering = 0.2f;     // spring in menus, pause and cutscenes
+    float centreWeight = 0.3f;      // firm hold around straight ahead while moving
+
+    // Effects
+    float engineRumble = 0.05f;     // engine vibration (mostly standing still)
+    float kerbs = 0.5f;             // kicks and shakes from kerbs and bumps
+    float surfaceRumble = 0.3f;     // the game's rumble on grass, gravel, dirt, rumble strips
+    float crashes = 0.6f;           // jolts from hitting cars, walls and props
+    float scrapes = 0.4f;           // grinding along walls
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens

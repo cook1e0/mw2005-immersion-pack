@@ -12,10 +12,11 @@ float Smoothstep(float a, float b, float x) {
 }
 }
 
-float FrontSlipAngle(const Telemetry& t, const WheelState& w, const ModelParams& p) {
-    // Where the front wheels point: the wheel's share of the steering lock times the game's lock.
+float FrontSlipAngle(const Telemetry& t, const WheelState& w, const ModelParams& p, float roadLock) {
+    // Where the front wheels point: the wheel's share of the steering lock times the game's lock
+    // (with speed-sensitive steering only a few degrees at speed).
     float share = Clampf(w.pos / Clampf(p.lockShare, 0.05f, 1.0f), -1.5f, 1.5f);
-    float steer = share * p.maxRoadAngleDeg * kPi / 180.0f;
+    float steer = share * (roadLock > 0.5f ? roadLock : p.maxRoadAngleDeg) * kPi / 180.0f;
     // Where the front axle travels, relative to the car's nose.
     float travel = atan2f(t.vLatFront, fmaxf(fabsf(t.vLong), 1.0f));
     return steer - travel;
@@ -26,6 +27,19 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
     float lockShare = Clampf(p.lockShare, 0.05f, 1.0f);
     float speed = t.valid ? t.speed : 0.0f;
     float drive = Clampf(drivingWeight, 0.0f, 1.0f);
+
+    // The game's front wheel angle at the steering lock: the game's own lock when it reports one,
+    // else measured from where the front wheels point for where the wheel is, while it is held
+    // still enough for the game (60 Hz) to have caught up.
+    if (roadLock_ <= 0) roadLock_ = p.maxRoadAngleDeg;
+    if (t.valid && w.known) {
+        float target = 0;
+        float shareNow = w.pos / lockShare;
+        if (t.maxSteerDeg > 0.5f) target = t.maxSteerDeg;
+        else if (fabsf(shareNow) > 0.06f && fabsf(w.vel) < 0.3f && fabsf(t.steerDeg) > 0.2f)
+            target = Clampf(fabsf(t.steerDeg) / fabsf(shareNow), 2.0f, 60.0f);
+        if (target > 0) roadLock_ += (target - roadLock_) * Clampf(dt / 0.5f, 0.0f, 1.0f);
+    }
 
     // --- self-aligning torque -------------------------------------------------------------
     if (t.valid && t.frontOnGround > 0 && w.known) {
@@ -38,7 +52,7 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
         float load = Clampf(1.0f + p.loadSensitivity * (loadRatio - 1.0f), 0.3f, 1.6f);
         // Brush-model shape: rises to 1 at the grip peak, then falls away (the wheel goes light
         // as the front lets go); a smaller pull toward the travel direction stays in a slide.
-        float x = FrontSlipAngle(t, w, p) / (Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f);
+        float x = FrontSlipAngle(t, w, p, roadLock_) / (Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f);
         float shape = x * expf(0.5f * (1.0f - x * x)) + p.driftAlign * tanhf(0.5f * x);
         // None when parked, building with speed; weaker in reverse.
         float speedGain = Smoothstep(0.5f, 6.0f, speed) * (0.55f + 0.45f * Clampf(speed / 45.0f, 0.0f, 1.0f));
@@ -55,11 +69,17 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
     float k = p.centering * (p.centeringParked + (1.0f - p.centeringParked) * speedShare);
     k = k * drive + p.menuCentering * (1.0f - drive);
     f.centering = -k * Clampf(share * 1.5f, -1.0f, 1.0f);
+    // Centre weight: rises within the first ~15% of the steering lock, then holds, so even a
+    // small angle off straight ahead pulls back noticeably (more than the friction holds it).
+    float moving = Smoothstep(1.0f, 12.0f, speed) * drive;
+    f.centering += -p.centreWeight * moving * tanhf(share / 0.05f);
 
     // --- damping and friction ---------------------------------------------------------------
     float parked = 1.0f - Smoothstep(0.5f, 5.0f, speed);
     f.damping = -p.damping * (0.5f + 0.5f * parked) * 0.25f * shareVel;
-    f.friction = -(p.friction + p.parkingFriction * parked * drive) * tanhf(w.vel / 0.03f);
+    // Smooth through standstill: a wheel held still feels no force flipping back and forth.
+    float fric = p.friction * (0.4f + 0.6f * parked) + p.parkingFriction * parked * drive;
+    f.friction = -fric * tanhf(w.velSmooth / 0.12f);
 
     // --- soft lock: the end stop where the game's steering is at full lock ---------------------
     if (lockShare < 0.98f && p.softLock > 0.0f) {
