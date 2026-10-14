@@ -46,6 +46,13 @@
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
+- **Damage meter car icon back to the game's look:** it was drawn opaque with a black outline,
+  which looked harsh. It now uses the HUD's own colours: gray with no damage, the HUD's beige when
+  damaged, pulsing red like the damage arc from 75%. The spike strip icon is unchanged.
+- **VR: no more occasional cutscene camera at pursuit breakers:** the camera director had other
+  ways off the driving camera (the cinematic camera when a moment or the game asks for it). In VR
+  the player's camera is now turned straight back to the driving camera whatever picks another,
+  except during the game's own cutscenes (race intros, busted).
 - **Force feedback status:** F4 > Force feedback starts with a status line: "Running on '<wheel>'"
   in green, or what is holding the force up (game window not in front, no device opened yet,
   device not acquired, ...). Status changes are written to `nfsmw_ffb.log`.

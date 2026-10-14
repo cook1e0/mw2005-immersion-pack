@@ -13,11 +13,12 @@
 // The heat overlay is a clone of that arc (FEObject::Clone), inserted right after it in its parent
 // group so it draws on top, tinted red and rotated by the heat above HeatFrom. The clock icon
 // (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. While heat or damage is at
-// Warn or above both arcs pulse. The car icon is always in the arc's colour. Above it a clone of
-// it shows the spike strip milestone icon (MILESTONE_SPIKESTRIPS), flashing red while a tire is
-// popped and hidden otherwise. Both icons are opaque (the spike icon sits over the arc, so a
-// translucent one takes on the arc's colour) and have a dark outline (eight black copies around
-// them) so they read on bright scenery. The HUD package owns the clones and frees them with the
+// Warn or above both arcs pulse. The car icon is drawn like the game's own HUD: gray with no
+// damage, the HUD's beige (the arc's colour) when damaged, and pulsing red like the arc from
+// IconRedFrom (75%) up. Above it a clone of it shows the spike strip milestone icon
+// (MILESTONE_SPIKESTRIPS), flashing red while a tire is popped and hidden otherwise. The spike
+// icon is opaque (it sits over the arc, so a translucent one takes on the arc's colour) and has a
+// dark outline (eight black copies around it) so it reads on bright scenery. The HUD package owns the clones and frees them with the
 // rest of the package; a new HUD (or a clone that is gone from its list) gets new ones.
 #include "hud.h"
 #include "common.h"
@@ -74,6 +75,9 @@ constexpr uint32_t kDirty = 0x03C00000;             // FF_Dirty | FF_DirtyTransf
 enum { FE_Image = 1, FE_Group = 5, FE_MultiImage = 12 };
 
 constexpr uint32_t kHeatColor = 0xFFE01E14;
+constexpr uint32_t kIconGray = 0xFFA8A8A8;          // car icon with no damage
+constexpr float kIconRedFrom = 0.75f;               // car icon pulses red from this much damage
+constexpr float kIconDamaged = 0.005f;              // any damage at all turns it beige
 constexpr float kFlashLow = 0.45f;                  // icon flash: brightness 1 -> kFlashLow -> 1
 constexpr uint32_t kOutlineColor = 0xC0000000;
 constexpr float kOutline = 1.5f;                    // outline width, in HUD units
@@ -393,10 +397,14 @@ void Update(uint8_t* meter, const HudStatus& h) {
     SetRotation(s.clone, Angle(heat));
     float wave = 0.5f + 0.5f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f);
     float flash = kFlashLow + (1.0f - kFlashLow) * wave;
+    // The car icon in the HUD's own colours, no outline (an outlined, opaque copy looked harsh).
+    uint32_t iconColor = h.damage >= kIconRedFrom ? WithAlpha(kHeatColor, 0.6f + 0.4f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f))
+                         : h.damage >= kIconDamaged ? (s.barColor | 0xFF000000)
+                         : kIconGray;
     for (auto& i : s.icon)
-        SetColor(i.img, s.barColor | 0xFF000000);
-    if (s.iconList && !s.icon.empty())
-        UpdateOutline(s.carOutline, 0.0f, Field<uint32_t>(s.icon[0].img, kFO_Handle), true);
+        SetColor(i.img, iconColor);
+    if (!s.carOutline.empty() && InList(s.iconList, s.carOutline[0]))
+        UpdateOutline(s.carOutline, 0.0f, Field<uint32_t>(s.icon[0].img, kFO_Handle), false);
     UpdateSpike(h.poppedTires, flash);
     // Visible whenever the arc is (bit 0 = invisible, FEngSetInvisible); the clone keeps the
     // flag the arc had when it was cloned and the game never touches it again.

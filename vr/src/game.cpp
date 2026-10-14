@@ -72,6 +72,15 @@ constexpr uintptr_t kCallSelectAction = 0x479E4C; // call Director::SelectAction
 constexpr uintptr_t kSelectAction = 0x479900;     // thiscall, no args
 constexpr int kDirectorView = 0x08;               // EVIEW_ID
 constexpr int kDirectorTrackCopTimer = 0x2B4;     // seconds of track-cop camera left
+// SelectAction has more ways off the driving camera: the ICE camera when a cinematic moment's
+// track is set or an NIS asks for it, and the moment camera (CDActionTrackCar). Whatever it picks
+// for the player's view is checked afterwards: anything but the driving camera is turned back
+// while VR runs, except during an NIS (race intros, busted: the game's own cutscenes).
+constexpr int kDirectorActionName = 0x1C;         // Attrib::StringKey of the current action: its string
+constexpr uintptr_t kDirectorSetAction = 0x4797F0; // thiscall, Attrib::StringKey (16 bytes) by value
+constexpr uintptr_t kStringKeyCtor = 0x453760;    // Attrib::StringKey::StringKey(const char*), thiscall
+constexpr uintptr_t kNisInstance = 0x9885C8;      // UTL::Singleton<INIS>::mInstance: non-null during an NIS
+constexpr uintptr_t kActionDriveName = 0x894C20;  // "CDActionDrive" in speed.exe
 // Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
 // them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
 constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
@@ -436,6 +445,21 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
+
+    if (!Xr_Available() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
+    const char* action = At<const char*>(director, kDirectorActionName);
+    const char* drive = (const char*)kActionDriveName;
+    if (!action || !action[0] || action == drive || strcmp(action, drive) == 0 || strncmp(action, "CDActionDebug", 13) == 0)
+        return;
+    static DWORD lastLog = 0;
+    if (GetTickCount() - lastLog > 2000) {
+        lastLog = GetTickCount();
+        Log("game: camera '%s' turned back to the driving camera (VR)", action);
+    }
+    struct StringKey { uint32_t hash64[2], hash32; const char* string; } key;
+    ((void*(__thiscall*)(StringKey*, const char*))kStringKeyCtor)(&key, drive);
+    ((void(__thiscall*)(void*, StringKey))kDirectorSetAction)(director, key);
+    At<float>(director, kDirectorTrackCopTimer) = 0.0f;
 }
 
 // Swaps in the seat position when `pos` is the eye camera's (not some other point).
