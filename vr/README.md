@@ -98,7 +98,8 @@ For a 64-bit-only manifest such as SteamVR's
 In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car. This also works on a flat screen without a headset.
 
 With the gameplay mod, **F4 > VR** has **Recenter view** (same as F8), **HUD size**, **HUD distance**,
-and **HUD height**. Panel changes take effect immediately, including through the SteamVR helper,
+**HUD height** and **Near clip plane**, and **F4 > Controls > Recenter VR view** binds the recenter to
+any key or wheel button. Panel changes take effect immediately, including through the SteamVR helper,
 and are saved to `nfsmw_vr.ini` when the menu closes.
 
 The seat follows the car's current body transform, with a fixed position inside the car. Horizon
@@ -112,6 +113,7 @@ Everything is in `nfsmw_vr.ini`. The useful ones:
 - **`Resolution` / `ResolutionScale`:** each eye renders at the headset's recommended size by default. Lower `ResolutionScale` for more fps.
 - **`LevelRoll` / `LevelPitch`:** how much of the car's body roll and pitch to remove from your view. By default roll is removed and pitch is kept.
 - **`HudDistance` / `HudWidth`:** placement of the floating HUD panel.
+- **`NearZ`:** near clip plane in metres (default 0.01). Lower it if the dashboard or wheel close to your eyes is cut off; raise it (e.g. 0.05) if distant surfaces flicker. 0 = the game's own.
 
 ## Recording
 

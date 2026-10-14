@@ -1,4 +1,4 @@
-### Unreleased: cockpit near plane, VR recentre binding, misshift damage
+### v0.12.0: cockpit near plane, VR recenter binding, misshift damage
 
 - **VR near clip plane:** the player view's near plane is now `[VR] NearZ` (default 0.01 m, was
   the game's own), so the dashboard, wheel and pillars right in front of the eyes are no longer
@@ -9,6 +9,14 @@
 - **Misshift damage:** a shift refused for lack of clutch has a 50% chance of doing 5% car damage
   (`[Shifter] MisshiftChance`, `MisshiftDamage`, also in F4 > Shifter and clutch). Needs car damage
   on; `MisshiftChance=0` turns it off.
+
+**Upgrading from v0.11.2:** replace `scripts
+fsmw_vr.asi` and `scripts
+fsmw_gameplay.asi`. Keep
+your existing `.ini` files and bindings; the new settings use their defaults when missing, so the
+lower near plane and misshift damage are on after the update. The force feedback plugin,
+`nfsmw_vr_host.exe` and `nfsmw_crashdump.exe` are unchanged. The near-plane slider needs both
+updated plugins.
 
 ### v0.11.2: recovery and regression fixes
 

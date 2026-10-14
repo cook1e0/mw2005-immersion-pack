@@ -29,6 +29,14 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.11.2: replace scripts
+fsmw_vr.asi and scripts
+fsmw_gameplay.asi. Keep
+your existing .ini files and bindings. New: VR near clip plane (F4 > VR, [VR] NearZ) so the
+cockpit close to your eyes isn't cut off, a bindable Recenter VR view (F4 > Controls), and a 50%
+chance of 5% car damage when a shift is refused for lack of clutch (F4 > Shifter and clutch,
+[Shifter] MisshiftChance=0 turns it off). See FIXES.md for this release.
+
 Upgrading from v0.11.1: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe,
 and add nfsmw_crashdump.exe next to speed.exe. Keep your existing .ini files and bindings.
 F10 (or F4 > Force Feedback) restarts the wheel's force feedback. See FIXES.md for this release.
