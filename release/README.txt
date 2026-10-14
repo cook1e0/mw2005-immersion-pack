@@ -29,6 +29,10 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.11.1: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe,
+and add nfsmw_crashdump.exe next to speed.exe. Keep your existing .ini files and bindings.
+F10 (or F4 > Force Feedback) restarts the wheel's force feedback. See FIXES.md for this release.
+
 Upgrading from v0.11.0: replace scripts\nfsmw_ffb.asi and scripts\nfsmw_gameplay.asi. Keep
 your existing .ini files and bindings. Analog axes are now ignored in game menus by default,
 preventing pedals and steering from scrolling them. F4 > Controls has settings for analog

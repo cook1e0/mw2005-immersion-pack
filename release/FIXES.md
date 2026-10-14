@@ -13,34 +13,22 @@
   INIs remain unchanged and the legacy file is retained for manual merging.
 - **VR:** validates required hooks while preserving compatible widescreen resolution
   detours, and tightens OpenXR tracking/frame handling.
+- **Crash diagnostics (VR):** the VR plugin starts `nfsmw_crashdump.exe`, a small helper next
+  to `speed.exe`. An unhandled game crash saves `nfsmw_crash.dmp` and a readable
+  `nfsmw_crash.txt` (faulting module, offset, exception code, access address). Nothing is
+  uploaded. On by default, also with existing ini files; `[VR] CrashDumps=0` disables it. A
+  missing helper is logged and the game still runs.
 
-**Upgrading from v0.11.1:** replace all three plugins in `scripts`, replace
-`nfsmw_vr_host.exe`, and add `nfsmw_crashdump.exe` next to `speed.exe`. Keep existing INIs
-and bindings. The symbols ZIP is optional and only needed for VR crash-dump analysis.
+Force feedback now pauses while the game is not the foreground window and comes back when it is.
 
-**Validation:** all three plugins build; input, FFB recovery, gameplay, cockpit, hook,
-OpenXR and crash-capture regression tests pass. Physical wheel/headset testing remains
-outstanding; these changes do not establish or fix the cause of the reported Direct3D crash.
+**Upgrading from v0.11.1:** replace all three plugins in `scripts` and `nfsmw_vr_host.exe`, and
+add `nfsmw_crashdump.exe` next to `speed.exe`. Keep your existing `.ini` files and bindings.
 
-#### Automatic crash diagnostics
+**Validation:** all three plugins build, and the input, FFB recovery, gameplay, cockpit, hook,
+OpenXR and crash-capture regression tests pass. Not yet tested with a physical wheel or headset;
+the crash capture helps diagnose the reported Direct3D crash but does not fix it.
 
-- The VR plugin starts `nfsmw_crashdump.exe`, an x86 helper installed next to `speed.exe`.
-  Unhandled game exceptions save `nfsmw_crash.dmp` plus a readable `nfsmw_crash.txt`, with the
-  faulting module, offset, exception code and invalid-access address. Nothing is uploaded.
-- Existing ini files enable capture by default; `[VR] CrashDumps=0` disables it. Missing helpers
-  are logged and leave the game playable. Handled exceptions do not produce dumps.
-- The build preserves matching VR/helper debug symbols for analysing the generated dumps.
-
-**Install:** replace `scripts\nfsmw_vr.asi` and `nfsmw_vr_host.exe`, add `nfsmw_crashdump.exe`
-next to `speed.exe`, and keep existing ini files. This adds diagnosis; it does not establish or
-fix the cause of the reported Direct3D crash.
-
-**Validation:** a synthetic x86 process produces a readable dump with exception/context/module/
-thread streams. Normal exit, handled exceptions, disabled capture and missing helpers are
-covered. The cockpit, hook validation and XR frame regression harnesses pass. Testing with the
-friend's game/headset remains outstanding.
-
-### Changes since v0.11.0
+### v0.11.1: pedals in menus
 
 - **Pedals in menus**: analog controller axes are ignored in the game's menus by default, preventing pedals and steering from scrolling them. With the game's controller input enabled, buttons and the d-pad still work. Driving input is unchanged.
 - **Menu input settings**: F4 > Controls can restore analog axis navigation or disable all controller menu input. The F4 menu's own bindings and keyboard/mouse input are unaffected.
