@@ -50,6 +50,229 @@ static M4 Apply() {
     return MInvRigid(view);
 }
 
+// Index buffer stand-in for the head reordering (Lock/Unlock/GetDesc only).
+struct FakeIb : IDirect3DIndexBuffer9 {
+    uint16_t data[4096];
+    UINT size = 12;
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void**) override { return E_NOINTERFACE; }
+    ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE GetDevice(IDirect3DDevice9**) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID, CONST void*, DWORD, DWORD) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID, void*, DWORD*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE FreePrivateData(REFGUID) override { return E_NOTIMPL; }
+    DWORD STDMETHODCALLTYPE SetPriority(DWORD) override { return 0; }
+    DWORD STDMETHODCALLTYPE GetPriority() override { return 0; }
+    void STDMETHODCALLTYPE PreLoad() override {}
+    D3DRESOURCETYPE STDMETHODCALLTYPE GetType() override { return D3DRTYPE_INDEXBUFFER; }
+    HRESULT STDMETHODCALLTYPE Lock(UINT offset, UINT, void** p, DWORD) override { *p = (uint8_t*)data + offset; return D3D_OK; }
+    HRESULT STDMETHODCALLTYPE Unlock() override { return D3D_OK; }
+    HRESULT STDMETHODCALLTYPE GetDesc(D3DINDEXBUFFER_DESC* d) override {
+        memset(d, 0, sizeof(*d));
+        d->Format = D3DFMT_INDEX16;
+        d->Size = size;
+        return D3D_OK;
+    }
+};
+
+// A driver model streamed out and another loaded at the same address must be prepared again, and
+// the head-less entry must carry the live entry's vertex buffer, never one copied at first sight.
+static void TestReloadedDriver() {
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16], camera[0x50];
+    static float verts[18] = {0, 0, 0, 1, 0, 0, 0, 1, 0, -1, 0, 1.9f, -1, 1, 1.9f, -0.9f, 0, 2.0f};
+    static uint16_t indices[6];
+    static FakeIb ib;
+    const uint16_t original[6] = {3, 4, 5, 0, 1, 2};    // head triangle first
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    strcpy((char*)solid + kSolidName, "TESTCAR_KIT00_DRIVER_A");
+    At<float>(solid, kSolidMin) = -1;
+    At<float>(solid, kSolidMax + 8) = 2.0f;
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = 6;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = 2;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = verts;
+    At<int>(entry, kEntryVertexBytes) = sizeof(verts);
+    At<uintptr_t>(entry, 0x54) = 0x1111;                // vertex buffer
+
+    Driver* first = GetDriver(solid);
+    Check(first && first->ok && first->body[0] == 1 && first->heads[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
+    Check(GetDriver(solid) == first, "unchanged driver stays cached");
+
+    // Reloaded in place: same pointers, original triangle order and a new vertex buffer.
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    At<uintptr_t>(entry, 0x54) = 0x2222;
+    Driver* second = GetDriver(solid);
+    Check(second && second != first && second->ok && indices[0] == 0 && s_retired.size() == 1, "reloaded driver prepared again");
+
+    // The head next to the eyes: the entry drawn without it is a fresh copy of the live one.
+    float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    uint8_t modelData[0x10] = {};
+    At<uint8_t*>(modelData, kModelSolid) = solid;
+    memcpy(camera + kCamPosition, second->head, sizeof(second->head));
+    void* savedCam = At<void*>((void*)kPlayerView, kViewCamera);
+    At<void*>((void*)kPlayerView, kViewCamera) = camera;
+    g_cfg.hideHead = true;
+    uint8_t* trimmed = OnSubmit(modelData, model, entry);
+    Check(trimmed && trimmed != entry && s_driverParts == 1 && At<int>(trimmed, kEntryTris) == 1 &&
+              At<uintptr_t>(trimmed, 0x54) == 0x2222,
+          "head-less entry uses the live vertex buffer");
+    g_cfg.hideHead = false;
+    At<void*>((void*)kPlayerView, kViewCamera) = savedCam;
+
+    // Another model at the address: no longer a driver.
+    strcpy((char*)solid + kSolidName, "TRAFFIC_BODY");
+    Check(!GetDriver(solid), "replaced by a non-driver model");
+    Cockpit_EndFrame();
+    Check(s_retired.empty(), "retired drivers freed at the end of the frame");
+}
+
+// A seated driver with a body, an arm and a head: triangles reordered body, arm, head, and the
+// entry drawn as the ranges the settings leave in.
+static void TestArms() {
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16], camera[0x50];
+    // head at the back top (x -1, z 1.9..2), body low (z 0), arm in front of the head, beside it
+    static float verts[27] = {
+        0, 0, 0, 1, 0, 0, 0, 1, 0,                          // body
+        -0.6f, 0.5f, 1.6f, -0.4f, 0.5f, 1.6f, -0.5f, 0.5f, 1.7f,   // arm (y 0.5 vs. head 0.33)
+        -1, 0, 1.9f, -1, 1, 1.9f, -0.9f, 0, 2.0f};          // head
+    static uint16_t indices[9];
+    static FakeIb ib;
+    const uint16_t original[9] = {6, 7, 8, 3, 4, 5, 0, 1, 2};   // head, arm, body
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    ib.size = sizeof(indices);
+    strcpy((char*)solid + kSolidName, "ARMCAR_KIT00_DRIVER_A");
+    At<float>(solid, kSolidMin) = -1;
+    At<float>(solid, kSolidMax + 8) = 2.0f;
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = 9;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = 3;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = verts;
+    At<int>(entry, kEntryVertexBytes) = sizeof(verts);
+
+    Driver* d = GetDriver(solid);
+    Check(d && d->ok && d->body[0] == 1 && d->arms[0] == 1 && d->heads[0] == 1, "body, arm and head found");
+    Check(indices[0] == 0 && indices[3] == 3 && indices[6] == 6 && ib.data[6] == 6, "reordered body, arm, head");
+
+    float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    uint8_t modelData[0x10] = {};
+    At<uint8_t*>(modelData, kModelSolid) = solid;
+    memcpy(camera + kCamPosition, d->head, sizeof(d->head));
+    void* savedCam = At<void*>((void*)kPlayerView, kViewCamera);
+    At<void*>((void*)kPlayerView, kViewCamera) = camera;
+    auto draw = [&](bool head, bool arms) {
+        g_cfg.hideHead = head;
+        g_cfg.hideArms = arms ? 1.0f : 0.0f;
+        return OnSubmit(modelData, model, entry);
+    };
+    uint8_t* e = draw(true, true);
+    Check(e && s_driverParts == 1 && At<int>(e, kEntryFirstIndex) == 0 && At<int>(e, kEntryTris) == 1, "body only");
+    e = draw(true, false);
+    Check(e && s_driverParts == 1 && At<int>(e, kEntryTris) == 2, "body and arms");
+    e = draw(false, true);
+    Check(e && s_driverParts == 2 && At<int>(e, kEntryTris) == 1 && At<int>(e + kEntrySize, kEntryFirstIndex) == 6 &&
+              At<int>(e + kEntrySize, kEntryTris) == 1,
+          "body and head, arms left out");
+    Check(draw(false, false) == entry, "everything: the entry as it is");
+    // Away from the eyes (another car's driver): drawn whole.
+    At<float>(camera, kCamPosition) += 5;
+    Check(draw(true, true) == entry, "other drivers keep their arms");
+    g_cfg.hideHead = false;
+    g_cfg.hideArms = 1.0f;
+    At<void*>((void*)kPlayerView, kViewCamera) = savedCam;
+}
+
+// An interior with a steering wheel (a tilted tube ring) and a dashboard: the ring is found, its
+// triangles move to the end of the entry, and a turn to the right lifts the wheel's left side.
+static void TestSteeringWheel() {
+    const HeadPos* head = CarHead("TESTCAR_KIT00_INTERIOR_A");
+    Check(head != nullptr, "driver head known for the car");
+    const float tilt = 15.0f * 3.14159265f / 180.0f, radius = 0.16f;
+    const float n[3] = {cosf(tilt), 0, -sinf(tilt)}, up[3] = {sinf(tilt), 0, cosf(tilt)};
+    const float centre[3] = {head->v[0] + 0.45f, head->v[1], head->v[2] - 0.25f};
+    static float verts[4 * 24 + 4][3];
+    static uint16_t indices[4096];
+    int nv = 0, ni = 0;
+    for (int layer = 0; layer < 4; layer++) {       // inner/outer rim, front/back face
+        float r = radius + (layer == 1 || layer == 2 ? 0.01f : -0.01f), along = layer < 2 ? -0.01f : 0.01f;
+        for (int k = 0; k < 24; k++, nv++) {
+            float a = k * 2 * 3.14159265f / 24, left = r * cosf(a), high = r * sinf(a);
+            for (int c = 0; c < 3; c++) verts[nv][c] = centre[c] + n[c] * along + up[c] * high;
+            verts[nv][1] = centre[1] + left;
+        }
+    }
+    for (int layer = 0; layer < 4; layer++)
+        for (int k = 0; k < 24; k++) {
+            int a = layer * 24 + k, b = layer * 24 + (k + 1) % 24;
+            int c = ((layer + 1) % 4) * 24 + k, d = ((layer + 1) % 4) * 24 + (k + 1) % 24;
+            uint16_t quad[6] = {(uint16_t)a, (uint16_t)b, (uint16_t)c, (uint16_t)b, (uint16_t)d, (uint16_t)c};
+            for (uint16_t i : quad) indices[ni++] = i;
+        }
+    int dash = nv;                                  // dashboard, well in front of the wheel
+    const float dashQuad[4][3] = {{0.95f, -0.3f, -0.1f}, {0.95f, 0.3f, -0.1f}, {0.95f, -0.3f, 0.1f}, {0.95f, 0.3f, 0.1f}};
+    for (int k = 0; k < 4; k++, nv++)
+        for (int c = 0; c < 3; c++) verts[nv][c] = head->v[c] + dashQuad[k][c];
+    // Dashboard first in the index order, so the ring has to move behind it.
+    for (int i = ni - 1; i >= 0; i--) indices[i + 6] = indices[i];
+    uint16_t dashTris[6] = {(uint16_t)dash, (uint16_t)(dash + 1), (uint16_t)(dash + 2), (uint16_t)(dash + 1),
+                            (uint16_t)(dash + 3), (uint16_t)(dash + 2)};
+    memcpy(indices, dashTris, sizeof(dashTris));
+    ni += 6;
+
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16];
+    static FakeIb ib;
+    memcpy(ib.data, indices, ni * 2);
+    ib.size = ni * 2;
+    strcpy((char*)solid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = ni;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = ni / 3;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = &verts[0][0];
+    At<int>(entry, kEntryVertexBytes) = nv * 12;
+
+    g_cfg.steeringWheel = true;
+    SolidInfo* info = GetSolid(solid);
+    Wheel* w = info ? info->wheel : nullptr;
+    Check(w && w->ok, "steering wheel found in the interior");
+    Check(w->turned[0] == 192 && w->kept[0] == 2, "ring triangles selected, dashboard kept");
+    Check(indices[0] == dash && ib.data[0] == dash, "wheel triangles moved behind the dashboard");
+    for (int c = 0; c < 3; c++) Check(fabsf(w->centre[c] - centre[c]) < 0.005f, "wheel centre");
+    Check(fabsf(w->axis[0] - n[0]) < 0.005f && fabsf(w->axis[2] - n[2]) < 0.005f, "steering column tilt");
+
+    // Turning right by 90 degrees: the top of the rim goes to the driver's right (-y).
+    float identity[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}, turned[16];
+    TurnedMatrix(*w, 90.0f, identity, turned);
+    float top[3] = {w->centre[0] + up[0] * radius, w->centre[1], w->centre[2] + up[2] * radius};
+    float out[3];
+    for (int c = 0; c < 3; c++) out[c] = top[0] * turned[c] + top[1] * turned[4 + c] + top[2] * turned[8 + c] + turned[12 + c];
+    Check(out[1] < w->centre[1] - radius * 0.9f, "turning right moves the top of the wheel right");
+    Near(out[0] * n[0] + out[2] * n[2], w->centre[0] * n[0] + w->centre[2] * n[2], "wheel stays in its plane");
+    g_cfg.steeringWheel = false;
+}
+
 int main() {
     testTime = Now();
     static_assert(sizeof(void*) == 4, "test the game's 32-bit layout");
@@ -124,5 +347,8 @@ int main() {
     Near(s_head.body[0], 0.8f, "new car measures a new seat");
     s_head.time -= 1;
     Check(!Cockpit_ApplySeat(view), "expired observation releases seat");
-    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD and frame lifecycle");
+    TestReloadedDriver();
+    TestArms();
+    TestSteeringWheel();
+    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers and steering wheel");
 }

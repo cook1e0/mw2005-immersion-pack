@@ -4,6 +4,7 @@
 #include "dinput_wrap.h"
 #include "ffb.h"
 #include "telemetry.h"
+#include <stdio.h>
 #include <string.h>
 #include <initializer_list>
 
@@ -17,22 +18,33 @@ static bool s_active;
 // The master Gain, for the gameplay mod's F4 tuning menu (read live by the effect update).
 extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 extern "C" int __cdecl NfsmwFfb_Reset() { return s_active && Ffb_RequestReset() ? 1 : 0; }
+extern "C" int __cdecl NfsmwFfb_Test() { return s_active && Ffb_RequestTest() ? 1 : 0; }
+extern "C" int __cdecl NfsmwFfb_DeviceName(int index, char* out, int len) { return s_active ? Ffb_DeviceName(index, out, len) : 0; }
+extern "C" int __cdecl NfsmwFfb_Status(char* out, int len) {
+    if (!out || len <= 0) return 0;
+    if (!s_active || !g_cfg.enabled) { snprintf(out, len, "Off: [FFB] Enabled=0"); return 0; }
+    if (g_cfg.nativeFfb) { snprintf(out, len, "Off: the game's own force feedback (NativeFFB=1)"); return 0; }
+    return Ffb_Status(out, len);
+}
 extern "C" void __cdecl NfsmwFfb_MenuOpen(int open) { if (s_active) Ffb_SetMenuOpen(open != 0); }
 
-// Live settings for the gameplay mod (F4 menu, [Controls]): Gain, CenterSpring,
-// CenterSpringParked, CenterSpringSpeed, SoftLock, SoftLockAt, GameController (0 = hide the
-// controllers' input from the game). Null if unknown.
+// Live settings for the gameplay mod (its F4 menu and [Controls]), by [FFB] key name. Null if
+// unknown. GameController, MenuController and MenuAxes hide controller input from the game;
+// SoftLockAt is the steering lock's share of the wheel's rotation.
 extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
     if (!name) return nullptr;
-    if (!strcmp(name, "Gain")) return &g_cfg.gain;
-    if (!strcmp(name, "CenterSpring")) return &g_cfg.centerSpring;
-    if (!strcmp(name, "CenterSpringParked")) return &g_cfg.centerSpringParked;
-    if (!strcmp(name, "CenterSpringSpeed")) return &g_cfg.centerSpringSpeed;
-    if (!strcmp(name, "SoftLock")) return &g_cfg.softLock;
-    if (!strcmp(name, "SoftLockAt")) return &g_cfg.softLockAt;
-    if (!strcmp(name, "GameController")) return &g_cfg.gameController;
-    if (!strcmp(name, "MenuController")) return &g_cfg.menuController;
-    if (!strcmp(name, "MenuAxes")) return &g_cfg.menuAxes;
+    static const struct { const char* key; float* value; } kSettings[] = {
+        {"Gain", &g_cfg.gain}, {"MaxForce", &g_cfg.maxForce}, {"Aligning", &g_cfg.aligning},
+        {"Centering", &g_cfg.centering}, {"Damping", &g_cfg.damping}, {"Friction", &g_cfg.friction},
+        {"SoftLock", &g_cfg.softLock}, {"SlewRate", &g_cfg.slewRate}, {"SmoothingHz", &g_cfg.smoothingHz},
+        {"Reverse", &g_cfg.reverse}, {"Device", &g_cfg.device}, {"SoftLockAt", &g_cfg.softLockAt},
+        {"GameController", &g_cfg.gameController}, {"MenuController", &g_cfg.menuController},
+        {"MenuAxes", &g_cfg.menuAxes}, {"CentreWeight", &g_cfg.centreWeight}, {"EngineRumble", &g_cfg.engineRumble},
+        {"Kerbs", &g_cfg.kerbs}, {"SurfaceRumble", &g_cfg.surfaceRumble}, {"Crashes", &g_cfg.crashes},
+        {"Scrapes", &g_cfg.scrapes},
+    };
+    for (auto& s : kSettings)
+        if (!strcmp(name, s.key)) return s.value;
     return nullptr;
 }
 

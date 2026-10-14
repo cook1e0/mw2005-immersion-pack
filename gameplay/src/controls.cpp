@@ -19,7 +19,37 @@
 #include "input.h"
 #include <math.h>
 
+// Steering type for SuspensionRacer::DoHumanSteering: -1 = the game's (gamepad on PC, as no
+// ISteeringWheel device exists), else ISteeringWheel::SteeringType (1 speed-sensitive wheel,
+// 2 speed-insensitive wheel). Set on the game thread before FetchInput.
+extern "C" { volatile int g_steerType = -1; }
+extern "C" { void* g_linearMaxSteering = nullptr; }
+
 namespace {
+
+// DoHumanSteering picks the steering type in ebx (0 = gamepad without a wheel device) and passes
+// it to CalculateMaxSteering. As a gamepad the game remaps the input, scales the lock from 40
+// degrees parked down to ~3 at speed and limits how fast the front wheels turn; as a wheel the
+// input maps straight to the lock. The call is retargeted to a stub that swaps the type in.
+constexpr uintptr_t kSteerTypePush = 0x69E89D;      // push ebx; push ebp; mov ecx, esi
+constexpr uintptr_t kCallMaxSteering = 0x69E8A1;    // call SuspensionRacer::CalculateMaxSteering
+constexpr uintptr_t kCalculateMaxSteering = 0x68E9E0;
+
+// Speed-sensitive wheel steering, rewritten for a wheel. The game's version was made for pads:
+//  - its lock grew up to 1.4 times as the wheel turned further (by the recent average input), and
+//    up to ~1.7 times off the throttle or on the brakes: progressive, and lifting tightened a turn
+//  - its speed table kinks (45 degrees parked, 15 at 64 km/h, 11, 8, then 7 flat)
+//  - while countersteering it widened the lock to the rear tyres' slip angle, and dropped it back
+//    the moment the wheel crossed over: the front wheels jumped as a slide was caught
+// Here the lock is one smooth curve of speed (SteeringLockShare) times the car's steering tuning,
+// so the front wheels always follow the wheel in proportion. In a slide the lock widens with the
+// rear tyres' slip angle on both sides alike, so it changes only as the slide does: enough lock
+// to catch it, and no jump when the wheel crosses centre.
+constexpr uintptr_t kRadToDeg = 0x890960;            // the game's ANGLE2DEG factor
+constexpr float kAbsoluteMaxSteering = 45.0f;
+constexpr int kState_LocalVelZ = 0x48;
+constexpr int kRacer_Vehicle = 0x48, kRacer_RearTires = 0x1BC, kTire_SlipAngle = 0x118;
+constexpr int kVehicle_GetTunings = 0xCC;            // vtable slot: const Physics::Tunings*
 
 constexpr uintptr_t kDoFetchInput = 0x6E8AC0;       // void SimSystem::DoFetchInput(IInputPlayer*)
 constexpr uintptr_t kReceiveAction = 0x6440B0;      // bool ActionQueue::ReceiveAction(const ActionData&)
@@ -56,6 +86,49 @@ struct {
     bool logged = false;
 } s;
 
+}  // namespace
+
+static float __attribute__((thiscall)) LinearMaxSteering(uint8_t* racer, const uint8_t* state, int) {
+    float kmh = fabsf(*(const float*)(state + kState_LocalVelZ)) * 3.6f;
+    float lock = kAbsoluteMaxSteering * SteeringLockShare(kmh, g_cfg.steerSpeedSensitivity);
+    void* vehicle = *(void**)(racer + kRacer_Vehicle);
+    if (vehicle) {
+        auto get = (const float* (__attribute__((thiscall))*)(void*))(*(uintptr_t**)vehicle)[kVehicle_GetTunings / 4];
+        const float* tunings = get(vehicle);
+        if (tunings) lock *= *tunings * 0.2f + 1.0f;
+    }
+    const float k = *(const float*)kRadToDeg;
+    uintptr_t rearLeft = *(uintptr_t*)(racer + kRacer_RearTires), rearRight = *(uintptr_t*)(racer + kRacer_RearTires + 4);
+    if (rearLeft && rearRight) {
+        float slip = 0.5f * (fabsf(*(const float*)(rearLeft + kTire_SlipAngle)) + fabsf(*(const float*)(rearRight + kTire_SlipAngle))) * k;
+        if (slip > 0.0f && slip < 90.0f) lock = std::max(lock, slip);
+    }
+    return std::min(std::max(lock, 0.0f), kAbsoluteMaxSteering);
+}
+
+// The type also stays in ebx for DoHumanSteering's own gamepad branch (remap and ramp), which is
+// tested right after the call; ebx is restored by its epilogue. A speed-sensitive wheel (1) goes
+// to LinearMaxSteering (same arguments, thiscall).
+__asm__(
+    ".text\n"
+    "_Controls_SteerTypeStub:\n"
+    "    movl _g_steerType, %eax\n"
+    "    testl %eax, %eax\n"
+    "    js 1f\n"
+    "    movl %eax, %ebx\n"
+    "    movl %eax, 8(%esp)\n"          // CalculateMaxSteering's steer_type argument
+    "    cmpl $1, %eax\n"
+    "    jne 1f\n"
+    "    movl _g_linearMaxSteering, %eax\n"
+    "    testl %eax, %eax\n"
+    "    jz 1f\n"
+    "    jmp *%eax\n"
+    "1:  movl $0x68E9E0, %eax\n"
+    "    jmp *%eax\n");
+extern "C" void Controls_SteerTypeStub();
+
+namespace {
+
 void Send(void* queue, int port, int id, float value) {
     ActionData a = {id, port, value};
     ((ReceiveAction_t)kReceiveAction)(queue, &a);
@@ -71,6 +144,11 @@ void Inject(void* ip) {
     s.player = ip;
 
     float steer = in.steerBound ? in.steer : 0.0f;
+    int type = in.steerBound ? (g_cfg.steerSpeedSensitive ? 1 : 2) : -1;
+    if (type != g_steerType) {
+        g_steerType = type;
+        Log("controls: steering %s", type < 0 ? "as the game's (gamepad)" : type == 1 ? "as a speed-sensitive wheel" : "direct (wheel)");
+    }
     struct { bool bound; float value; } want[7] = {
         {in.steerBound, std::max(-steer, 0.0f)},
         {in.steerBound, std::max(steer, 0.0f)},
@@ -145,5 +223,13 @@ void Controls_Install() {
         return;
     }
     WriteRel(kDoFetchInput, 0xE9, (void*)&Hook_DoFetchInput);
+    if (Expect(kSteerTypePush, {0x53, 0x55, 0x8B, 0xCE, 0xE8}) &&
+        kCallMaxSteering + 5 + *(const int32_t*)(kCallMaxSteering + 1) == kCalculateMaxSteering)
+    {
+        g_linearMaxSteering = (void*)&LinearMaxSteering;
+        WriteRel(kCallMaxSteering, 0xE8, (void*)&Controls_SteerTypeStub);
+    }
+    else
+        Log("controls: unexpected steering code, wheel steering type unavailable");
     Log("controls: installed");
 }

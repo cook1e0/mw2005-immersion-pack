@@ -10,3 +10,6 @@ EXPORTS
     NfsmwFfb_Setting
     NfsmwFfb_Reset
     NfsmwFfb_MenuOpen
+    NfsmwFfb_Test
+    NfsmwFfb_DeviceName
+    NfsmwFfb_Status

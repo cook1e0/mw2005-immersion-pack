@@ -7,8 +7,8 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_nav[4];
-static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT];
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_recenter, s_nav[4];
+static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT], s_seat[SEAT_COUNT];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
 static double s_joyOpened[kMaxJoys];
@@ -62,6 +62,7 @@ static void ParseAll() {
     parse("DebugDamage", g_cfg.debugDamage, s_hit);
     parse("DebugPopTires", g_cfg.debugPopTires, s_pop);
     parse("Menu", g_cfg.menu, s_menu);
+    parse("RecenterVr", g_cfg.recenterVr, s_recenter);
     parse("MenuUp", g_cfg.menuUp, s_nav[0]);
     parse("MenuDown", g_cfg.menuDown, s_nav[1]);
     parse("MenuLeft", g_cfg.menuLeft, s_nav[2]);
@@ -70,6 +71,7 @@ static void ParseAll() {
     parse("Accelerate", g_cfg.throttle, s_pedal[0]);
     parse("Brake", g_cfg.brake, s_pedal[1]);
     for (int i = 0; i < BTN_COUNT; i++) parse(kButtonKeys[i], g_cfg.button[i], s_button[i]);
+    for (int i = 0; i < SEAT_COUNT; i++) parse(kSeatKeys[i], g_cfg.seat[i], s_seat[i]);
 
     s_cal.resize(s_clutch.size());
     for (size_t i = 0; i < s_clutch.size(); i++) {
@@ -153,12 +155,13 @@ static bool AnyUsable(const std::vector<Binding>& list) {
 // Steering, -1 left .. +1 right: the first usable axis binding, scaled so that SteeringLock
 // degrees of wheel rotation (of WheelRotation in all) give full lock, then shaped by
 // SteeringLinearity (output = input ^ linearity, so full lock stays at the steering lock).
-static bool ReadSteer(float* out) {
+static bool ReadSteer(float* out, float* wheelDeg) {
     for (auto& b : s_steer) {
         if (b.kind != BK_AXIS || !BindingUsable(b)) continue;
         float v = ((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f;
         if (b.invert) v = -v;
-        v *= g_cfg.wheelRotation / g_cfg.steeringLock;
+        *wheelDeg = v * g_cfg.wheelRotation * 0.5f;
+        v *= g_cfg.wheelRotation / g_cfg.steeringLock * g_cfg.steerSensitivity;
         float dz = g_cfg.steerDeadzone, a = fabsf(v);
         a = a <= dz ? 0.0f : (a - dz) / (1.0f - dz);
         a = powf(fminf(a, 1.0f), g_cfg.steerLinearity);
@@ -304,7 +307,7 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false, prevUp = false, prevDown = false, prevBlow = false, prevRepair = false, prevHit = false, prevPop = false, prevMenu = false;
+    bool prevNeutral = false, prevToggle = false, prevUp = false, prevDown = false, prevBlow = false, prevRepair = false, prevHit = false, prevPop = false, prevMenu = false, prevRecenter = false;
     Repeater nav[4];
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
@@ -424,30 +427,35 @@ static DWORD WINAPI InputThread(LPVOID) {
         bool hitDown = AnyDown(s_hit, focus);
         bool popDown = AnyDown(s_pop, focus);
         bool menuDown = AnyDown(s_menu, focus);
+        bool recenterDown = AnyDown(s_recenter, focus);
         uint32_t navPresses[4];
         for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
 
         // Driving controls.
-        float steer = 0.0f, pedals[2] = {};
-        bool steerBound = ReadSteer(&steer);
+        float steer = 0.0f, wheelDeg = 0.0f, pedals[2] = {};
+        bool steerBound = ReadSteer(&steer, &wheelDeg);
         bool pedalBound[2];
         pedalBound[0] = ReadPedal(s_pedal[0], g_cfg.throttleRest, focus, &pedals[0]);
         pedalBound[1] = ReadPedal(s_pedal[1], g_cfg.brakeRest, focus, &pedals[1]);
-        uint32_t buttonBound = 0, buttonDown = 0;
+        uint32_t buttonBound = 0, buttonDown = 0, seatDown = 0;
         for (int i = 0; i < BTN_COUNT; i++) {
             if (AnyUsable(s_button[i])) buttonBound |= 1u << i;
             if (AnyDown(s_button[i], focus)) buttonDown |= 1u << i;
         }
+        for (int i = 0; i < SEAT_COUNT; i++)
+            if (AnyDown(s_seat[i], focus)) seatDown |= 1u << i;
 
         EnterCriticalSection(&s_lock);
         s_snap.steerBound = steerBound;
         s_snap.steer = steer;
+        s_snap.wheelDeg = wheelDeg;
         for (int i = 0; i < 2; i++) {
             s_snap.pedalBound[i] = pedalBound[i];
             s_snap.pedal[i] = pedals[i];
         }
         s_snap.buttonBound = buttonBound;
         s_snap.buttonDown = buttonDown;
+        s_snap.seatDown = seatDown;
         s_snap.clutchBound = clutchBound;
         s_snap.clutchPedal = pedal;
         s_snap.shifterBound = shifterBound;
@@ -460,6 +468,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (hitDown && !prevHit) s_snap.hits++;
         if (popDown && !prevPop) s_snap.pops++;
         if (menuDown && !prevMenu) s_snap.menu++;
+        if (recenterDown && !prevRecenter) s_snap.recenters++;
         for (int i = 0; i < 4; i++) s_snap.menuNav[i] += navPresses[i];
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
@@ -470,6 +479,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         prevHit = hitDown;
         prevPop = popDown;
         prevMenu = menuDown;
+        prevRecenter = recenterDown;
 
         if (g_cfg.logInputs && now - lastLog > 0.1 && (stick != logGear || fabsf(pedal - logPedal) > 0.05f)) {
             lastLog = now;

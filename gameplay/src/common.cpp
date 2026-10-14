@@ -4,6 +4,7 @@
 
 Config g_cfg;
 const char* const kButtonKeys[6] = {"Handbrake", "Nitrous", "Speedbreaker", "ResetCar", "Camera", "LookBack"};
+const char* const kSeatKeys[7] = {"SeatForward", "SeatBack", "SeatLeft", "SeatRight", "SeatUp", "SeatDown", "SeatReset"};
 
 static char s_dir[MAX_PATH];
 static char s_ini[MAX_PATH];
@@ -144,10 +145,15 @@ void LoadConfig() {
     c.throttleRest = ReadInt("Controls", "AccelerateRest", -1);
     c.brakeRest = ReadInt("Controls", "BrakeRest", -1);
     for (int i = 0; i < 6; i++) c.button[i] = ReadStr("Controls", kButtonKeys[i], "");
+    c.recenterVr = ReadStr("Controls", "RecenterVr", "");
+    for (int i = 0; i < 7; i++) c.seat[i] = ReadStr("Controls", kSeatKeys[i], "");
     c.wheelRotation = Clamp(ReadFloat("Controls", "WheelRotation", c.wheelRotation), 90.0f, 1800.0f);
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
     c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);
     c.steerLinearity = Clamp(ReadFloat("Controls", "SteeringLinearity", c.steerLinearity), 0.5f, 3.0f);
+    c.steerSpeedSensitive = ReadInt("Controls", "SpeedSensitiveSteering", 0) != 0;
+    c.steerSpeedSensitivity = Clamp(ReadFloat("Controls", "SpeedSensitivity", c.steerSpeedSensitivity), 0.0f, 0.95f);
+    c.steerSensitivity = Clamp(ReadFloat("Controls", "SteeringSensitivity", c.steerSensitivity), 0.25f, 4.0f);
     c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
     c.gameController = ReadInt("Controls", "GameController", 1) != 0;
     c.menuController = ReadInt("Controls", "MenuController", c.menuController) != 0;
@@ -173,6 +179,8 @@ void LoadConfig() {
     c.grind = ReadInt("Shifter", "Grind", 1) != 0;
     c.grindSound = (uint32_t)strtoul(ReadStr("Shifter", "GrindSound", "0xBC2DFA2F").c_str(), nullptr, 0);
     c.sequentialNeedsClutch = ReadInt("Shifter", "SequentialNeedsClutch", 0) != 0;
+    c.misshiftChance = Clamp(ReadFloat("Shifter", "MisshiftChance", c.misshiftChance), 0.0f, 1.0f);
+    c.misshiftDamage = Clamp(ReadFloat("Shifter", "MisshiftDamage", c.misshiftDamage), 0.0f, 1.0f);
 
     c.engineWear = ReadInt("Engine", "EngineWear", 1) != 0;
     c.revLimiter = ReadInt("Engine", "RevLimiter", 0) != 0;
@@ -191,6 +199,7 @@ void LoadConfig() {
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
     c.noSuvCops = ReadInt("Traffic", "NoSuvCops", 1) != 0;
+    c.normalDragRaces = ReadInt("Races", "NormalDragRaces", 1) != 0;
     c.heatSmokeFrom = Clamp(ReadFloat("Engine", "SmokeFrom", c.heatSmokeFrom), 0.1f, 1.0f);
     c.smokeTrail = Clamp(ReadFloat("Damage", "SmokeTrail", c.smokeTrail), 0.0f, 1.0f);
     c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
@@ -215,6 +224,7 @@ void LoadConfig() {
     c.driftAssist = Clamp(ReadFloat("Physics", "DriftAssist", c.driftAssist), 0.0f, 1.0f);
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
     c.torqueSplit = Clamp(ReadFloat("Physics", "TorqueSplit", c.torqueSplit), 0.0f, 3.0f);
+    c.drivetrain = Clamp(ReadFloat("Physics", "Drivetrain", c.drivetrain), 0.7f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
 

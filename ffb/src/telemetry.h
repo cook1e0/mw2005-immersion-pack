@@ -1,36 +1,52 @@
-// Player car telemetry sampled from speed.exe v1.3 once per simulation tick.
+// The player car's state for force feedback, sampled from speed.exe v1.3 once per physics tick
+// (about 60 Hz) on the game thread and read by the FFB thread.
+//
+// Everything is in the car's own frame, + = right / forward / up. "Right" is the car's forward
+// direction (rear axle -> front axle) crossed with the world's up axis: NFSMW's world is
+// right-handed and Z-up (checked against live camera matrices for the VR mod), so no sign needs
+// calibrating against the wheel.
 #pragma once
 #include "common.h"
 
 struct Telemetry {
     uint32_t seq;          // increments every sample
     double   time;         // Now() at sample
-    float    dt;           // seconds since previous sample
-    bool     driving;      // player has control (not paused / AI / cutscene)
-    bool     valid;        // vehicle data below is meaningful
+    bool     driving;      // the player controls the car (not paused, menus, AI or cutscene)
+    bool     valid;        // the car data below is meaningful
 
-    float speed;           // m/s, horizontal-ish body speed
-    float fwdSpeed;        // m/s along car forward (negative = reversing)
-    float yawRate;         // rad/s, positive = turning toward the "right guess" vector
+    float speed;           // m/s
+    float vLong;           // m/s along the car (negative = reversing)
+    float vLatFront;       // m/s sideways at the front axle (+ = moving right)
+    float vLatRear;        // m/s sideways at the rear axle
+    float yawRate;         // rad/s (+ = turning right)
+    float wheelbase;       // m
 
-    // Front axle (wheels 0 and 1). Wheel 1 sits on the +rightGuess side.
-    float slipAngle[2];    // game tyre slip angle (rad, game sign convention)
-    float load[2];         // tyre normal load
-    float compVel[2];      // suspension compression rate (units/s)
-    bool  onGround[2];
-    bool  brakeLocked[2];
-    float steer;           // average front road-wheel angle (rad, game sign)
-    float maxSteer;        // game's current steering lock (deg)
-    float rearSlipAngle;   // average rear tyre slip angle (rad, game sign)
-    int   wheelsOnGround;
+    float frontLoad;       // N, both front tyres
+    int   frontOnGround;   // front wheels touching the ground (0..2)
+    int   wheelsOnGround;  // 0..4
+    float maxSteerDeg;     // the game's current front wheel lock, degrees (0 = unknown)
+    float steerDeg;        // the front wheels' angle now, degrees (either sign convention)
 
+    float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
-    float rpm;
 
-    // Collision impulses (accumulated by the game thread, consumed by FFB thread by seq)
+    // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
+    // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
+    float bump[2];
+    // Road surface under the front tyres: the game's own rumble for it (0..1, grass, gravel, rumble
+    // strips) and its frequency in Hz.
+    float surfaceRumble;
+    float surfaceHz;
+
+    // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
+    // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.
     uint32_t hitSeq;
-    float    hitMag;       // m/s velocity change
-    float    hitLat;       // lateral share of the velocity change (-1..1, +rightGuess)
+    float    hitSpeed;     // m/s, closing speed along the contact normal
+    float    hitImpulse;   // the game's impulse on the car (light objects give little)
+    float    hitLat;       // -1..1: the push on the car's nose to the right (+) or left (-)
+    double   scrapeTime;   // Now() of the latest sliding contact
+    float    scrapeSpeed;  // m/s along the wall
+    float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)
 };
 
 bool Telemetry_Install();

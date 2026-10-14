@@ -26,6 +26,7 @@ struct Config {
     char  resolution[32] = "auto"; // "auto" = headset per-eye size, "game" = in-game setting, or "WIDTHxHEIGHT"
     float resolutionScale = 1.0f;  // multiplies the "auto" resolution
     float fovScale = 1.0f;         // >1 renders a slightly wider FOV than the HMD (more reprojection margin)
+    float nearZ = 0.05f;           // player view near clip plane (m; the game's is 0.5), so the cockpit isn't cut off; 0 = the game's own
     float screenDistance = 2.5f;   // menu/movie virtual screen distance (m)
     float screenWidth = 3.0f;      // menu/movie virtual screen width (m)
     float hudDistance = 1.2f;      // in-game HUD/frontend panel distance (m)
@@ -50,7 +51,10 @@ struct Config {
     int   spectatorWidth = 1600;     // window client width in smooth/sbs modes (px)
     bool  seat = true;               // bumper / hood camera: eyes at the driver model's head
     bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
+    float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
+    bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
+    bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
     int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;

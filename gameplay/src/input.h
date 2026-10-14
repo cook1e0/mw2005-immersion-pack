@@ -15,11 +15,14 @@ struct InputSnapshot {
     uint32_t hits = 0;          // ... of [Damage] DebugDamage
     uint32_t pops = 0;          // ... of [Tires] DebugPopTires
     uint32_t menu = 0;          // ... of [UI] Menu
+    uint32_t recenters = 0;     // ... of [Controls] RecenterVr
+    uint32_t seatDown = 0;      // bit per Seat: held
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 
     // [Controls]: driving controls fed to the game as its own actions (controls.cpp)
     bool  steerBound = false;
     float steer = 0.0f;         // -1 full left .. +1 full right, after the steering lock
+    float wheelDeg = 0.0f;      // the wheel's own angle in degrees (+ right), from WheelRotation
     bool  pedalBound[2] = {};   // accelerate, brake
     float pedal[2] = {};        // 0 = up .. 1 = floored
     uint32_t buttonBound = 0;   // bit per Button: some binding is usable
@@ -28,6 +31,8 @@ struct InputSnapshot {
 
 // Driving buttons in [Controls], in InputSnapshot bit order.
 enum Button { BTN_HANDBRAKE, BTN_NITROUS, BTN_SPEEDBREAKER, BTN_RESET, BTN_CAMERA, BTN_LOOKBACK, BTN_COUNT };
+// VR seat bindings ([Controls] Seat*), in InputSnapshot::seatDown bit order.
+enum Seat { SEAT_FORWARD, SEAT_BACK, SEAT_LEFT, SEAT_RIGHT, SEAT_UP, SEAT_DOWN, SEAT_RESET, SEAT_COUNT };
 
 // In-game binding (tuning menu): after BeginCapture the input thread opens every attached
 // controller and reports the first key, button, hat direction or axis that is pressed or moved

@@ -220,7 +220,7 @@ void DrawGauge(const EngineStatus& st, int W, int H, float k) {
 // CAR switches the current car between its own physics values and the [Physics] ones; the
 // per-car sliders (Physics_IsPerCar) are saved to the car's section while it has its own.
 enum Kind { HEADER, TOGGLE, NUMBER, BIND, LINK, CAR, ACTION, SOUND, PAGE, RESET };
-enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32 };
+enum { BF_REQUIRED = 1, BF_CLUTCH = 2, BF_STEER = 8, BF_PEDAL = 16, BF_GAME = 32, BF_ONOFF = 64 };
 
 // Settings of the other mods, changed live through their exports and saved to their .ini: the
 // FFB mod's [FFB] values (NfsmwFfb_Setting; older FFB builds only export NfsmwFfb_Gain) and the
@@ -239,16 +239,26 @@ const struct {
     const char* key;
     float def;                  // the mod's default
 } kExt[] = {
-    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.25f}, {MOD_FFB, "CenterSpringParked", 0.3f},
-    {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
-    {MOD_FFB, "GameController", 1.0f},
-    {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
+    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "MaxForce", 0.8f}, {MOD_FFB, "Aligning", 0.8f},
+    {MOD_FFB, "Centering", 0.3f}, {MOD_FFB, "Damping", 0.3f}, {MOD_FFB, "Friction", 0.05f},
+    {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SlewRate", 20.0f}, {MOD_FFB, "SmoothingHz", 25.0f},
+    {MOD_FFB, "Reverse", 0.0f}, {MOD_FFB, "Device", 0.0f}, {MOD_FFB, "SoftLockAt", 1.0f},
+    {MOD_FFB, "GameController", 1.0f}, {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
+    {MOD_VR, "NearZ", 0.05f},
+    {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
+    {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
+    {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
+    {MOD_VR, "HideArms", 1.0f},
+    {MOD_FFB, "CentreWeight", 0.3f}, {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.5f},
+    {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
 };
 enum {
-    FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
-    FFB_MENUCONTROLLER, FFB_MENUAXES,
-    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, EXT_COUNT
+    FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
+    FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
+    VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
+    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -308,7 +318,7 @@ float* ExtSetting(int i) {
             Log("ui: GameController=0 needs the force feedback mod; the game still reads the controller");
         if (!p[FFB_MENUAXES])
             Log("ui: menu controller filtering needs an updated force feedback mod");
-        Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
+        Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_ALIGNING] ? "found" : "found (an older version)") : "not loaded");
         Log("ui: VR mod %s", p[VR_HUDWIDTH] ? "found" : "not loaded");
     }
     return p[i];
@@ -331,6 +341,57 @@ std::string ExtIniPath(int i) {
 bool VrRecenter() {
     HMODULE m = ExtModule(MOD_VR);
     FARPROC f = m ? GetProcAddress(m, "NfsmwVr_Recenter") : nullptr;
+    return f && ((int(__cdecl*)())f)() != 0;
+}
+
+// The FFB mod's devices in Windows' order: "n: name (axes, buttons)", and how many there are.
+// Looking the names up opens every controller, far too slow to do every frame (the menu lagged):
+// cached, refreshed every few seconds.
+int FfbDeviceName(int index, std::string* name) {
+    static std::vector<std::string> names;
+    static double fetched = -1e9;
+    static bool exported = false;
+    if (Now() - fetched > 3.0) {
+        fetched = Now();
+        names.clear();
+        HMODULE m = ExtModule(MOD_FFB);
+        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_DeviceName") : nullptr;
+        exported = f != nullptr;
+        if (f) {
+            char buf[160] = {};
+            int count = ((int(__cdecl*)(int, char*, int))f)(-1, nullptr, 0);   // count only, opens nothing
+            for (int i = 0; i < count && i < 16; i++) {
+                buf[0] = 0;
+                ((int(__cdecl*)(int, char*, int))f)(i, buf, sizeof(buf));
+                names.push_back(buf);
+            }
+        }
+    }
+    if (name) {
+        if (index >= 0 && index < (int)names.size()) *name = names[index];
+        else *name = exported ? "No such device" : "Needs the updated FFB mod";
+    }
+    return (int)names.size();
+}
+
+// The FFB mod's status line: whether a wheel is hooked and what holds the force up.
+std::string FfbStatus() {
+    static std::string text;
+    static double fetched = -1e9;
+    if (Now() - fetched > 0.25) {
+        fetched = Now();
+        HMODULE m = ExtModule(MOD_FFB);
+        FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Status") : nullptr;
+        char buf[200] = {};
+        if (f) ((int(__cdecl*)(char*, int))f)(buf, sizeof(buf));
+        text = f ? buf : (m ? "Needs the updated FFB mod" : "No FFB mod");
+    }
+    return text;
+}
+
+bool FfbTest() {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Test") : nullptr;
     return f && ((int(__cdecl*)())f)() != 0;
 }
 
@@ -384,6 +445,9 @@ const Item kItems[] = {
     {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
+    {NUMBER, "Steering sensitivity", "Controls", "SteeringSensitivity", &g_cfg.steerSensitivity, 0.25f, 4.0f, 0.05f, 1, "%.2fx", 0},
+    {TOGGLE, "Speed-sensitive steering", "Controls", "SpeedSensitiveSteering", &g_cfg.steerSpeedSensitive, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Speed sensitivity", "Controls", "SpeedSensitivity", &g_cfg.steerSpeedSensitivity, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Controller input in game menus", "Controls", "MenuController", &g_cfg.menuController, 0, 0, 0, 0, nullptr, 0},
@@ -395,17 +459,43 @@ const Item kItems[] = {
     BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
     BINDING("Change camera", "Controls", "Camera", button[4], 0),
     BINDING("Look back", "Controls", "LookBack", button[5], 0),
+    BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
+    HEADER_("VR SEAT (HOLD)"),
+    BINDING("Seat forward", "Controls", "SeatForward", seat[0], 0),
+    BINDING("Seat back", "Controls", "SeatBack", seat[1], 0),
+    BINDING("Seat left", "Controls", "SeatLeft", seat[2], 0),
+    BINDING("Seat right", "Controls", "SeatRight", seat[3], 0),
+    BINDING("Seat up", "Controls", "SeatUp", seat[4], 0),
+    BINDING("Seat down", "Controls", "SeatDown", seat[5], 0),
+    BINDING("Seat back to the driver's head", "Controls", "SeatReset", seat[6], 0),
     RESET_,
     RESET_GAME_,
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
+    {ACTION, "Status", nullptr, "FfbStatus", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
+    {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    HEADER_("STRENGTH AND SAFETY"),
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ext[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Centring when parked", "FFB", "CenterSpringParked", &s_ext[FFB_CENTERPARKED], 0.0f, 1.0f, 0.05f, 100, "%.0f%% of it", 0},
-    {NUMBER, "Full centring from", "FFB", "CenterSpringSpeed", &s_ext[FFB_CENTERSPEED], 20.0f, 300.0f, 10.0f, 1, "%.0f km/h", 0},
+    {NUMBER, "Maximum force", "FFB", "MaxForce", &s_ext[FFB_MAXFORCE], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Smoothing", "FFB", "SmoothingHz", &s_ext[FFB_SMOOTHING], 5.0f, 60.0f, 1.0f, 1, "%.0f Hz", 0},
+    {NUMBER, "Force change limit", "FFB", "SlewRate", &s_ext[FFB_SLEW], 5.0f, 60.0f, 1.0f, 1, "%.0f /s", 0},
+    HEADER_("STEERING FEEL"),
+    {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Centre weight", "FFB", "CentreWeight", &s_ext[FFB_CENTREWEIGHT], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Friction", "FFB", "Friction", &s_ext[FFB_FRICTION], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("EFFECTS"),
+    {NUMBER, "Engine rumble", "FFB", "EngineRumble", &s_ext[FFB_ENGINE], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Kerbs and bumps", "FFB", "Kerbs", &s_ext[FFB_KERBS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Road surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -419,6 +509,8 @@ const Item kItems[] = {
     {TOGGLE, "Gear keys stay in gear", "Shifter", "Latching", &g_cfg.latching, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Grind on missed clutch", "Shifter", "Grind", &g_cfg.grind, 0, 0, 0, 0, nullptr, 0},
     {SOUND, "Grind sound", "Shifter", "GrindSound", &g_cfg.grindSound, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Misshift damage chance", "Shifter", "MisshiftChance", &g_cfg.misshiftChance, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Misshift damage", "Shifter", "MisshiftDamage", &g_cfg.misshiftDamage, 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
     HEADER_("CLUTCH"),
     {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
     {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
@@ -481,6 +573,7 @@ const Item kItems[] = {
     {NUMBER, "Drift assist", "Physics", "DriftAssist", &g_cfg.driftAssist, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
+    {NUMBER, "Drivetrain multiplication", "Physics", "Drivetrain", &g_cfg.drivetrain, 0.7f, 3.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
     RESET_,
@@ -490,6 +583,7 @@ const Item kItems[] = {
     BACK_,
     HEADER_("TRAFFIC"),
     {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Drive drag races normally", "Races", "NormalDragRaces", &g_cfg.normalDragRaces, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
@@ -503,6 +597,9 @@ const Item kItems[] = {
     {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
+    HEADER_("VIEW"),
+    {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
 
     PAGE_("MENU AND TESTING"),
@@ -665,6 +762,7 @@ std::string ValueText(const Item& it, int index) {
     if (it.kind == TOGGLE) return *(bool*)it.value ? "On" : "Off";
     if (it.kind == CAR) return *Physics_Car() ? (Physics_OwnSettings() ? "On" : "Off") : "No car";
     if (it.kind == LINK) return it.section == kMainPage ? "" : LinkSummary(it.section) + "  >";
+    if (it.kind == ACTION && strcmp(it.key, "FfbStatus") == 0) return FfbStatus();
     if (it.kind == ACTION) return "Go";
     if (it.kind == RESET) return s_menu.resetArmed >= 0 && Now() - s_menu.resetTime < 3.0 ? "Sure?" : "Reset";
     if (it.kind == SOUND) return SoundName(*(uint32_t*)it.value);
@@ -681,6 +779,12 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    if (it.flags & BF_ONOFF) return v > 0.5f ? "On" : "Off";
+    if (it.value == &s_ext[FFB_DEVICE]) {
+        std::string name;
+        FfbDeviceName((int)lrintf(v), &name);
+        return name;
+    }
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
     return buf;
 }
@@ -788,13 +892,13 @@ const struct {
     const void* value;
     float game;
 } kGameDefaults[] = {
-    {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1},
+    {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1}, {&g_cfg.steerSensitivity, 1},
     {&g_cfg.menuController, 1}, {&g_cfg.menuAxes, 1},
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
-    {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
-    {&g_cfg.noSuvCops, 0},
+    {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.drivetrain, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
+    {&g_cfg.noSuvCops, 0}, {&g_cfg.normalDragRaces, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
@@ -864,6 +968,10 @@ int ResetPage(int index, bool game) {
 
 // After a number changed (bindings or mouse): pass the other mods' values on, keep pairs consistent.
 void AfterNumberChange(const Item& it) {
+    if (it.value == &s_ext[FFB_DEVICE]) {
+        int count = FfbDeviceName(0, nullptr);
+        s_ext[FFB_DEVICE] = Clamp(s_ext[FFB_DEVICE], 0.0f, (float)std::max(count - 1, 0));
+    }
     int ext = ExtIndex(it.value);
     if (ext >= 0 && ExtSetting(ext)) *ExtSetting(ext) = *(float*)it.value;
     // The steering lock is part of the wheel's rotation.
@@ -909,6 +1017,14 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
+            return;
+        }
+        if (strcmp(it.key, "FfbStatus") == 0) {
+            Note(FfbStatus());
+            return;
+        }
+        if (strcmp(it.key, "TestFfb") == 0) {
+            Note(FfbTest() ? "Pushing right: if it pushed left, turn on Reverse force direction" : "Needs updated FFB mod with NativeFFB=0");
             return;
         }
         if (strcmp(it.key, "RestartFfb") == 0) {
@@ -1163,18 +1279,45 @@ const struct {
     {&g_cfg.steeringLock, "How far you turn the wheel, lock to lock, for full steering in game. A soft lock (FFB) stops it there."},
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
+    {&g_cfg.steerSensitivity, "How much the car steers for a given wheel angle. Higher: quicker steering (full lock sooner)."},
+    {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: less lock the faster you go, smoothly, still in proportion to your wheel; in a slide the lock widens with it so you can catch it."},
+    {&g_cfg.steerSpeedSensitivity, "With speed-sensitive steering: how much lock is taken away at speed. 85% is close to the game's own (19 deg of front wheel lock at 64 km/h, 12 at 130, 9 at 250). Lower: quicker steering at speed."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
     {&g_cfg.menuAxes, "Off: pedals and steering cannot scroll the game's menus; buttons and the d-pad still work. Driving is unaffected. Needs the updated force feedback mod."},
     {&s_ext[FFB_GAIN], "Overall force feedback strength."},
-    {&s_ext[FFB_CENTER], "Pulls the wheel back to the centre while driving, at full strength at speed."},
-    {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
-    {&s_ext[FFB_CENTERSPEED], "Speed where the centring spring reaches full strength."},
+    {&s_ext[FFB_MAXFORCE], "Ceiling of the force sent to the wheel. Peaks are compressed below it, never cut flat. Lower it on a strong direct drive base."},
+    {&s_ext[FFB_SMOOTHING], "Smooths the game's physics steps (about 60 a second). Lower: smoother but slower; higher: sharper."},
+    {&s_ext[FFB_SLEW], "How fast the force may change, full scale per second. Lower is gentler on the hands."},
+    {&s_ext[FFB_ALIGNING], "Weight from the front tyres: heavy while they grip, light past the limit, pulling into the countersteer in a slide."},
+    {&s_ext[FFB_CENTERING], "Spring back to centre, growing with speed."},
+    {&s_ext[FFB_CENTREWEIGHT], "Firm hold around straight ahead once moving: a few degrees off centre already pull back, so you hold the wheel against it instead of it staying wherever you leave it."},
+    {&s_ext[FFB_ENGINE], "Engine vibration, at the engine's revs. Mostly felt standing still."},
+    {&s_ext[FFB_KERBS], "A kick toward the side of a front wheel that hits a kerb, bump or pothole, and a short shake."},
+    {&s_ext[FFB_SURFACE], "The game's own rumble for the surface under the front tyres: grass, gravel, dirt, rumble strips."},
+    {&s_ext[FFB_CRASHES], "A jolt when you hit something: cars, walls, and props such as benches, sign posts and fences."},
+    {&s_ext[FFB_SCRAPES], "Grinding while the car slides along a wall, and a pull toward it."},
+    {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
+    {&s_ext[FFB_FRICTION], "Constant resistance, like a real steering rack."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
+    {&s_ext[FFB_INVERT], "On if every force pushes the wrong way (the wheel runs away from centre, or Test pushes left)."},
+    {&s_ext[FFB_DEVICE], "The force feedback device that drives your wheel, in Windows' order (as joy.cpl lists them). Use Test to check."},
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
+    {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
+    {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
+    {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
+    {&g_cfg.seat[0], "Moves the VR seat (cockpit camera) forward while held. Saved per car."},
+    {&g_cfg.seat[1], "Moves the VR seat back while held. Saved per car."},
+    {&g_cfg.seat[2], "Moves the VR seat left while held. Saved per car."},
+    {&g_cfg.seat[3], "Moves the VR seat right while held. Saved per car."},
+    {&g_cfg.seat[4], "Moves the VR seat up while held. Saved per car."},
+    {&g_cfg.seat[5], "Moves the VR seat down while held. Saved per car."},
+    {&g_cfg.seat[6], "Puts the VR seat back at the driver model's head."},
+    {&g_cfg.misshiftChance, "Chance that a shift without the clutch (a misshift) damages the car. Needs car damage on."},
+    {&g_cfg.misshiftDamage, "Car damage done by a damaging misshift."},
     {&g_cfg.sequential, "H-pattern shifter, or sequential shift up / shift down."},
     {&g_cfg.requireClutch, "A gear only goes in with the clutch pressed."},
     {&g_cfg.shiftPedal, "How far the clutch must be pressed to count for a shift."},
@@ -1210,9 +1353,11 @@ const struct {
     {&g_cfg.driftAssist, "Rear grip taken away once a slide starts."},
     {&g_cfg.grip, "Tire grip multiplier."},
     {&g_cfg.torqueSplit, "Multiplies the share of torque sent to the front wheels."},
+    {&g_cfg.drivetrain, "Exaggerates how the driven wheels lose grip under power: 2x doubles a rear drive car's power oversteer, a front drive car's understeer, and all-wheel drive by its torque split. Below 1 softens it."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
     {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
+    {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
     {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},
     {&g_cfg.clutch, "Clutch pedal, button or key."},
@@ -1225,8 +1370,12 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
+    if (it.kind == ACTION && strcmp(it.key, "FfbStatus") == 0)
+        return "Whether a wheel is hooked up for force feedback, and if not, what is holding it up. Changes are written to nfsmw_ffb.log too.";
+    if (it.kind == ACTION && strcmp(it.key, "TestFfb") == 0)
+        return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
-        return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Calibration is kept. Also available with F10.";
+        return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Also available with F10.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";
@@ -1549,6 +1698,10 @@ void ValueWidget(int i, float w, float k) {
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
+            if ((it.flags & BF_ONOFF) || it.value == &s_ext[FFB_DEVICE]) {
+                fmt.clear();   // the text from ValueText, as a format without conversions
+                for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
+            }
             if (ImGui::SliderFloat("##v", &shown, it.lo * it.show, it.hi * it.show, fmt.c_str(), ImGuiSliderFlags_NoInput)) {
                 val = Clamp(roundf(shown / it.show / it.step) * it.step, it.lo, it.hi);
                 s_menu.sel = i;
@@ -1598,6 +1751,18 @@ void ValueWidget(int i, float w, float k) {
             break;
         }
         case ACTION:
+            if (strcmp(it.key, "FfbStatus") == 0) {
+                // The FFB mod's status: green while the force runs, orange while something holds it up.
+                std::string status = FfbStatus();
+                bool running = status.compare(0, 7, "Running") == 0;
+                ImGui::AlignTextToFramePadding();
+                ImGui::PushStyleColor(ImGuiCol_Text, running ? ImVec4(0.45f, 0.9f, 0.45f, 1.0f) : ImVec4(1.0f, 0.65f, 0.2f, 1.0f));
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + w);
+                ImGui::TextUnformatted(status.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+                break;
+            }
             if (ImGui::Button("Go", ImVec2(w * 0.4f, 0))) {
                 s_menu.sel = i;
                 Change(i, +1);
@@ -1839,13 +2004,28 @@ void Ui_Frame() {
     Physics_Frame();
     // The FFB mod's soft lock sits at the steering lock.
     if (float* at = ExtSetting(FFB_SOFTLOCKAT))
-        *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / g_cfg.wheelRotation, 0.05f, 1.0f);
+        *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / (g_cfg.wheelRotation * g_cfg.steerSensitivity), 0.05f, 1.0f);
     // ... and hides the controllers from the game ([Controls] GameController=0).
     if (float* gc = ExtSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
     if (float* mc = ExtSetting(FFB_MENUCONTROLLER)) *mc = g_cfg.menuController ? 1.0f : 0.0f;
     if (float* ma = ExtSetting(FFB_MENUAXES)) *ma = g_cfg.menuAxes ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
-    UpdateMenu(Input_Get(), st.driving);
+    InputSnapshot in = Input_Get();
+    // The cockpit's steering wheel turns with the bound wheel (VR mod, also on a flat screen).
+    if (float* angle = ExtSetting(VR_WHEELANGLE)) *angle = in.steerBound ? in.wheelDeg : 0.0f;
+    // VR seat bindings, held: the VR mod moves the seat while they are.
+    auto held = [&](int seat) { return (in.seatDown >> seat & 1) ? 1.0f : 0.0f; };
+    if (float* v = ExtSetting(VR_SEATRIGHT)) *v = held(SEAT_RIGHT) - held(SEAT_LEFT);
+    if (float* v = ExtSetting(VR_SEATUP)) *v = held(SEAT_UP) - held(SEAT_DOWN);
+    if (float* v = ExtSetting(VR_SEATFORWARD)) *v = held(SEAT_FORWARD) - held(SEAT_BACK);
+    if (float* v = ExtSetting(VR_SEATRESET)) *v = held(SEAT_RESET);
+    // [Controls] RecenterVr works everywhere, not only while driving.
+    static uint32_t recenters = in.recenters;
+    if (in.recenters != recenters) {
+        recenters = in.recenters;
+        Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
+    }
+    UpdateMenu(in, st.driving);
     if (!st.driving) return;
     if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
 

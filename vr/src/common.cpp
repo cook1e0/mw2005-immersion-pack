@@ -106,6 +106,8 @@ void LoadConfig() {
     c.screenWidth = ReadFloat(ini, "ScreenWidth", c.screenWidth);
     c.hudDistance = ReadFloat(ini, "HudDistance", c.hudDistance);
     c.hudWidth = ReadFloat(ini, "HudWidth", c.hudWidth);
+    c.nearZ = ReadFloat(ini, "NearZ", c.nearZ);
+    if (!(c.nearZ >= 0.0f)) c.nearZ = 0.0f;
     c.hudHeight = ReadFloat(ini, "HudHeight", c.hudHeight);
     char bridge[16] = "auto";
     GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
@@ -129,7 +131,10 @@ void LoadConfig() {
     c.spectatorWidth = ReadInt(ini, "SpectatorWidth", c.spectatorWidth);
     c.seat = ReadInt(ini, "Seat", c.seat) != 0;
     c.hideHead = ReadInt(ini, "HideHead", c.hideHead) != 0;
+    c.hideArms = ReadInt(ini, "HideArms", 1) != 0 ? 1.0f : 0.0f;
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
+    c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
+    c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
     c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);
     c.keySeatLeft = ReadInt(ini, "KeySeatLeft", c.keySeatLeft);
@@ -137,6 +142,7 @@ void LoadConfig() {
     c.keySeatUp = ReadInt(ini, "KeySeatUp", c.keySeatUp);
     c.keySeatDown = ReadInt(ini, "KeySeatDown", c.keySeatDown);
     c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);
-    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f bridge=%d fakeHmd=%d",
-        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.bridge, c.fakeHmd);
+    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f nearZ=%.3f bridge=%d fakeHmd=%d",
+        c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.nearZ, c.bridge,
+        c.fakeHmd);
 }

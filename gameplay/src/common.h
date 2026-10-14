@@ -63,10 +63,16 @@ struct Config {
     float steeringLock = 540.0f;    // wheel rotation (lock to lock) that gives full steering in game
     float steerDeadzone = 0.0f;     // ignored travel around the centre, fraction of full steering
     float steerLinearity = 1.0f;    // steering response curve exponent: 1 = linear, >1 = finer near the centre
+    float steerSensitivity = 1.0f;  // multiplies the steering: 2 = full lock at half the SteeringLock
+    bool  steerSpeedSensitive = false; // bound wheel: less front wheel lock the faster you go, instead
+                                    // of direct steering (full lock at any speed, no steering ramp)
+    float steerSpeedSensitivity = 0.85f; // how much less: the share of the lock taken away at high speed
     float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
     bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works
     bool  menuController = true;    // controller buttons and hats in the game's menus (needs FFB mod)
     bool  menuAxes = false;         // analog axes in menus; off prevents pedal scrolling
+    std::string recenterVr;         // recentres the VR view (the VR mod's recentre key), also outside the F4 menu
+    std::string seat[7];            // VR seat (the cockpit camera), held: Seat order (input.h)
 
     // [Shifter]
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7
@@ -84,6 +90,8 @@ struct Config {
     bool  grind = true;             // a refused shift (no clutch) crunches like a missed drag race shift
     uint32_t grindSound = 0xBC2DFA2F; // ... with this sound moment (the totaled car's engine failure), 0 = none
     bool  sequentialNeedsClutch = false; // without the H-shifter: shift up/down only with the clutch in
+    float misshiftChance = 0.5f;    // chance that a shift refused for lack of clutch damages the car
+    float misshiftDamage = 0.05f;   // ... and how much car damage it does (needs [Damage] Damage=1)
 
     // [Engine] heat, over-rev and blow-ups (the drag race engine model, in every mode)
     bool  engineWear = true;
@@ -105,6 +113,7 @@ struct Config {
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
     bool  noSuvCops = true;         // no SUV cops (heavy support, SUV patrols, roadblocks)
+    bool  normalDragRaces = true;   // the player drives drag races normally (no auto lane steering, normal engine and damage)
     float heatSmokeFrom = 0.5f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep
     float damageLossStart = 0.3f;   // damage where the engine starts losing power
@@ -133,6 +142,7 @@ struct Config {
     float driftAssist = 0.5f;       // how much rear grip is lowered in a slide
     float grip = 1.0f;              // overall tire grip
     float torqueSplit = 1.0f;       // multiplies the share of torque sent to the front wheels
+    float drivetrain = 1.0f;        // exaggerates the driven axle's character (RWD oversteer, FWD understeer)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
 
@@ -155,5 +165,7 @@ struct Config {
 extern Config g_cfg;
 // [Controls] ini keys of Config::button.
 extern const char* const kButtonKeys[6];
+// [Controls] ini keys of Config::seat.
+extern const char* const kSeatKeys[7];
 void LoadConfig();
 const char* IniPath();

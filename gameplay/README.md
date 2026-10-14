@@ -74,6 +74,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Clutch] BiteStart / BiteEnd` | pedal travel where the clutch starts to grip and grips fully |
 | `[Clutch] Strength` | clutch friction relative to the game's clutch; lower = longer slip |
 | `[Shifter] RequireClutch / ClutchToShift` | need the clutch (and how far down) to engage a gear |
+| `[Shifter] MisshiftChance / MisshiftDamage` | a gear refused for lack of clutch: chance (0.5) of this much car damage (0.05 = 5%); needs `[Damage] Damage=1` |
 | `[Shifter] RevMatchRPM` | allow clutchless shifts within this many rpm of the new gear |
 | `[Shifter] Latching` | gear stays selected after its button is released (keyboard, button boxes) |
 | `[Shifter] Sequential / ShiftUp / ShiftDown` | sequential shifting instead of the H-pattern, and its up/down bindings (Left Shift / Left Ctrl) |
@@ -89,8 +90,11 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
+| `[Controls] SeatForward / SeatBack / SeatLeft / SeatRight / SeatUp / SeatDown / SeatReset` | VR seat (cockpit camera) while held, like the VR mod's numpad keys |
+| `[Controls] SpeedSensitiveSteering` | 0 (default): a bound wheel steers directly, full lock (45 deg) at `SteeringLock` at any speed; 1: the game's speed-sensitive wheel steering. Without a bound wheel the game steers as with a gamepad (a few degrees of lock at speed, slow ramp) |
 | `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
 | `[Controls] MenuController / MenuAxes` | game menus only: buttons/d-pad on by default; analog axes off to prevent pedal scrolling (needs FFB mod) |
+| `[Controls] RecenterVr` | recenters the VR view (the VR mod's F8), from any key or button |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |
 

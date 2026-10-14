@@ -3,6 +3,7 @@
 #include "../src/input.cpp"
 #include "../src/vfx.cpp"
 #include "../src/ini_migration.h"
+#include "../src/controls.h"
 #include <assert.h>
 Config g_cfg;
 volatile unsigned char gameAddressPadding[0x600000];
@@ -115,7 +116,25 @@ static void TestMigration() {
     clear();
     assert(RemoveDirectoryA(root));
 }
+// Speed-sensitive wheel steering: full lock parked, falling smoothly and steadily with speed,
+// close to the game's own values at the default, never below 1 - sensitivity, none when off.
+static void TestSteeringLock() {
+    assert(SteeringLockShare(0, 0.85f) == 1.0f);
+    float prev = 1.0f;
+    for (float kmh = 1; kmh < 400; kmh += 1) {
+        float s = SteeringLockShare(kmh, 0.85f);
+        assert(s < prev && s > 0.15f);
+        assert(prev - s < 0.02f);                       // no kinks or jumps
+        prev = s;
+    }
+    float at64 = 45 * SteeringLockShare(64, 0.85f), at130 = 45 * SteeringLockShare(130, 0.85f);
+    assert(at64 > 16 && at64 < 23 && at130 > 10 && at130 < 15);
+    assert(SteeringLockShare(200, 0.0f) == 1.0f);
+    assert(SteeringLockShare(200, 0.5f) > SteeringLockShare(200, 0.85f));
+}
+
 int main() {
+    TestSteeringLock();
     static_assert(sizeof(void*) == 4, "test the game layout");
     TestBindings(); TestSmoke(); TestMigration();
     puts("gameplay regression tests passed");
