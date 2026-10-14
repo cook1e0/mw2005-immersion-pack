@@ -134,7 +134,7 @@ void LoadConfig() {
     c.minForce = ReadFloat(s, "MinForce", c.minForce);
     c.invertForce = ReadInt(s, "InvertForce", 0) != 0 ? 1.0f : 0.0f;
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
-    c.device = Clamp(ReadInt(s, "Device", c.device), -1, 15);
+    c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);
     c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 30, 1000);
     c.keyReset = Clamp(ReadInt(s, "KeyReset", c.keyReset), 0, 255);
     c.logTelemetry = ReadInt(s, "LogTelemetry", c.logTelemetry) != 0;

@@ -45,6 +45,13 @@ constexpr uintptr_t kCallPlayIce = 0x6405A4;     // call ICEManager::SetGenericC
 constexpr uintptr_t kPlayIce = 0x46E2D0;         // thiscall, 2 args
 constexpr uintptr_t kCallIceAction = 0x6405B0;   // call CameraAI::SetAction(EVIEW_PLAYER1, "CDActionIce")
 constexpr uintptr_t kSetAction = 0x479EB0;       // cdecl, 2 args
+// CameraAI::Director::Update calls SelectAction, which cuts to CDActionTrackCop (watching the
+// cops) while the director's track-cop timer runs. Pursuit breakers start it directly, without the
+// "Jump Cams" check the pursuit cam has.
+constexpr uintptr_t kCallSelectAction = 0x479E4C; // call Director::SelectAction in Director::Update
+constexpr uintptr_t kSelectAction = 0x479900;     // thiscall, no args
+constexpr int kDirectorView = 0x08;               // EVIEW_ID
+constexpr int kDirectorTrackCopTimer = 0x2B4;     // seconds of track-cop camera left
 // Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
 // them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
 constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
@@ -347,6 +354,15 @@ void __cdecl hkIceAction(int view, const char* action) {
     ((SetActionFn)kSetAction)(view, action);
 }
 
+void __fastcall hkSelectAction(uint8_t* director, void*) {
+    float& timer = At<float>(director, kDirectorTrackCopTimer);
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
+        Log("game: pursuit breaker / cop camera skipped (VR)");
+        timer = 0.0f;
+    }
+    ((void(__thiscall*)(void*))kSelectAction)(director);
+}
+
 // Retargets the call at `site` to `hook` if it still calls `target`.
 void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
     const uint8_t* p = (const uint8_t*)site;
@@ -451,6 +467,7 @@ bool Game_InstallHooks() {
     for (uintptr_t site : kCallsJumpCamsOn) PatchCall(site, kJumpCamsOn, (void*)&hkJumpCamsOn, "jump cams option");
     PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
+    PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
     Log("game: hooks installed");
     return true;
 }

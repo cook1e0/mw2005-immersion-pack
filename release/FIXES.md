@@ -12,13 +12,17 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
-- **Force direction fix:** with `ForceSign=0` (direction test never passed) every constant force
-  was silently zero, leaving only springs and vibration. The test now measures against the
-  wheel's drift and switches to sending the direction separately (`ForceDirection=1`) for drivers
-  that ignore negative forces. `ffbtool test [n]` checks a wheel by hand; F4 has "Reverse force
-  direction".
+- **Force feedback that reaches the wheel:** with `ForceSign=0` (its direction test never ran or
+  never passed) every steering force, bump, kerb and crash was silently zero. Forces now use
+  DirectInput's standard direction; F4 > Force feedback > Test force pushes right, and Reverse
+  force direction flips it for wheels that differ. The centring spring and damper are computed by
+  the mod and sent with the other forces (as sims do), so the wheel's own SPR/DPR settings no
+  longer weaken them: a wheel left turned at speed comes back to centre. Default CenterSpring 0.5.
 - **FFB device:** wheels that show up as two FFB devices of the same name (Fanatec) now use the
-  first one in Windows' order (as joy.cpl lists them); `[FFB] Device` picks another.
+  first one in Windows' order (as joy.cpl lists them). F4 > Force feedback > Wheel device lists
+  them by name, axes and buttons and switches live (`[FFB] Device`).
+- **Pursuit breaker camera off in VR:** pursuit breakers no longer cut to the camera watching the
+  cops; the view stays in the cockpit.
 - **VR seat bindings:** F4 > Controls > VR seat binds wheel or button-box buttons to move the
   cockpit camera forward/back, left/right, up/down (held) and back to the driver's head, like the
   numpad keys. Saved per car.

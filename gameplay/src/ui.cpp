@@ -239,7 +239,7 @@ const struct {
     const char* key;
     float def;                  // the mod's default
 } kExt[] = {
-    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.25f}, {MOD_FFB, "CenterSpringParked", 0.3f},
+    {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.5f}, {MOD_FFB, "CenterSpringParked", 0.3f},
     {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
     {MOD_FFB, "GameController", 1.0f},
     {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
@@ -247,6 +247,7 @@ const struct {
     {MOD_FFB, "RoadFeel", 0.5f}, {MOD_FFB, "SurfaceRumble", 0.35f}, {MOD_FFB, "Curbs", 0.5f},
     {MOD_FFB, "Collisions", 0.8f}, {MOD_FFB, "Scrapes", 0.4f}, {MOD_FFB, "Landing", 0.6f},
     {MOD_FFB, "EngineVibration", 0.02f}, {MOD_FFB, "DamperLowSpeed", 0.35f}, {MOD_FFB, "InvertForce", 0.0f},
+    {MOD_FFB, "Device", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
     {MOD_VR, "NearZ", 0.05f},
     {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
@@ -257,7 +258,7 @@ enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
     FFB_MENUCONTROLLER, FFB_MENUAXES,
     FFB_SAT, FFB_SPEEDCENTRE, FFB_UNDERSTEER, FFB_ROAD, FFB_SURFACE, FFB_CURBS, FFB_COLLISIONS, FFB_SCRAPES,
-    FFB_LANDING, FFB_ENGINE, FFB_DAMPER, FFB_INVERT,
+    FFB_LANDING, FFB_ENGINE, FFB_DAMPER, FFB_INVERT, FFB_DEVICE,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, EXT_COUNT
 };
@@ -345,6 +346,22 @@ bool VrRecenter() {
     return f && ((int(__cdecl*)())f)() != 0;
 }
 
+// The FFB mod's devices in Windows' order: "n: name (axes, buttons)", and how many there are.
+int FfbDeviceName(int index, std::string* name) {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_DeviceName") : nullptr;
+    char buf[160] = {};
+    int count = f ? ((int(__cdecl*)(int, char*, int))f)(index, buf, sizeof(buf)) : 0;
+    if (name) *name = buf[0] ? buf : (f ? "No such device" : "Needs the updated FFB mod");
+    return count;
+}
+
+bool FfbTest() {
+    HMODULE m = ExtModule(MOD_FFB);
+    FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Test") : nullptr;
+    return f && ((int(__cdecl*)())f)() != 0;
+}
+
 bool FfbRestart() {
     HMODULE m = ExtModule(MOD_FFB);
     FARPROC f = m ? GetProcAddress(m, "NfsmwFfb_Reset") : nullptr;
@@ -421,6 +438,8 @@ const Item kItems[] = {
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
+    {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
+    {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Centring spring", "FFB", "CenterSpring", &s_ext[FFB_CENTER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
@@ -720,6 +739,12 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    if (it.value == &s_ext[FFB_INVERT]) return v > 0.5f ? "On" : "Off";
+    if (it.value == &s_ext[FFB_DEVICE]) {
+        std::string name;
+        FfbDeviceName((int)lrintf(v), &name);
+        return name;
+    }
     snprintf(buf, sizeof(buf), it.fmt, v * it.show);
     return buf;
 }
@@ -903,6 +928,10 @@ int ResetPage(int index, bool game) {
 
 // After a number changed (bindings or mouse): pass the other mods' values on, keep pairs consistent.
 void AfterNumberChange(const Item& it) {
+    if (it.value == &s_ext[FFB_DEVICE]) {
+        int count = FfbDeviceName(0, nullptr);
+        s_ext[FFB_DEVICE] = Clamp(s_ext[FFB_DEVICE], 0.0f, (float)std::max(count - 1, 0));
+    }
     int ext = ExtIndex(it.value);
     if (ext >= 0 && ExtSetting(ext)) *ExtSetting(ext) = *(float*)it.value;
     // The steering lock is part of the wheel's rotation.
@@ -948,6 +977,10 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
+            return;
+        }
+        if (strcmp(it.key, "TestFfb") == 0) {
+            Note(FfbTest() ? "Pushing right: if it pushed left, turn on Reverse force direction" : "Needs updated FFB mod with NativeFFB=0");
             return;
         }
         if (strcmp(it.key, "RestartFfb") == 0) {
@@ -1212,7 +1245,8 @@ const struct {
     {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
     {&s_ext[FFB_CENTERSPEED], "Speed where the centring spring reaches full strength."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
-    {&s_ext[FFB_INVERT], "1 if every force pushes the wrong way (the wheel runs away from centre). Normally detected automatically."},
+    {&s_ext[FFB_INVERT], "On if every force pushes the wrong way (the wheel runs away from centre, or Test pushes left)."},
+    {&s_ext[FFB_DEVICE], "The force feedback device that drives your wheel, in Windows' order (as joy.cpl lists them). Use Test to check."},
     {&s_ext[FFB_SAT], "Steering weight from the front tyres: heavy while they grip, light past the limit."},
     {&s_ext[FFB_SPEEDCENTRE], "Pull back to centre that grows with speed and steering angle. None when parked."},
     {&s_ext[FFB_UNDERSTEER], "How much lighter the wheel gets when the front tyres slide (understeer)."},
@@ -1288,6 +1322,8 @@ const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
+    if (it.kind == ACTION && strcmp(it.key, "TestFfb") == 0)
+        return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
         return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Calibration is kept. Also available with F10.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
@@ -1612,6 +1648,10 @@ void ValueWidget(int i, float w, float k) {
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
+            if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE]) {
+                fmt.clear();   // the text from ValueText, as a format without conversions
+                for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
+            }
             if (ImGui::SliderFloat("##v", &shown, it.lo * it.show, it.hi * it.show, fmt.c_str(), ImGuiSliderFlags_NoInput)) {
                 val = Clamp(roundf(shown / it.show / it.step) * it.step, it.lo, it.hi);
                 s_menu.sel = i;
