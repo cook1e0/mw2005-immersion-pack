@@ -59,6 +59,12 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
   through the `NfsmwFfb_Setting` export (also Gain, the centring spring and SoftLock).
 - `src/ffb.cpp`: a 200 Hz thread that turns the latest telemetry into constant, spring,
   damper, friction and sine effects.
+- The gameplay ini's `[Controls] MenuAxes=0` (default) centres controller axes only in the
+  game's frontend and pause menus, preserving buttons and hats. `MenuController=0` disables
+  those too. Driving input and the gameplay mod's own bindings remain available. Both immediate
+  state and buffered events use neutral values from the current data format and axis ranges;
+  buffered input is resynchronised on menu entry and resume, including stationary pedals.
+  Works with `NativeFFB=1`, but needs this mod enabled (`[FFB] Enabled=1`).
 - `tools/ffbtool.exe`: lists controllers. `ffbtool test` nudges the wheel right/left and reports
   which way it moved.
 - `tools/dis.py`, `tools/vtbl.py`: disassembly and vtable dumps with names (need a v1.3 symbol
@@ -68,3 +74,7 @@ try `MinForce=0.05`. `LogTelemetry=1` writes physics values every 0.1 s.
 
 MSYS2 with the mingw32 toolchain: `./build.sh` (`./build.sh install` copies into `C:\Games\NFSMW`,
 or `$NFSMW_DIR`).
+
+Menu input regression tests (mingw32):
+`g++ -std=c++17 -O2 -Wall -static -o build/menu_input_tests.exe tests/menu_input_tests.cpp`,
+then run `build/menu_input_tests.exe`.

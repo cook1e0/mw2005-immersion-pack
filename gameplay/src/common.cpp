@@ -150,6 +150,8 @@ void LoadConfig() {
     c.steerLinearity = Clamp(ReadFloat("Controls", "SteeringLinearity", c.steerLinearity), 0.5f, 3.0f);
     c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
     c.gameController = ReadInt("Controls", "GameController", 1) != 0;
+    c.menuController = ReadInt("Controls", "MenuController", c.menuController) != 0;
+    c.menuAxes = ReadInt("Controls", "MenuAxes", c.menuAxes) != 0;
 
     c.gear[0] = ReadStr("Shifter", "Reverse", "");
     for (int g = 1; g <= kMaxGears; g++) {

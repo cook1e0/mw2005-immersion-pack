@@ -39,6 +39,11 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   adds a soft lock there. *Game's own controller input: Off* makes the game ignore the
   controllers completely, its menus included (needs the force feedback mod;
   the keyboard keeps working).
+- **Menu controller input**: analog axes are ignored in the game's menus by default, so pedals
+  and steering cannot scroll them. Buttons and the d-pad still work. F4 > Controls >
+  *Controller input in game menus: Off* disables those too; *Analog axes in game menus: On*
+  restores axis navigation. Driving and the F4 menu's own bindings are unaffected. Requires
+  the updated force feedback mod; it also works with its `NativeFFB=1` setting.
 - **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic,
   the force feedback mod's strength and centring spring, and the VR mod's view recentre and HUD
   panel size, distance and height (when those mods are installed), changed
@@ -82,6 +87,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
 | `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
+| `[Controls] MenuController / MenuAxes` | game menus only: buttons/d-pad on by default; analog axes off to prevent pedal scrolling (needs FFB mod) |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |
 

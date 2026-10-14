@@ -39,6 +39,8 @@ struct Config {
     float softLock = 0.8f;          // push-back past the steering lock
     float gameController = 1.0f;    // 0 = the game reads controllers as untouched (gameplay mod's
                                     // [Controls] GameController; live from its F4 menu)
+    float menuController = 1.0f;    // controller buttons and hats in the game's menus
+    float menuAxes = 0.0f;          // analog axes in menus (off: pedals cannot scroll)
     float softLockAt = 1.0f;        // wheel position (fraction of full travel) of the steering lock;
                                     // set by the gameplay mod's [Controls] SteeringLock, 1 = off
     float minForce = 0.0f;          // wheel deadband compensation (0..0.2)

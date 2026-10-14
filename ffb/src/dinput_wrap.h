@@ -1,6 +1,7 @@
 // DirectInput8 wrappers: give the FFB engine the game's own wheel device.
 #pragma once
 #include "common.h"
+#include "menu_input.h"
 
 // Serialises every call into a wrapped device (game thread vs FFB thread).
 extern CRITICAL_SECTION g_diLock;
@@ -21,6 +22,10 @@ struct DeviceWrap : public IDirectInputDevice8A {
     // the game reads this state instead: its first reading, buttons released, hats centred.
     uint8_t* restState = nullptr;
     DWORD restSize = 0;
+    std::vector<MenuObject> menuObjects;
+    MenuResetQueue menuReset;
+    bool relativeAxes = false;
+    void RefreshMenuRanges();
 
     explicit DeviceWrap(IDirectInputDevice8A* r) : real(r) {}
     bool OwnsFfb() const;

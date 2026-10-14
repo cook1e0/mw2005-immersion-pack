@@ -242,10 +242,12 @@ const struct {
     {MOD_FFB, "Gain", 1.0f}, {MOD_FFB, "CenterSpring", 0.25f}, {MOD_FFB, "CenterSpringParked", 0.3f},
     {MOD_FFB, "CenterSpringSpeed", 150.0f}, {MOD_FFB, "SoftLock", 0.8f}, {MOD_FFB, "SoftLockAt", 1.0f},
     {MOD_FFB, "GameController", 1.0f},
+    {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
 };
 enum {
     FFB_GAIN, FFB_CENTER, FFB_CENTERPARKED, FFB_CENTERSPEED, FFB_SOFTLOCK, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER,
+    FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
@@ -304,6 +306,8 @@ float* ExtSetting(int i) {
         if (!p[FFB_GAIN] && gain) p[FFB_GAIN] = ((float* (__cdecl*)())gain)();
         if (!g_cfg.gameController && !p[FFB_GAMECONTROLLER])
             Log("ui: GameController=0 needs the force feedback mod; the game still reads the controller");
+        if (!p[FFB_MENUAXES])
+            Log("ui: menu controller filtering needs an updated force feedback mod");
         Log("ui: force feedback mod %s", p[FFB_GAIN] ? (p[FFB_CENTER] ? "found" : "found (gain only)") : "not loaded");
         Log("ui: VR mod %s", p[VR_HUDWIDTH] ? "found" : "not loaded");
     }
@@ -376,6 +380,8 @@ const Item kItems[] = {
     {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Controller input in game menus", "Controls", "MenuController", &g_cfg.menuController, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Analog axes in game menus", "Controls", "MenuAxes", &g_cfg.menuAxes, 0, 0, 0, 0, nullptr, 0},
     HEADER_("BUTTONS"),
     BINDING("Handbrake", "Controls", "Handbrake", button[0], 0),
     BINDING("Nitrous", "Controls", "Nitrous", button[1], 0),
@@ -776,6 +782,7 @@ const struct {
     float game;
 } kGameDefaults[] = {
     {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1},
+    {&g_cfg.menuController, 1}, {&g_cfg.menuAxes, 1},
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
@@ -1144,6 +1151,8 @@ const struct {
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
+    {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
+    {&g_cfg.menuAxes, "Off: pedals and steering cannot scroll the game's menus; buttons and the d-pad still work. Driving is unaffected. Needs the updated force feedback mod."},
     {&s_ext[FFB_GAIN], "Overall force feedback strength."},
     {&s_ext[FFB_CENTER], "Pulls the wheel back to the centre while driving, at full strength at speed."},
     {&s_ext[FFB_CENTERPARKED], "How much of the centring spring is left at standstill. It grows with speed."},
@@ -1817,6 +1826,8 @@ void Ui_Frame() {
         *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / g_cfg.wheelRotation, 0.05f, 1.0f);
     // ... and hides the controllers from the game ([Controls] GameController=0).
     if (float* gc = ExtSetting(FFB_GAMECONTROLLER)) *gc = g_cfg.gameController ? 1.0f : 0.0f;
+    if (float* mc = ExtSetting(FFB_MENUCONTROLLER)) *mc = g_cfg.menuController ? 1.0f : 0.0f;
+    if (float* ma = ExtSetting(FFB_MENUAXES)) *ma = g_cfg.menuAxes ? 1.0f : 0.0f;
     EngineStatus st = Game_Engine();
     UpdateMenu(Input_Get(), st.driving);
     if (!st.driving) return;

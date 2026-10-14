@@ -129,6 +129,8 @@ void LoadConfig() {
     char gameplayIni[MAX_PATH];
     ConfigFile("nfsmw_gameplay.ini", gameplayIni, false);
     c.gameController = GetPrivateProfileIntA("Controls", "GameController", 1, gameplayIni) ? 1.0f : 0.0f;
+    c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, gameplayIni) ? 1.0f : 0.0f;
+    c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, gameplayIni) ? 1.0f : 0.0f;
     c.forceSign = Clamp(ReadInt("Calibration", "ForceSign", 0), -1, 1);
     c.slipSign = Clamp(ReadInt("Calibration", "SlipSign", 0), -1, 1);
     c.rightSign = Clamp(ReadInt("Calibration", "RightSign", 0), -1, 1);

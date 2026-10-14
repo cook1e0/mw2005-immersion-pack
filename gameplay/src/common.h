@@ -65,6 +65,8 @@ struct Config {
     float steerLinearity = 1.0f;    // steering response curve exponent: 1 = linear, >1 = finer near the centre
     float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
     bool  gameController = true;    // the game's own controller input (driving and menus); keyboard always works
+    bool  menuController = true;    // controller buttons and hats in the game's menus (needs FFB mod)
+    bool  menuAxes = false;         // analog axes in menus; off prevents pedal scrolling
 
     // [Shifter]
     std::string gear[kMaxGears + 1];// [0] = reverse, [1..7] = gears 1-7

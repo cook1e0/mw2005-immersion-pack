@@ -21,6 +21,12 @@ the same loader the widescreen fix and most other NFS mods use.
 Each mod works on its own or together with the others. To uninstall, delete its .asi.
 Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
 
+Upgrading from v0.11.0: replace scripts\nfsmw_ffb.asi and scripts\nfsmw_gameplay.asi. Keep
+your existing .ini files and bindings. Analog axes are now ignored in game menus by default,
+preventing pedals and steering from scrolling them. F4 > Controls has settings for analog
+axes and all controller input in game menus. Driving input is unaffected. The VR plugin
+and helper are unchanged. See FIXES.md for this release.
+
 Upgrading from v0.10.x: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe
 next to speed.exe. Keep your existing .ini files and bindings. New settings use defaults when
 missing. The VR plugin and its helper must be from the same build. See FIXES.md for this release.

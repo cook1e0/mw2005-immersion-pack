@@ -51,6 +51,31 @@ static bool OwnFfb() { return g_cfg.enabled && !g_cfg.nativeFfb; }
 bool DeviceWrap::OwnsFfb() const { return ffbDevice && OwnFfb(); }
 bool GameInputHidden() { return g_cfg.gameController < 0.5f; }
 
+// Sim::GetState (v1.3, verified in IsSupportedExe): 3 = running, 4 = paused.
+// No simulation covers startup/frontend; other states cover loading and transitions.
+static bool GameInMenus() {
+    // GameFlow 6 = in world. Check FE's pause request too, before Sim has switched to PAUSED.
+    if (!((bool(__cdecl*)())0x468380)() || ((int(__cdecl*)())0x6E8D20)() != 3) return true;
+    return *(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true);
+}
+
+void DeviceWrap::RefreshMenuRanges() {
+    for (auto& o : menuObjects) {
+        if (!o.Axis()) continue;
+        if (MenuAxisRelative(o.type, relativeAxes)) {
+            o.neutral = 0;
+            continue;
+        }
+        DIPROPRANGE r = {};
+        r.diph.dwSize = sizeof(r);
+        r.diph.dwHeaderSize = sizeof(r.diph);
+        r.diph.dwHow = DIPH_BYOFFSET;
+        r.diph.dwObj = o.offset;
+        o.neutral = SUCCEEDED(real->GetProperty(DIPROP_RANGE, &r.diph))
+            ? MenuAxisCenter(r.lMin, r.lMax) : 32767;
+    }
+}
+
 static void SetAutoCenterOff(IDirectInputDevice8A* d) {
     DIPROPDWORD p = {};
     p.diph.dwSize = sizeof(p);
@@ -96,7 +121,14 @@ HRESULT DeviceWrap::SetProperty(REFGUID a, LPCDIPROPHEADER b) {
         return real->SetProperty(a, &p.diph);
     }
     if (OwnsFfb() && &a == &DIPROP_FFGAIN) return DI_OK;
-    return real->SetProperty(a, b);
+    HRESULT hr = real->SetProperty(a, b);
+    if (SUCCEEDED(hr) && (&a == &DIPROP_RANGE || &a == &DIPROP_AXISMODE)) {
+        if (&a == &DIPROP_AXISMODE && b)
+            relativeAxes = ((const DIPROPDWORD*)b)->dwData == DIPROPAXISMODE_REL;
+        RefreshMenuRanges();
+        menuReset.Reset();
+    }
+    return hr;
 }
 HRESULT DeviceWrap::Acquire() {
     Lock l;
@@ -138,29 +170,59 @@ HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
         }
     }
     if (GameInputHidden()) memcpy(b, restState, a);
+    if (GameInMenus()) {
+        bool all = GameInputHidden() || g_cfg.menuController < 0.5f;
+        if (all || g_cfg.menuAxes < 0.5f) NeutralizeMenuState(b, a, menuObjects, all);
+    }
     return hr;
 }
 HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DWORD d) {
     Lock l;
+    DWORD capacity = c ? *c : 0;
     HRESULT hr = real->GetDeviceData(a, b, c, d);
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
-    if (SUCCEEDED(hr) && c && GameInputHidden()) *c = 0;    // drained, nothing reported
+    if (SUCCEEDED(hr) && c) {
+        int mode = 0;
+        if (GameInMenus()) {
+            bool all = GameInputHidden() || g_cfg.menuController < 0.5f;
+            mode = all ? 2 : g_cfg.menuAxes < 0.5f ? 1 : 0;
+            if (mode) NeutralizeMenuEvents(a, b, *c, menuObjects, all);
+        } else if (GameInputHidden()) {
+            *c = 0;    // drained, nothing reported
+            menuReset.Reset();
+            return hr;
+        }
+        if (mode != menuReset.mode && dataSize) {
+            std::vector<uint8_t> state(dataSize);
+            if (SUCCEEDED(real->GetDeviceState(dataSize, state.data())))
+                menuReset.Change(mode, state.data(), dataSize, menuObjects);
+        }
+        *c = menuReset.Append(a, b, *c, capacity, (d & DIGDD_PEEK) != 0);
+    }
     return hr;
 }
 HRESULT DeviceWrap::SetDataFormat(LPCDIDATAFORMAT f) {
     Lock l;
     HRESULT hr = real->SetDataFormat(f);
     if (SUCCEEDED(hr) && f) {
+        delete[] restState;
+        restState = nullptr;
+        restSize = 0;
         dataSize = f->dwDataSize;
         axisOfs = -1;
+        menuObjects.clear();
+        menuReset.Reset();
+        relativeAxes = (f->dwFlags & DIDF_RELAXIS) != 0;
         const GUID& want = SteerAxisGuid();
         for (DWORD i = 0; i < f->dwNumObjs; ++i) {
             const DIOBJECTDATAFORMAT& o = f->rgodf[i];
-            if (o.pguid && IsEqualGUID(*o.pguid, want) && (o.dwType & DIDFT_AXIS)) {
+            if (o.dwType & (DIDFT_AXIS | DIDFT_BUTTON | DIDFT_POV))
+                menuObjects.push_back({o.dwOfs, o.dwType, (o.dwType & DIDFT_POV) ? 0xFFFFFFFFu : 0u});
+            if (axisOfs < 0 && o.pguid && IsEqualGUID(*o.pguid, want) && (o.dwType & DIDFT_AXIS)) {
                 axisOfs = (LONG)o.dwOfs;
-                break;
             }
         }
+        RefreshMenuRanges();
         Log("dinput: '%s' data format size=%lu objs=%lu steerAxisOfs=%ld", name, f->dwDataSize, f->dwNumObjs, axisOfs);
         if (OwnsFfb()) SetAutoCenterOff(real);
     }
