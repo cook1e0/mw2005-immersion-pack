@@ -223,9 +223,15 @@ DeviceWrap* PickDevice() {
     }
     for (int i = 0; i < s_numDevs; ++i)
         if (s_devs[i]->acquired && s_devs[i]->exclusive && IsWanted(s_devs[i])) return s_devs[i];
-    if (s_out.dev && s_out.dev->acquired && s_out.dev->exclusive && s_wantState != 1) return s_out.dev;
+    // The chosen device isn't one the game opened (or its id doesn't match): use what the game has.
+    static bool logged;
+    if (s_wantState == 1 && !logged && s_numDevs) {
+        logged = true;
+        Log("ffb: FFB device %d is not among the devices the game opened; using the game's", device);
+    }
+    if (s_out.dev && s_out.dev->acquired && s_out.dev->exclusive) return s_out.dev;
     for (int i = 0; i < s_numDevs; ++i)
-        if (s_devs[i]->acquired && s_devs[i]->exclusive && s_wantState != 1) return s_devs[i];
+        if (s_devs[i]->acquired && s_devs[i]->exclusive) return s_devs[i];
     return nullptr;
 }
 

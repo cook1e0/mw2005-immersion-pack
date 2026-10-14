@@ -33,6 +33,17 @@ constexpr uintptr_t kRenderScene = 0x6DE300;     // ___eDisplayFrame (cdecl, no 
 constexpr uintptr_t kGetResolution = 0x6C27D0;   // __getResolutionByIndex(int* w, int* h), stdcall-like (ret 8)
 constexpr uintptr_t kResolutionIndex = 0x90181C; // selected entry of the 6 built-in resolutions
 constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
+// Raindrops on the screen (Rain's OnScreenRain, drawn as a screen-space pass): stuck to your eyes
+// in a headset. The pass returns at once when the player view's rain has no drops on screen.
+constexpr uintptr_t kCallScreenRain = 0x6DF7EC;   // call sub_6D4620 in ___eDisplayFrame
+constexpr uintptr_t kScreenRain = 0x6D4620;       // cdecl, 1 arg
+constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
+constexpr int kViewStride = 0x70, kNumViews = 22;
+// Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
+// EVIEW_PLAYER1_SPECULAR (the wet-road / paint highlights). They share the player's Camera, but
+// their matrices are built once per frame in eDisplayFrame's view loop; built from the game's
+// camera while each eye looks with the head, their overlay turned with the head.
+constexpr int kCompanionViews[] = {4, 6};
 constexpr uintptr_t kPlayerAspectScale = 0x8AF994; // float 1.15 applied to player views' aspect
 constexpr uintptr_t kCallTotaledCam = 0x631257;  // EShowRaceOverMessage: call CameraAI::MaybeDoTotaledCam(IPlayer*)
 constexpr uintptr_t kTotaledCam = 0x479F20;      // cdecl, 1 arg
@@ -96,6 +107,7 @@ RenderSceneFn oRenderScene = (RenderSceneFn)kRenderScene;
 
 uint32_t s_setupArgs[4];
 bool s_haveSetupArgs = false;
+struct { uint32_t a[4]; bool have; } s_viewArgs[kNumViews];   // every view's sub_6CF400 arguments
 bool s_stereoFrame = false;
 bool s_stereoEnabled = true;
 bool s_levelEnabled = true;
@@ -167,7 +179,21 @@ uint32_t NearArg(void* cam) {
     return bits;
 }
 
+int ViewIndex(const void* view) {
+    uintptr_t v = (uintptr_t)view;
+    if (v < kViews || v >= kViews + kNumViews * kViewStride || (v - kViews) % kViewStride) return -1;
+    return (int)((v - kViews) / kViewStride);
+}
+
 void __fastcall hkViewSetup(void* platInfo, void* edx, void* view, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5) {
+    int index = ViewIndex(view);
+    if (index >= 0) {
+        s_viewArgs[index].a[0] = a2;
+        s_viewArgs[index].a[1] = a3;
+        s_viewArgs[index].a[2] = a4;
+        s_viewArgs[index].a[3] = a5;
+        s_viewArgs[index].have = true;
+    }
     if ((uintptr_t)view == kPlayerView) {
         s_setupArgs[0] = a2;
         s_setupArgs[1] = a3;
@@ -218,7 +244,9 @@ void ApplyEyeToCamera(void* cam, const uint8_t* savedParams, const EyeView& eye)
 // fov/2 * (rtH/rtW) * 1.15. We set the camera FOV and temporarily fake the render
 // target dimensions so it produces exactly the angles we want, then read back the
 // resulting projection.
-void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
+// Sets a view up from `cam` with that FOV (the render target's size faked as above). sub_6CF400
+// applies the 1.15 aspect factor to the player and glow views (1, 2, 4, 5) only.
+void SetupViewFov(void* view, int index, void* cam, float tanX, float tanY, const uint32_t* args) {
     float hx = atanf(tanX), hy = atanf(tanY);
     int fov = (int)(2 * hx / kTwoPi * 65536.0f + 0.5f);
     At<uint16_t>(cam, kCamFov) = (uint16_t)std::min(fov, 65000);
@@ -228,16 +256,31 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
     if (rt) {
         savedW = At<int>(rt, kRtWidth);
         savedH = At<int>(rt, kRtHeight);
-        float scale = *(float*)kPlayerAspectScale;
+        bool scaled = index == 1 || index == 2 || index == 4 || index == 5;
+        float scale = scaled ? *(float*)kPlayerAspectScale : 1.0f;
         At<int>(rt, kRtWidth) = 100000;
         At<int>(rt, kRtHeight) = (int)(100000.0f * (hy / hx) / scale + 0.5f);
     }
-    void* plat = At<void*>(view, kViewPlatInfo);
-    oViewSetup(plat, nullptr, view, NearArg(cam), s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+    oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view, NearArg(cam), args[1], args[2], args[3]);
     if (rt) {
         At<int>(rt, kRtWidth) = savedW;
         At<int>(rt, kRtHeight) = savedH;
     }
+}
+
+// The glow and specular views that use the player's camera, active this frame, with arguments.
+template <class Fn> void ForEachCompanion(void* cam, Fn fn) {
+    for (int index : kCompanionViews) {
+        void* view = (void*)(kViews + index * kViewStride);
+        if (!s_viewArgs[index].have || !At<int8_t>(view, kViewActive) || At<void*>(view, kViewCamera) != cam) continue;
+        fn(view, index, s_viewArgs[index].a);
+    }
+}
+
+void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
+    SetupViewFov(view, 1, cam, tanX, tanY, s_setupArgs);
+    ForEachCompanion(cam, [&](void* v, int index, const uint32_t* args) { SetupViewFov(v, index, cam, tanX, tanY, args); });
+    void* plat = At<void*>(view, kViewPlatInfo);
 
     float p00 = At<float>(plat, kPlatProjection + 0x00);
     float p11 = At<float>(plat, kPlatProjection + 0x14);
@@ -270,6 +313,9 @@ void __cdecl hkRenderScene() {
                 ApplyEyeToCamera(cam, seated, centre);
                 oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
                            NearArg(cam), s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+                ForEachCompanion(cam, [&](void* v, int, const uint32_t* a) {
+                    oViewSetup(At<void*>(v, kViewPlatInfo), nullptr, v, NearArg(cam), a[1], a[2], a[3]);
+                });
                 seat = true;
             }
         }
@@ -278,6 +324,7 @@ void __cdecl hkRenderScene() {
             memcpy(cam, saved, sizeof(saved));
             oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
                        s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+            ForEachCompanion(cam, [](void* v, int, const uint32_t* a) { oViewSetup(At<void*>(v, kViewPlatInfo), nullptr, v, a[0], a[1], a[2], a[3]); });
         }
         return;
     }
@@ -315,6 +362,7 @@ void __cdecl hkRenderScene() {
     memcpy(cam, saved, sizeof(saved));
     oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
                s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
+    ForEachCompanion(cam, [](void* v, int, const uint32_t* a) { oViewSetup(At<void*>(v, kViewPlatInfo), nullptr, v, a[0], a[1], a[2], a[3]); });
     D3D_BeginHudPhase();
     s_stereoFrame = true;
 }
@@ -361,6 +409,11 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
+}
+
+void __cdecl hkScreenRain(int arg) {
+    if (Xr_Available() && !g_cfg.screenRain) return;
+    ((void(__cdecl*)(int))kScreenRain)(arg);
 }
 
 // Retargets the call at `site` to `hook` if it still calls `target`.
@@ -468,6 +521,7 @@ bool Game_InstallHooks() {
     PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
+    PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
     Log("game: hooks installed");
     return true;
 }

@@ -103,7 +103,7 @@ static void TestReloadedDriver() {
     At<uintptr_t>(entry, 0x54) = 0x1111;                // vertex buffer
 
     Driver* first = GetDriver(solid);
-    Check(first && first->ok && first->kept[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
+    Check(first && first->ok && first->body[0] == 1 && first->heads[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
     Check(GetDriver(solid) == first, "unchanged driver stays cached");
 
     // Reloaded in place: same pointers, original triangle order and a new vertex buffer.
@@ -113,7 +113,7 @@ static void TestReloadedDriver() {
     Driver* second = GetDriver(solid);
     Check(second && second != first && second->ok && indices[0] == 0 && s_retired.size() == 1, "reloaded driver prepared again");
 
-    // The head next to the eyes: the trimmed entry is a fresh copy of the live one.
+    // The head next to the eyes: the entry drawn without it is a fresh copy of the live one.
     float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
     uint8_t modelData[0x10] = {};
     At<uint8_t*>(modelData, kModelSolid) = solid;
@@ -122,8 +122,9 @@ static void TestReloadedDriver() {
     At<void*>((void*)kPlayerView, kViewCamera) = camera;
     g_cfg.hideHead = true;
     uint8_t* trimmed = OnSubmit(modelData, model, entry);
-    Check(trimmed && trimmed != entry && At<int>(trimmed, kEntryTris) == 1 && At<uintptr_t>(trimmed, 0x54) == 0x2222,
-          "trimmed entry uses the live vertex buffer");
+    Check(trimmed && trimmed != entry && s_driverParts == 1 && At<int>(trimmed, kEntryTris) == 1 &&
+              At<uintptr_t>(trimmed, 0x54) == 0x2222,
+          "head-less entry uses the live vertex buffer");
     g_cfg.hideHead = false;
     At<void*>((void*)kPlayerView, kViewCamera) = savedCam;
 
@@ -132,6 +133,69 @@ static void TestReloadedDriver() {
     Check(!GetDriver(solid), "replaced by a non-driver model");
     Cockpit_EndFrame();
     Check(s_retired.empty(), "retired drivers freed at the end of the frame");
+}
+
+// A seated driver with a body, an arm and a head: triangles reordered body, arm, head, and the
+// entry drawn as the ranges the settings leave in.
+static void TestArms() {
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16], camera[0x50];
+    // head at the back top (x -1, z 1.9..2), body low (z 0), arm in front of the head, beside it
+    static float verts[27] = {
+        0, 0, 0, 1, 0, 0, 0, 1, 0,                          // body
+        -0.6f, 0.5f, 1.6f, -0.4f, 0.5f, 1.6f, -0.5f, 0.5f, 1.7f,   // arm (y 0.5 vs. head 0.33)
+        -1, 0, 1.9f, -1, 1, 1.9f, -0.9f, 0, 2.0f};          // head
+    static uint16_t indices[9];
+    static FakeIb ib;
+    const uint16_t original[9] = {6, 7, 8, 3, 4, 5, 0, 1, 2};   // head, arm, body
+    memcpy(indices, original, sizeof(indices));
+    memcpy(ib.data, original, sizeof(indices));
+    ib.size = sizeof(indices);
+    strcpy((char*)solid + kSolidName, "ARMCAR_KIT00_DRIVER_A");
+    At<float>(solid, kSolidMin) = -1;
+    At<float>(solid, kSolidMax + 8) = 2.0f;
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = 9;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = 3;
+    At<int>(entry, kEntryFirstIndex) = 0;
+    At<float*>(entry, kEntryVertices) = verts;
+    At<int>(entry, kEntryVertexBytes) = sizeof(verts);
+
+    Driver* d = GetDriver(solid);
+    Check(d && d->ok && d->body[0] == 1 && d->arms[0] == 1 && d->heads[0] == 1, "body, arm and head found");
+    Check(indices[0] == 0 && indices[3] == 3 && indices[6] == 6 && ib.data[6] == 6, "reordered body, arm, head");
+
+    float model[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    uint8_t modelData[0x10] = {};
+    At<uint8_t*>(modelData, kModelSolid) = solid;
+    memcpy(camera + kCamPosition, d->head, sizeof(d->head));
+    void* savedCam = At<void*>((void*)kPlayerView, kViewCamera);
+    At<void*>((void*)kPlayerView, kViewCamera) = camera;
+    auto draw = [&](bool head, bool arms) {
+        g_cfg.hideHead = head;
+        g_cfg.hideArms = arms ? 1.0f : 0.0f;
+        return OnSubmit(modelData, model, entry);
+    };
+    uint8_t* e = draw(true, true);
+    Check(e && s_driverParts == 1 && At<int>(e, kEntryFirstIndex) == 0 && At<int>(e, kEntryTris) == 1, "body only");
+    e = draw(true, false);
+    Check(e && s_driverParts == 1 && At<int>(e, kEntryTris) == 2, "body and arms");
+    e = draw(false, true);
+    Check(e && s_driverParts == 2 && At<int>(e, kEntryTris) == 1 && At<int>(e + kEntrySize, kEntryFirstIndex) == 6 &&
+              At<int>(e + kEntrySize, kEntryTris) == 1,
+          "body and head, arms left out");
+    Check(draw(false, false) == entry, "everything: the entry as it is");
+    // Away from the eyes (another car's driver): drawn whole.
+    At<float>(camera, kCamPosition) += 5;
+    Check(draw(true, true) == entry, "other drivers keep their arms");
+    g_cfg.hideHead = false;
+    g_cfg.hideArms = 1.0f;
+    At<void*>((void*)kPlayerView, kViewCamera) = savedCam;
 }
 
 // An interior with a steering wheel (a tilted tube ring) and a dashboard: the ring is found, its
@@ -284,6 +348,7 @@ int main() {
     s_head.time -= 1;
     Check(!Cockpit_ApplySeat(view), "expired observation releases seat");
     TestReloadedDriver();
+    TestArms();
     TestSteeringWheel();
     puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers and steering wheel");
 }

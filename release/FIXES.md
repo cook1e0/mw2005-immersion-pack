@@ -12,6 +12,15 @@
   surface rumble on grass/dirt/gravel from the game's surface data, kerb kicks from the body's
   vertical jerk (hills don't trigger them), directional impacts (head-on shake, side kick), wall
   scrapes, a limp wheel in the air and a landing jolt. All in F4 > Force feedback.
+- **VR: driver's arms and hands hidden:** in the cockpit the driver model's arms and hands are left
+  out (they followed neither your hands nor the turning steering wheel). F4 > VR > Hide the
+  driver's arms and hands, `[VR] HideArms`. Found per driver model (in front of the head, above the
+  lap, beside the chest), checked against every car.
+- **VR: reflections no longer turn with your head:** the glow and specular passes (the bloom and the
+  wet-road / paint highlights laid over the image) share the player's camera but were set up once
+  per frame from the game's camera; each eye now sets them up from its own view.
+- **VR: no raindrops on the screen** in the headset (they stuck to your eyes); the rain itself
+  stays. `[VR] ScreenRain=1` brings them back.
 - **Force feedback rebuilt from scratch for direct drive wheels:** a new modular core
   (telemetry, force model, safety filters, device). Steering weight comes from the front tyres'
   slip angle and load (light past the grip limit, pulling into the countersteer in a slide), with

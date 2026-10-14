@@ -77,12 +77,14 @@ constexpr float kSeatLimit = 0.6f;
 
 template <typename T> T& At(void* base, int offset) { return *(T*)((char*)base + offset); }
 
+// Each draw entry's triangles are reordered body, arms (and hands), head, so the seated driver
+// can be drawn without any of the last two: one or two ranges of the entry.
 struct Driver {
     bool ok = false;
     std::string car;
     float head[3] = {};                             // head centre, model space
-    std::vector<uint8_t> trimmed;                   // entries without the head (kEntrySize each)
-    std::vector<int> kept;                          // triangles left per entry
+    std::vector<int> body, arms, heads;             // triangles per entry, in that order
+    std::vector<uint8_t> parts;                     // per entry: two ranges to draw (kEntrySize each)
 };
 
 // The steering wheel inside a car's interior model (<CAR>_KIT00_INTERIOR_*), found as a ring of
@@ -187,7 +189,11 @@ void SaveOffset() {
     Log("cockpit: seat for %s saved: %s", s_offsetCar.c_str(), buf);
 }
 
-// Reorders each entry's triangles so the head comes last and makes the trimmed entries.
+// Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
+// middle). Checked against every car's driver model offline.
+constexpr float kArmsForward = 0.10f, kArmsBelowHead = 0.42f, kArmsSideways = 0.06f;
+
+// Reorders each entry's triangles body, arms, head (head: high up at the back of the model).
 Driver* Prepare(uint8_t* solid, const char* name) {
     Driver* d = new Driver;
     const char* kit = strstr(name, "_KIT");
@@ -218,58 +224,82 @@ Driver* Prepare(uint8_t* solid, const char* name) {
         return d;
     }
     auto pos = [&](int v) { return (const float*)(verts + v * stride); };
+    auto centroid = [&](const uint16_t* tri, float* c) {
+        c[0] = c[1] = c[2] = 0;
+        for (int k = 0; k < 3; k++) {
+            if (tri[k] >= numVerts) return false;
+            for (int a = 0; a < 3; a++) c[a] += pos(tri[k])[a] / 3;
+        }
+        return true;
+    };
     float topZ = At<float>(solid, kSolidMax + 8) - g_cfg.headSize;
     float backX = At<float>(solid, kSolidMin) + kHeadDepth;
+    auto isHead = [&](const float* c) { return c[2] > topZ && c[0] < backX; };
+
+    // The head's centre first: the arms are found relative to it.
     float sum[3] = {};
     int headVerts = 0;
-    d->trimmed.assign(entries, entries + n * kEntrySize);
     for (int i = 0; i < n; i++) {
         uint8_t* e = entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
-        d->kept.push_back(tris);
+        if (tris <= 0 || first < 0 || first + tris * 3 > numIndices) continue;
+        for (int t = 0; t < tris; t++) {
+            const uint16_t* tri = indices + first + t * 3;
+            float c[3];
+            if (!centroid(tri, c) || !isHead(c)) continue;
+            for (int k = 0; k < 3; k++, headVerts++)
+                for (int a = 0; a < 3; a++) sum[a] += pos(tri[k])[a];
+        }
+    }
+    if (headVerts)
+        for (int a = 0; a < 3; a++) d->head[a] = sum[a] / headVerts;
+
+    d->parts.assign(n * 2 * kEntrySize, 0);
+    for (int i = 0; i < n; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
+        d->body.push_back(tris);
+        d->arms.push_back(0);
+        d->heads.push_back(0);
         if (tris <= 0 || first < 0 || first + tris * 3 > numIndices) continue;
         uint16_t* idx = indices + first;
-        std::vector<uint16_t> keep, head;
+        std::vector<uint16_t> body, arms, head;
         for (int t = 0; t < tris; t++) {
-            uint16_t* tri = idx + t * 3;
-            float c[3] = {};
-            bool valid = true;
-            for (int k = 0; k < 3; k++) {
-                if (tri[k] >= numVerts) valid = false;
-                else for (int a = 0; a < 3; a++) c[a] += pos(tri[k])[a] / 3;
-            }
-            bool isHead = valid && c[2] > topZ && c[0] < backX;
-            (isHead ? head : keep).insert((isHead ? head : keep).end(), tri, tri + 3);
-            if (isHead)
-                for (int k = 0; k < 3; k++, headVerts++)
-                    for (int a = 0; a < 3; a++) sum[a] += pos(tri[k])[a];
+            const uint16_t* tri = idx + t * 3;
+            float c[3];
+            bool valid = centroid(tri, c);
+            std::vector<uint16_t>* to = &body;
+            if (valid && isHead(c)) to = &head;
+            else if (valid && headVerts && c[0] > d->head[0] + kArmsForward && c[2] > d->head[2] - kArmsBelowHead &&
+                     fabsf(c[1] - d->head[1]) > kArmsSideways)
+                to = &arms;
+            to->insert(to->end(), tri, tri + 3);
         }
-        if (head.empty()) continue;
-        keep.insert(keep.end(), head.begin(), head.end());
+        d->body[i] = (int)body.size() / 3;
+        d->arms[i] = (int)arms.size() / 3;
+        d->heads[i] = (int)head.size() / 3;
+        if (arms.empty() && head.empty()) continue;
+        body.insert(body.end(), arms.begin(), arms.end());
+        body.insert(body.end(), head.begin(), head.end());
         void* p = nullptr;
         if (FAILED(ib->Lock(first * 2, tris * 6, &p, 0)) || !p) {
             Log("cockpit: %s: index buffer lock failed", name);
             return d;
         }
-        memcpy(p, keep.data(), tris * 6);
+        memcpy(p, body.data(), tris * 6);
         ib->Unlock();
-        memcpy(idx, keep.data(), tris * 6);
-        int kept = tris - (int)head.size() / 3;
-        d->kept[i] = kept;
-        At<int>(&d->trimmed[i * kEntrySize], kEntryTris) = kept;
-        At<int>(&d->trimmed[i * kEntrySize], kEntryNumIndices) = kept * 3;
+        memcpy(idx, body.data(), tris * 6);
     }
     if (headVerts) {
-        for (int a = 0; a < 3; a++) d->head[a] = sum[a] / headVerts;
         d->ok = true;
         HeadPos& h = s_carHead[d->car];
         memcpy(h.v, d->head, sizeof(h.v));
     }
-    Log("cockpit: %s: head %.2f %.2f %.2f, triangles kept per entry:%s", name, d->head[0], d->head[1], d->head[2],
-        [&] {
-            static char buf[128];
+    Log("cockpit: %s: head %.2f %.2f %.2f, triangles per entry (body/arms/head):%s", name, d->head[0], d->head[1],
+        d->head[2], [&] {
+            static char buf[256];
             buf[0] = 0;
-            for (int k : d->kept) sprintf(buf + strlen(buf), " %d", k);
+            for (int i = 0; i < n && strlen(buf) < 200; i++) sprintf(buf + strlen(buf), " %d/%d/%d", d->body[i], d->arms[i], d->heads[i]);
             return buf;
         }());
     return d;
@@ -599,7 +629,11 @@ float Dist(const float* a, const float* b) {
     return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
 }
 
-// Returns the entry to submit (the trimmed copy for a head next to the eyes), or null for none.
+// The seated driver's ranges set by OnSubmit: s_driverParts entries from s_driverEntry.
+uint8_t* s_driverEntry;
+int s_driverParts;
+
+// Returns the entry to submit (the first of the seated driver's ranges), or null for none.
 uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
@@ -634,19 +668,33 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
         }
     }
 
-    if (!g_cfg.hideHead) return entry;
+    bool hideArms = g_cfg.hideArms > 0.5f;
+    if (!g_cfg.hideHead && !hideArms) return entry;
     void* cam = At<void*>((void*)kPlayerView, kViewCamera);
     if (!cam || Dist(world, &At<float>(cam, kCamPosition)) > kHeadNear) return entry;
     uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
     int i = (int)(entry - entries) / kEntrySize;
-    if (entry < entries || i >= (int)d->kept.size()) return entry;
-    if (d->kept[i] <= 0) return nullptr;
-    // Copied from the live entry each time, so its vertex buffer and data are the current ones.
-    uint8_t* trimmed = &d->trimmed[i * kEntrySize];
-    memcpy(trimmed, entry, kEntrySize);
-    At<int>(trimmed, kEntryTris) = d->kept[i];
-    At<int>(trimmed, kEntryNumIndices) = d->kept[i] * 3;
-    return trimmed;
+    if (entry < entries || i >= (int)d->body.size()) return entry;
+    // The seated driver: body, then the arms unless hidden, then the head unless hidden. Copied
+    // from the live entry each time, so its vertex buffer and data are the current ones.
+    int first = At<int>(entry, kEntryFirstIndex);
+    int ranges[2][2] = {{first, d->body[i] + (hideArms ? 0 : d->arms[i])}, {0, 0}};
+    if (!g_cfg.hideHead) {
+        if (hideArms) { ranges[1][0] = first + (d->body[i] + d->arms[i]) * 3; ranges[1][1] = d->heads[i]; }
+        else ranges[0][1] += d->heads[i];
+    }
+    s_driverParts = 0;
+    for (auto& r : ranges) {
+        if (r[1] <= 0) continue;
+        uint8_t* part = &d->parts[(i * 2 + s_driverParts++) * kEntrySize];
+        memcpy(part, entry, kEntrySize);
+        At<int>(part, kEntryFirstIndex) = r[0];
+        At<int>(part, kEntryTris) = r[1];
+        At<int>(part, kEntryNumIndices) = r[1] * 3;
+    }
+    if (!s_driverParts) return nullptr;
+    s_driverEntry = &d->parts[i * 2 * kEntrySize];
+    return s_driverEntry;
 }
 
 // Whether the car drawn now in the player view is the player's own (the camera's anchor).
@@ -669,8 +717,13 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
                          uint32_t a7, uint32_t a8, uint32_t a9) {
     auto submit = (SubmitEntry_t)kSubmitEntry;
     uint8_t* model = s_submitModel;
+    s_driverEntry = nullptr;
     uint8_t* e = OnSubmit(model, matrix, entry);
     if (!e) return;
+    if (e == s_driverEntry) {
+        for (int k = 0; k < s_driverParts; k++) submit(e + k * kEntrySize, a2, a3, a4, a5, matrix, a7, a8, a9);
+        return;
+    }
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     auto it = solid && e == entry ? s_solids.find(solid) : s_solids.end();
     Wheel* w = it != s_solids.end() ? it->second.wheel : nullptr;
@@ -679,7 +732,7 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
         uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
         int i = (int)(entry - entries) / kEntrySize;
         if (entry >= entries && i < (int)w->turned.size() && w->turned[i] > 0) {
-            // Copied from the live entry each time, like the trimmed driver entries.
+            // Copied from the live entry each time, like the seated driver's ranges.
             uint8_t* rest = &w->parts[(i * 2) * kEntrySize];
             uint8_t* wheel = &w->parts[(i * 2 + 1) * kEntrySize];
             memcpy(rest, entry, kEntrySize);

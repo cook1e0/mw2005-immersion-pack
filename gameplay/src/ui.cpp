@@ -249,12 +249,13 @@ const struct {
     {MOD_VR, "SteeringWheelAngle", 0.0f},   // live, not a setting: the wheel's angle for the cockpit
     {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
+    {MOD_VR, "HideArms", 1.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
-    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, EXT_COUNT
+    VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -548,6 +549,7 @@ const Item kItems[] = {
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
     HEADER_("VIEW"),
+    {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
 
@@ -727,7 +729,7 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
-    if (it.value == &s_ext[FFB_INVERT]) return v > 0.5f ? "On" : "Off";
+    if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS]) return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
         std::string name;
         FfbDeviceName((int)lrintf(v), &name);
@@ -1243,6 +1245,7 @@ const struct {
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
+    {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
     {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
     {&g_cfg.seat[0], "Moves the VR seat (cockpit camera) forward while held. Saved per car."},
@@ -1630,7 +1633,7 @@ void ValueWidget(int i, float w, float k) {
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
-            if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE]) {
+            if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE] || it.value == &s_ext[VR_HIDEARMS]) {
                 fmt.clear();   // the text from ValueText, as a format without conversions
                 for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             }

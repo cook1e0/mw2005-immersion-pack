@@ -51,7 +51,9 @@ struct Config {
     int   spectatorWidth = 1600;     // window client width in smooth/sbs modes (px)
     bool  seat = true;               // bumper / hood camera: eyes at the driver model's head
     bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
+    float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
+    bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
     bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
