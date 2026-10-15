@@ -257,9 +257,9 @@ const struct {
     {MOD_VR, "WheelOverHud", 0.0f},
     {MOD_VR, "MenuOpen", 0.0f},             // live, not a setting: this menu is open
     {MOD_FFB, "OffroadVibration", 0.4f},
-    {MOD_FFB, "NosLighter", 0.3f},
     {MOD_VR, "HudPerCar", 0.0f},
     {MOD_VR, "HudRight", 0.0f},
+    {MOD_FFB, "NosLighter", 0.3f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -2026,7 +2026,25 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
 
 }  // namespace
 
+// Each menu row on another mod's setting must name the same key as the kExt entry it points at
+// (the EXT enum and kExt listed in different orders swapped rows' settings once).
+void CheckExtRows() {
+    for (int i = 0; i < kNumItems; i++) {
+        int ext = kItems[i].kind == NUMBER ? ExtIndex(kItems[i].value) : -1;
+        if (ext < 0) continue;
+        const char* section = kExt[ext].mod == MOD_FFB ? "FFB" : "VR";
+        if (strcmp(kItems[i].key, kExt[ext].key) != 0 || strcmp(kItems[i].section, section) != 0)
+            Log("ui: BUG: row \"%s\" (%s %s) points at %s %s", kItems[i].label, kItems[i].section, kItems[i].key, section,
+                kExt[ext].key);
+    }
+}
+
 void Ui_Frame() {
+    static bool checked = false;
+    if (!checked) {
+        checked = true;
+        CheckExtRows();
+    }
     IDirect3DDevice9* dev = *(IDirect3DDevice9**)kDevice;
     if (!dev) return;
     Physics_Frame();
