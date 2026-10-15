@@ -56,6 +56,11 @@
 - **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
   view as it is, without the car paint's gloss and reflections that washed it out (the brightness
   and contrast sliders may want lowering now).
+- **Physics: no jerking after landings with the aids turned down:** the game's tyre model is
+  violent for a few steps after touchdown (a tyre in the air keeps its old road speed, and a hard
+  landing can blow out the dampers), which the game's own aids normally soak up. For a moment
+  after a landing they are brought back and faded out to your sliders again. F4 > Physics >
+  Landing settle (seconds, 0 = off), `[Physics] LandingSettle`.
 - **Force feedback: NOS FFB:** the steering goes lighter while the nitrous is on (the game's own
   IsNOSEngaged), eased in and out. F4 > Force feedback > NOS FFB, `[FFB] NosLighter` (0..0.9).
 - **VR: HUD left / right:** F4 > VR > HUD left / right (`[VR] HudRight`), also kept per car.

@@ -145,6 +145,7 @@ struct Config {
     float drivetrain = 1.0f;        // exaggerates the driven axle's character (RWD oversteer, FWD understeer)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
+    float landingSettle = 0.8f;     // seconds after a landing over which the game's aids fade back to the sliders
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD
