@@ -225,6 +225,8 @@ static IDirect3DPixelShader9* GradeShader() {
     return s_gradeShader;
 }
 
+// The car shader's vertex shader puts the texture coordinates in oT1 (oT0 is its reflection
+// vector), so both glass shaders read TEXCOORD1.
 // The side mirror glass's own pixel shader: the rear view as it is (already graded), without the
 // car shader's lighting, gloss and environment reflection, which washed it out.
 static bool DrawingPlayerView();
@@ -240,7 +242,7 @@ static IDirect3DPixelShader9* GlassShader() {
     if (!compile) return nullptr;
     const char* src =
         "sampler s : register(s0);"
-        "float4 main(float2 uv : TEXCOORD0) : COLOR { return float4(tex2D(s, uv).rgb, 1); }";
+        "float4 main(float2 uv : TEXCOORD1) : COLOR { return float4(tex2D(s, uv).rgb, 1); }";
     ID3DBlob *code = nullptr, *errors = nullptr;
     HRESULT hr = compile(src, strlen(src), "glass", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
     if (SUCCEEDED(hr) && code)
@@ -266,7 +268,7 @@ static IDirect3DPixelShader9* MirrorMapShader() {
     if (!compile) return nullptr;
     const char* src =
         "sampler s : register(s0); float4 c0 : register(c0); float4 c1 : register(c1);"
-        "float4 main(float2 uv : TEXCOORD0) : COLOR {"
+        "float4 main(float2 uv : TEXCOORD1) : COLOR {"
         "  float2 top = lerp(c0.xy, c0.zw, uv.x); float2 bottom = lerp(c1.xy, c1.zw, uv.x);"
         "  return float4(tex2D(s, lerp(top, bottom, uv.y)).rgb, 1); }";
     ID3DBlob *code = nullptr, *errors = nullptr;
