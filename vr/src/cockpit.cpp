@@ -859,10 +859,6 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
     if (info && m && g_cfg.mirrors && DrawingPlayerCar()) NoteMirrors(solid, *info, m);
-    if (info && info->interior && DrawingPlayerCar()) {
-        uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-        if (plat) D3D_SetHudAnchor(At<void*>(plat, kPlatIndexBuffer));
-    }
     Driver* d = info ? info->driver : nullptr;
     if (!d || !d->ok || !m) return entry;
     const float* h = d->head;

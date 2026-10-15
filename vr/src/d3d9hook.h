@@ -26,15 +26,6 @@ void* D3D_TextureOfSurface(void* surface);
 void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, const float basis[14], const uint16_t* vertices,
                              int vertexCount);
 
-// The HUD as elements in the cockpit (hud_layout.h): for the eye about to render, the seat's axes in
-// the world (origin, right, up, forward: 12 floats) and the eye's view and projection. The
-// elements are drawn after the game's first draw from the player car's interior (the anchor, set
-// as it is submitted), with the scene's depth for those set to hide behind the wheel; or at the
-// end of the eye, over the scene, if it never came through (outside cameras).
-void D3D_BeginHudEye(const float seat[12], const float* view, const float* proj);
-void D3D_SetHudAnchor(void* interiorIndexBuffer);
-void D3D_EndHudEye();
-
 // Draws sampling any of these textures are skipped (null: none). Used for the HUD's rear view mirror.
 void D3D_HideTextures(void* a, void* b, void* c);
 

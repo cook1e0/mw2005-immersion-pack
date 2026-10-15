@@ -50,14 +50,6 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
-- **VR: HUD in the cockpit (Setup UI):** the HUD can be cut into elements placed in the cockpit
-  instead of one floating panel: a black box (cop UI, leaderboard and location text stacked on a
-  dark panel), the speedometer, the radar and the minimap, each with its own position (right, up,
-  forward from the driver's eyes) and size. The speedometer, radar and minimap can hide behind the
-  3D steering wheel and dashboard ("Occlude behind 3D wheel": drawn with the scene's depth). F4 >
-  VR > Setup UI: drag boxes over the HUD with the mouse to choose what each element shows (corner
-  to resize), place each element with the drag fields, Done saves to `nfsmw_vr.ini` [HUD]. The
-  panel still shows in menus, pause and while the F4 menu is open. Off until turned on there.
 - **VR: both eyes see the same lights:** each eye runs the game's frame drawing, which starts by
   stepping per-frame state (animated world models, the sun flare, light flare parameters, tunnel
   bloom and tinting fades, sound). Done twice, the second eye saw a later step than the first, so

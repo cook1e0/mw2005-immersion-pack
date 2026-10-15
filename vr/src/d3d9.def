@@ -12,5 +12,3 @@ EXPORTS
     NfsmwVr_Loaded=Proxy_NfsmwVr_Loaded
     NfsmwVr_Setting=Proxy_NfsmwVr_Setting
     NfsmwVr_Recenter=Proxy_NfsmwVr_Recenter
-    NfsmwVr_HudLayout=Proxy_NfsmwVr_HudLayout
-    NfsmwVr_HudSave=Proxy_NfsmwVr_HudSave

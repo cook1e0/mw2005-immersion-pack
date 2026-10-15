@@ -18,6 +18,3 @@ void Game_ToggleLevel();
 
 // Debug: toggles stereo rendering (VR stays on, game renders mono screen).
 void Game_ToggleStereo();
-
-// In the world and driving (not paused or in a menu).
-bool Game_HudInWorld();
