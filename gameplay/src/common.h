@@ -147,6 +147,7 @@ struct Config {
     float rearGrip = 1.0f;          // rear tyres' grip relative to the front (below 1: oversteer)
     float offroadGrip = 0.75f;      // tyre grip on grass, dirt, mud, gravel, sand
     float slideGrip = 0.85f;        // a sliding tyre's friction compared with its peak grip
+    float slideOversteer = 0.8f;    // the rear tyres' side grip, as on grass (drive grip unchanged)
     float rainGrip = 0.9f;          // tyre grip in the rain
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's

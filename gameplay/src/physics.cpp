@@ -53,6 +53,11 @@
 // DYNAMIC_GRIP * traction boost * pilot factor at 0x69DD22), its grip limit is the static one. For
 // the player's car that multiply also takes [Physics] SlideGrip: below 1 a sliding tyre has less
 // grip than at its peak, so a rear that lets go slides the car instead of tightening the turn.
+// Slide oversteer: after the grip limit, UpdateLoaded multiplies the tyre's side force by its
+// surface's LATERAL_GRIP and its drive force by DRIVE_GRIP (0x69E098); grass takes more side grip
+// than drive grip, which is why a car on grass keeps driving and slides sideways. For the player's
+// rear tyres that side grip also takes [Physics] SlideOversteer, so the rear slides under power
+// on the road too, while the front steers and the drive grip is untouched.
 //
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
@@ -111,6 +116,7 @@ constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
+constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -121,6 +127,11 @@ Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
 extern "C" float s_slideGrip;
 float s_slideGrip = 1.0f;   // the sliding friction factor for the suspension simulating now
+// The player's tyres while its suspension simulates (else null) and their side grip factors.
+extern "C" uint8_t* s_latTires[4];
+extern "C" float s_latMul[4];
+uint8_t* s_latTires[4];
+float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -203,7 +214,7 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f;
+           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f && c.slideOversteer == 1.0f;
 }
 
 // Diagnostics: the player's physics step lengths (the game's forces divide by them).
@@ -236,7 +247,15 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
+    if (g_cfg.slideOversteer != 1.0f) {
+        uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
+        for (int i = 0; i < 4; i++) {
+            s_latTires[i] = iface ? *(uint8_t**)(iface + kSuspIface_Tires + i * 4) : nullptr;
+            s_latMul[i] = i >= 2 ? g_cfg.slideOversteer : 1.0f;
+        }
+    }
     s_origSusp(susp, dT);
+    for (uint8_t*& t : s_latTires) t = nullptr;
     s_slideGrip = 1.0f;
     Restore(sv);
     s_playerSusp = false;
@@ -251,6 +270,26 @@ __asm__(
     "    fmuls _s_slideGrip\n"
     "    ret\n");
 extern "C" void SlideFrictionStub();
+
+// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times s_latMul for a tyre in
+// s_latTires. eax is kept; the flags are free here (the next test sets them again).
+__asm__(
+    ".text\n"
+    "_LateralGripStub:\n"
+    "    flds 0xF0(%ecx)\n"
+    "    pushl %eax\n"
+    "    xorl %eax, %eax\n"
+    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
+    "    je 2f\n"
+    "    incl %eax\n"
+    "    cmpl $4, %eax\n"
+    "    jb 1b\n"
+    "    popl %eax\n"
+    "    ret\n"
+    "2:  fmuls _s_latMul(,%eax,4)\n"
+    "    popl %eax\n"
+    "    ret\n");
+extern "C" void LateralGripStub();
 
 // Called from TuneWheelParams for each blown tire, in place of the game's code.
 void __cdecl Hook_BlownTire(uint8_t* tire) {
@@ -635,6 +674,16 @@ void Physics_Install() {
         VirtualProtect((void*)kSlideFriction, sizeof(code), old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)kSlideFriction, sizeof(code));
         Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
+        if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
+            uint8_t lat[6] = {0xE8, 0, 0, 0, 0, 0x90};
+            int32_t r = (int32_t)((uintptr_t)&LateralGripStub - (kLateralGrip + 5));
+            memcpy(lat + 1, &r, 4);
+            VirtualProtect((void*)kLateralGrip, sizeof(lat), PAGE_EXECUTE_READWRITE, &old);
+            memcpy((void*)kLateralGrip, lat, sizeof(lat));
+            VirtualProtect((void*)kLateralGrip, sizeof(lat), old, &old);
+            FlushInstructionCache(GetCurrentProcess(), (void*)kLateralGrip, sizeof(lat));
+            Log("physics: slide oversteer ready (%.2f)", g_cfg.slideOversteer);
+        }
     } else {
         Log("physics: slide grip unavailable");
     }

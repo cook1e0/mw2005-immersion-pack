@@ -72,6 +72,9 @@
 - **Physics: slide grip:** a tyre that breaks loose now slides with less grip than its peak
   (F4 > Physics > Slide grip, every car alike, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
   car goes into a slide you can catch instead of snapping into the turn.
+- **Physics: slide oversteer:** the rear tyres lose side grip the way they do on grass while keeping
+  their drive grip, so the rear slides out under power on the road too (F4 > Physics > Slide
+  oversteer, every car alike, `[Physics] SlideOversteer`, 80%; 100% = off).
 - **Physics: rain grip:** tyres have 10% less grip in the rain (`[Physics] RainGrip`, 90%).
 - **Engine smoke no longer hangs in the air:** when the smoke stopped (repair, respawn, engine cooled)
   the game switched the effect off without updating it again, freezing its last puffs in place for
