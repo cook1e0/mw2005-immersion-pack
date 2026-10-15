@@ -61,6 +61,7 @@ struct Config {
     bool  stableReflections = true; // reflections use the seat's view, not the head's (they sit still as the head moves)
     bool  mirrors = true;            // the game's rear view on the interior rear view mirror (VR), no HUD mirror
     bool  gameMirrors = false;       // the game's side mirror glass shows the rear view (VR); off = vanilla side mirrors
+    char  gameMirrorsSkip[512] = {}; // cars (model names, comma separated) whose side mirrors stay vanilla
     bool  mirrorFlip = false;        // flip the mirror image left-right
     float mirrorScale = 0.82f;       // the image's size on the glass; the rest is a dark rim (1 = no rim)
     float mirrorBrightness = 1.4f;   // mirror picture brightness (all mirrors; the car's lighting darkens the side mirrors)

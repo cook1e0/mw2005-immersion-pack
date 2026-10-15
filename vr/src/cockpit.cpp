@@ -261,7 +261,7 @@ void UpdateHudCar(const std::string& car) {
 
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
 // middle). Checked against every car's driver model offline.
-constexpr float kArmsForward = 0.10f, kArmsBelowHead = 0.42f, kArmsSideways = 0.06f;
+constexpr float kArmsForward = 0.10f, kArmsBelowHead = 0.48f, kArmsSideways = 0.06f;   // 0.48: hands low on the wheel in low cars (Gallardo)
 
 // Reorders each entry's triangles body, arms, head (head: high up at the back of the model).
 Driver* Prepare(uint8_t* solid, const char* name) {
@@ -754,6 +754,16 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
     }
 }
 
+// A car listed in [VR] GameMirrorsSkip (model names such as BMWM3GTRE46, any case): its side
+// mirrors stay the game's.
+bool SkipGameMirrors(const std::string& car) {
+    char list[sizeof(g_cfg.gameMirrorsSkip)];
+    strcpy(list, g_cfg.gameMirrorsSkip);
+    for (char* tok = strtok(list, ", ;"); tok; tok = strtok(nullptr, ", ;"))
+        if (_stricmp(tok, car.c_str()) == 0) return true;
+    return false;
+}
+
 // Side mirrors: the game draws their glass as its own draw entry (the MIRROR material). That entry
 // is handed to the d3d9 side, which gives its vertices texture coordinates across the glass and
 // draws it with the rear view as its texture: the game's own glass, showing the rear view.
@@ -868,7 +878,7 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     }
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
     for (int side = 0; side < 2; side++)
-        if (info.glass[side].ok && g_cfg.gameMirrors) RegisterGlassEntry(solid, info, side);
+        if (info.glass[side].ok && g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name))) RegisterGlassEntry(solid, info, side);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
