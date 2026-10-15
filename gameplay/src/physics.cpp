@@ -34,7 +34,9 @@
 // spin was, a torque that took the car from 8 rad/s to the cap in one step, rolling it about half
 // a radian left, then right (the car "can't decide which way it's tilted"). Before integrating,
 // the spin change the torque will make (DoIntegration's own formula) is worked out, and the torque
-// scaled down so the spin after the step stays within MaxSpin.
+// scaled down so the spin after the step stays within MaxSpin, and so one step's torque never
+// changes the spin by more than kMaxSpinAccel * dT (the broken torques, up to billions of N m,
+// left a twitch even when under the limit).
 //
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
@@ -82,6 +84,9 @@ constexpr int kRV_Position = 0x10, kRV_LinearVel = 0x20, kRV_AngularVel = 0x30, 
 // RigidBody::mInvWorldTensor: DoIntegration turns torque * dT into a spin change with
 // UMath::Rotate (row vector times this 4x4, 0x401670) and adds it to the angular velocity.
 constexpr int kRB_InvWorldTensor = 0x90;
+// The most a step's torque may change the player's spin, per second (tyres, suspension and a hard
+// one-wheel landing stay well under it; impacts change the velocities directly, not by torque).
+constexpr float kMaxSpinAccel = 150.0f;
 constexpr int kTire_Brake = 0xC8;                   // SuspensionRacer::Tire: brake 0..1
 constexpr int kTire_EBrake = 0xCC;                  // ... handbrake 0..1
 constexpr int kTire_Traction = 0xEC;                // ... traction scale for this step
@@ -178,9 +183,22 @@ bool Stock() {
            c.torqueSplit == 1.0f && c.drivetrain == 1.0f;
 }
 
+// Diagnostics: the player's physics step lengths (the game's forces divide by them).
+float s_suspDT = 0.0f;                  // the player's last suspension step
+struct {
+    float rbMin = 1e9f, rbMax = 0.0f, suspMin = 1e9f, suspMax = 0.0f;
+    int steps = 0;
+    double since = 0;
+} s_dt;
+
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     bool player = Owns(susp, Game_PlayerInterface((void*)kISuspensionHandle));
     s_playerSusp = player;
+    if (player) {
+        s_suspDT = dT;
+        s_dt.suspMin = std::min(s_dt.suspMin, dT);
+        s_dt.suspMax = std::max(s_dt.suspMax, dT);
+    }
     if (!player || !g.ok || !g_cfg.physics || Stock()) {
         s_origSusp(susp, dT);
         s_playerSusp = false;
@@ -276,18 +294,29 @@ bool LimitTorque(uint8_t* rb, float dT, float predicted[3]) {
     float w1[3] = {av[0] + d[0], av[1] + d[1], av[2] + d[2]};
     float n1 = sqrtf(w1[0] * w1[0] + w1[1] * w1[1] + w1[2] * w1[2]);
     float s = 1.0f;
-    if (n1 > limit) {
+    float dn = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    const char* why = nullptr;
+    if (dn > kMaxSpinAccel * dT) {
+        s = kMaxSpinAccel * dT / dn;
+        why = "spike";
+    }
+    float ws[3] = {av[0] + d[0] * s, av[1] + d[1] * s, av[2] + d[2] * s};
+    if (sqrtf(ws[0] * ws[0] + ws[1] * ws[1] + ws[2] * ws[2]) > limit) {
+        why = "spin";
         // The largest share s of the torque with |av + s d| <= limit (|av| <= limit already).
         float dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
         float wd = av[0] * d[0] + av[1] * d[1] + av[2] * d[2];
         float ww = av[0] * av[0] + av[1] * av[1] + av[2] * av[2];
         float disc = wd * wd - dd * (ww - limit * limit);
-        s = dd > 1e-12f && disc >= 0.0f ? std::max(0.0f, std::min(1.0f, (-wd + sqrtf(disc)) / dd)) : 0.0f;
+        s = std::min(s, dd > 1e-12f && disc >= 0.0f ? std::max(0.0f, std::min(1.0f, (-wd + sqrtf(disc)) / dd)) : 0.0f);
+    }
+    if (why) {
         static double lastLog = -1e9;
         if (Now() - lastLog > 1.0) {
             lastLog = Now();
             float tn = sqrtf(T[0] * T[0] + T[1] * T[1] + T[2] * T[2]);
-            Log("physics: torque %.0f N m would spin the car to %.1f rad/s in one step: scaled to %.3f", tn, n1, s);
+            Log("physics: torque %.0f N m (%s) would change the spin by %.1f to %.1f rad/s in one step: scaled to %.4f "
+                "(step %.5f s, suspension step %.5f s)", tn, why, dn, n1, s, dT, s_suspDT);
         }
         for (int i = 0; i < 3; i++) T[i] *= s;
     } else if (!(n1 >= 0.0f)) {
@@ -317,6 +346,18 @@ void CheckPrediction(uint8_t* rb, const float predicted[3], const float before[3
 
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     DropIfAsked(rb);
+    if (Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) {
+        s_dt.rbMin = std::min(s_dt.rbMin, dT);
+        s_dt.rbMax = std::max(s_dt.rbMax, dT);
+        s_dt.steps++;
+        if (Now() - s_dt.since > 10.0) {
+            if (s_dt.since > 0)
+                Log("physics: %d steps in %.0f s, step %.5f..%.5f s, suspension step %.5f..%.5f s", s_dt.steps,
+                    Now() - s_dt.since, s_dt.rbMin, s_dt.rbMax, s_dt.suspMin, s_dt.suspMax);
+            s_dt = {};
+            s_dt.since = Now();
+        }
+    }
     LimitSpin(rb);
     float predicted[3], before[3] = {0, 0, 0};
     bool limited = LimitTorque(rb, dT, predicted);
