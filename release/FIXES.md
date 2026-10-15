@@ -80,9 +80,8 @@
   (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
   type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
   hits, `[FFB] CarHits`).
-- **VR: side mirrors behave like mirrors:** with GameMirrors on, each eye's view of the glass is
-  reflected off it and looked up in the rear view's image: what the glass shows (and how big)
-  follows your head, the mirror's angle and distance, instead of a fixed half of the picture.
+- **VR: side mirrors show a wider, fixed view:** each shows `[VR] SideMirrorWidth` (60%) of the rear
+  view from its side, full height.
 - **VR: side mirrors per car:** with `[VR] GameMirrors=1`, cars listed in `GameMirrorsSkip` (e.g.
   `BMWM3GTRE46,SLR`) keep the game's own side mirrors.
 - **VR: no stray hand pieces with Hide arms on:** some drivers have their hands in a second draw entry

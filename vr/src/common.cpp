@@ -144,6 +144,9 @@ void LoadConfig() {
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
     GetPrivateProfileStringA("VR", "GameMirrorsSkip", "", c.gameMirrorsSkip, sizeof(c.gameMirrorsSkip), ini);
     c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
+    c.sideMirrorWidth = ReadFloat(ini, "SideMirrorWidth", c.sideMirrorWidth);
+    if (!(c.sideMirrorWidth >= 0.3f)) c.sideMirrorWidth = 0.3f;
+    if (c.sideMirrorWidth > 1.0f) c.sideMirrorWidth = 1.0f;
     c.mirrorScale = ReadFloat(ini, "MirrorScale", c.mirrorScale);
     c.mirrorContrast = ReadFloat(ini, "MirrorContrast", c.mirrorContrast);
     c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);

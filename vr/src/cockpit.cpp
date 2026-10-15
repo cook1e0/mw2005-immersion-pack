@@ -898,47 +898,18 @@ void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, f
     }
 }
 
-// A side mirror for this eye: the eye's lines to the glass's corners, reflected off the glass,
-// looked up in the rear view's image (its view-projection matrix, eViews[3]'s plat info + 0x80).
-// Leaning in or out, the angle and the distance all change what the glass shows.
-void SideMirrorView(const SolidInfo& info, int side, const float* m) {
-    void* cam = At<void*>((void*)kPlayerView, kViewCamera);
-    uint8_t* rvm = *(uint8_t**)kRvmViewPlat;
-    if (!cam || !rvm) return;
-    const float* eye = &At<float>(cam, kCamPosition);
-    const float* vp = (const float*)(rvm + 0x80);
-    const MirrorGlass& g = info.glass[side];
-    auto world = [&](V3 p) {
-        return V3{p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12], p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13],
-                  p.x * m[2] + p.y * m[6] + p.z * m[10] + m[14]};
-    };
-    auto dir = [&](V3 d) {
-        return V3{d.x * m[0] + d.y * m[4] + d.z * m[8], d.x * m[1] + d.y * m[5] + d.z * m[9], d.x * m[2] + d.y * m[6] + d.z * m[10]};
-    };
-    V3 n = dir(g.normal);
-    float nl = sqrtf(mirror::Dot(n, n));
-    if (nl < 1e-6f) return;
-    n = n * (1.0f / nl);
-    const float su[4] = {-1, 1, -1, 1}, sv[4] = {1, 1, -1, -1};   // top left, top right, bottom left, bottom right
-    float uv[8];
-    for (int k = 0; k < 4; k++) {
-        V3 c = world(V3{g.centre.x + g.u.x * g.halfU * su[k] + g.v.x * g.halfV * sv[k],
-                        g.centre.y + g.u.y * g.halfU * su[k] + g.v.y * g.halfV * sv[k],
-                        g.centre.z + g.u.z * g.halfU * su[k] + g.v.z * g.halfV * sv[k]});
-        V3 r = {c.x - eye[0], c.y - eye[1], c.z - eye[2]};
-        float rn = mirror::Dot(r, n);
-        V3 rr = {r.x - 2 * rn * n.x, r.y - 2 * rn * n.y, r.z - 2 * rn * n.z};
-        float len = sqrtf(mirror::Dot(rr, rr));
-        if (len < 1e-6f) return;
-        V3 p = c + rr * (200.0f / len);
-        float x = p.x * vp[0] + p.y * vp[4] + p.z * vp[8] + vp[12];
-        float y = p.x * vp[1] + p.y * vp[5] + p.z * vp[9] + vp[13];
-        float w = p.x * vp[3] + p.y * vp[7] + p.z * vp[11] + vp[15];
-        if (w < 0.01f) w = 0.01f;   // behind the rear view camera: pinned to its edge
-        float u = 0.5f + 0.5f * x / w, v = 0.5f - 0.5f * y / w;
-        uv[k * 2] = g_cfg.mirrorFlip ? 1.0f - u : u;
-        uv[k * 2 + 1] = v;
+// A side mirror: a fixed slice of the rear view, [VR] SideMirrorWidth of its width from that side,
+// its full height (the left mirror shows the left part).
+void SideMirrorView(const SolidInfo& info, int side, const float*) {
+    float w = g_cfg.sideMirrorWidth;
+    float u0 = side == 0 ? 0.0f : 1.0f - w, u1 = u0 + w;
+    if (g_cfg.mirrorFlip) {
+        float a = 1.0f - u1, c = 1.0f - u0;
+        u0 = a;
+        u1 = c;
+        std::swap(u0, u1);
     }
+    const float uv[8] = {u0, 0.0f, u1, 0.0f, u0, 1.0f, u1, 1.0f};
     D3D_SetGlassCorners(info.glassIb[side], info.glassFirst[side], uv);
 }
 
