@@ -36,6 +36,7 @@
 #include "common.h"
 #include "physics.h"
 #include "game.h"
+#include <math.h>
 
 namespace {
 
@@ -59,6 +60,10 @@ constexpr uintptr_t kEllipseRatioInv = 0x896D64;    // 0.6667
 constexpr int kSR_Tranny = 0xDC;                    // SuspensionRacer: transmission layout (+0x70 TORQUE_SPLIT)
 constexpr int kTR_TorqueSplit = 0x70;
 constexpr int kRB_Specs = 0x84;                     // RigidBody: rigidbodyspecs layout (+0xF0 GRAVITY)
+// RigidBody::mData (**(rb + 0x78)), RigidBody::Volatile, as OnBeginFrame (0x6A7050) and
+// DoIntegration (0x6978F0) use it: position, linear and angular velocity (y up).
+constexpr int kRB_Data = 0x78;
+constexpr int kRV_Position = 0x10, kRV_LinearVel = 0x20, kRV_AngularVel = 0x30;
 constexpr int kTire_Brake = 0xC8;                   // SuspensionRacer::Tire: brake 0..1
 constexpr int kTire_EBrake = 0xCC;                  // ... handbrake 0..1
 constexpr int kTire_Traction = 0xEC;                // ... traction scale for this step
@@ -191,7 +196,31 @@ void __cdecl Hook_BlownTire(uint8_t* tire) {
     traction *= 1.0f - std::min(kPoppedTraction * k, 0.95f);
 }
 
+// Drop from the air (testing): requested by the menu, done in the player's next OnBeginFrame.
+volatile double s_dropAt = -1;
+
+void DropIfAsked(uint8_t* rb) {
+    if (s_dropAt < 0) return;
+    if (Now() - s_dropAt > 2.0) {   // not in a car: forget it
+        s_dropAt = -1;
+        return;
+    }
+    if (!Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return;
+    s_dropAt = -1;
+    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+    uint8_t* data = holder ? *holder : nullptr;
+    if (!data) return;
+    float* pos = (float*)(data + kRV_Position);
+    float* vel = (float*)(data + kRV_LinearVel);
+    float* av = (float*)(data + kRV_AngularVel);
+    pos[1] += g_cfg.dropHeight;
+    vel[1] = 0.0f;
+    av[0] = av[1] = av[2] = 0.0f;
+    Log("physics: car dropped from %.1f m (speed %.1f m/s)", g_cfg.dropHeight, sqrtf(vel[0] * vel[0] + vel[2] * vel[2]));
+}
+
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
+    DropIfAsked(rb);
     float k = g_cfg.gravity;
     uint8_t* specs = Field<uint8_t*>(rb, kRB_Specs);
     if (!g_cfg.physics || k == 1.0f || !specs ||
@@ -344,6 +373,8 @@ void Physics_SetOwnSettings(bool on) {
     }
     Log("physics: %s %s", pc.car.c_str(), on ? "has its own settings" : "back to [Physics] settings");
 }
+
+void Physics_DropCar() { s_dropAt = Now(); }
 
 void Physics_Install() {
     if (!Expect(kSuspSimulate, {0x81, 0xEC, 0xFC, 0x00, 0x00, 0x00, 0x56, 0x8B, 0xF1}) ||

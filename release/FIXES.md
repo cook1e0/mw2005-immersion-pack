@@ -56,6 +56,9 @@
 - **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
   view as it is, without the car paint's gloss and reflections that washed it out (the brightness
   and contrast sliders may want lowering now).
+- **Testing: Drop from air:** F4 > Controls > Testing > "Drop from air" lifts the car straight up by
+  "Drop height" (`[Tires] DropHeight`, 5 m) and lets it fall, keeping its forward speed, to test
+  landings anywhere.
 - **Force feedback: NOS FFB:** the steering goes lighter while the nitrous is on (the game's own
   IsNOSEngaged), eased in and out. F4 > Force feedback > NOS FFB, `[FFB] NosLighter` (0..0.9).
 - **VR: HUD left / right:** F4 > VR > HUD left / right (`[VR] HudRight`), also kept per car.

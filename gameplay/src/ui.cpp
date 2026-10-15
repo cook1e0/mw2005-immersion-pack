@@ -630,6 +630,8 @@ const Item kItems[] = {
     HEADER_("TESTING"),
     BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
     {ACTION, "Pop all four tires now", nullptr, "PopTires", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
+    {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -1050,6 +1052,11 @@ void Change(int index, int dir) {
             Note(FfbRestart() ? "FFB restart requested" : "Needs updated FFB mod with NativeFFB=0");
             return;
         }
+        if (strcmp(it.key, "DropCar") == 0) {
+            Physics_DropCar();
+            Note("Dropping the car");
+            return;
+        }
         Game_PopTires();
         Note("Tires popped (repair: safehouse, race restart or DebugRepair)");
         return;
@@ -1403,6 +1410,9 @@ const char* HelpText(const Item& it) {
         return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
         return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Also available with F10.";
+    if (it.kind == ACTION && strcmp(it.key, "DropCar") == 0)
+        return "Lifts the car straight up by Drop height and lets it fall, keeping its forward speed: for testing landings anywhere.";
+    if (it.value == &g_cfg.dropHeight) return "How high Drop from air lifts the car.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";

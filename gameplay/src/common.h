@@ -122,6 +122,7 @@ struct Config {
     // [Tires] spike strips pop tires like in NFS Carbon: the car stays drivable, with less grip
     // and some drag, instead of the game's locked-up wheels
     bool  poppedTires = true;
+    float dropHeight = 5.0f;        // [Tires] DropHeight: testing, how high "Drop from air" lifts the car (m)
     float tireHandicap = 0.35f;     // multiplies the grip loss and drag of a popped tire
     std::string debugPopTires;      // binding that pops all four tires (testing)
 

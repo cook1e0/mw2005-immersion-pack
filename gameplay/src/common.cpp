@@ -207,6 +207,7 @@ void LoadConfig() {
     c.damageLoss = Clamp(ReadFloat("Damage", "PowerLoss", c.damageLoss), 0.0f, 1.0f);
 
     c.poppedTires = ReadInt("Tires", "PoppedTires", 1) != 0;
+    c.dropHeight = Clamp(ReadFloat("Tires", "DropHeight", c.dropHeight), 0.5f, 50.0f);
     c.tireHandicap = Clamp(ReadFloat("Tires", "Handicap", c.tireHandicap), 0.0f, 3.0f);
     c.debugPopTires = ReadStr("Tires", "DebugPopTires", "");
 
