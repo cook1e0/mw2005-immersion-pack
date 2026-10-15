@@ -56,8 +56,8 @@
 - **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
   view as it is, without the car paint's gloss and reflections that washed it out (the brightness
   and contrast sliders may want lowering now).
-- **VR: BMW M3 GTR side mirrors:** glass that is part of a larger body draw is split out into a
-  draw of its own, so it shows the rear view too.
+- **Force feedback: NOS FFB:** the steering goes lighter while the nitrous is on (the game's own
+  IsNOSEngaged), eased in and out. F4 > Force feedback > NOS FFB, `[FFB] NosLighter` (0..0.9).
 - **VR: HUD left / right:** F4 > VR > HUD left / right (`[VR] HudRight`), also kept per car.
 - **Force feedback: off-road vibration:** the game's own surface name under each front tyre tells
   grass, dirt, mud, gravel and sand apart from the road: the wheel rumbles unevenly (two rough

@@ -29,6 +29,7 @@ struct Telemetry {
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
+    bool  nos;             // nitrous engaged (IEngine::IsNOSEngaged)
 
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.

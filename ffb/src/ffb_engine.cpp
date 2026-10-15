@@ -96,6 +96,9 @@ public:
         s.guard = c.oscillationGuard ? guard_.Step(fabsf(fx) > 0.03f ? 0.0f : w.vel, dt) : 0.0f;
         if (guard_.tripped) Log("ffb: wheel oscillating - damping raised until it settles");
         float steering = s.aligningSmoothed + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
+        // Nitrous: the steering goes light while it burns (eased in and out, not the soft lock).
+        nos_ = Clampf(nos_ + (t.valid && t.nos ? dt / 0.3f : -dt / 0.5f), 0.0f, 1.0f);
+        steering *= 1.0f - Clampf(c.nosLighter, 0.0f, 0.9f) * nos_;
         s.raw = steering * c.gain * (1.0f - 0.5f * s.guard) + s.parts.softLock;
 
         // No clipping: peaks are compressed above the knee, never cut flat, then scaled to MaxForce.
@@ -129,6 +132,7 @@ private:
     Model model_;
     Effects effects_;
     LowPass2 alignFilter_, velFilter_, velSmoothFilter_;
+    float nos_ = 0;                 // 0..1: how far the nitrous lightening has come in
     SlewLimiter slew_;
     OscillationGuard guard_;
     float drive_ = 0, lastPos_ = 0, velRaw_ = 0, wheelVel_ = 0;

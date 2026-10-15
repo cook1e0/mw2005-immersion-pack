@@ -37,7 +37,7 @@ enum {
     kGetMaxSteering = 0x6C,
 };
 // IEngine vtable slots
-enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10 };
+enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10, kIsNOSEngaged = 0x20 };   // EngineRacer: vtable 0x8AB6E0
 // SuspensionRacer: its front Tire objects; the Tire's road surface, an Attrib::Instance of class
 // simsurface (layout pointer at +8) with the game's own per-surface rumble.
 enum {
@@ -281,6 +281,17 @@ void Sample(void* player) {
         float rpm = VCall0<float>(engine, kGetRPM);
         float red = VCall0<float>(engine, kGetRedline);
         float idle = VCall0<float>(engine, kGetMinRPM);
+        // EngineRacer::IsNOSEngaged (0x6A0410): the nitrous level at full (>= 1).
+        t.nos = (VCall0<uint32_t>(engine, kIsNOSEngaged) & 0xFF) != 0;
+        static bool lastNos = false;
+        if (t.nos != lastNos) {
+            lastNos = t.nos;
+            static int logged = 0;
+            if (g_cfg.logTelemetry || logged < 4) {
+                logged++;
+                Log("nitrous %s", t.nos ? "on" : "off");
+            }
+        }
         if (rpm >= 0.0f && rpm < 30000.0f) {
             t.rpm = rpm;
             t.rpmNorm = red > idle + 1.0f ? Clamp((rpm - idle) / (red - idle), 0.0f, 1.0f) : 0.0f;

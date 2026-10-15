@@ -130,6 +130,7 @@ void LoadConfig() {
     c.scrapes = Clamp(ReadFloat(s, "Scrapes", c.scrapes), 0.0f, 2.0f);
     c.breakables = Clamp(ReadFloat(s, "Breakables", c.breakables), 0.0f, 2.0f);
     c.offroadVibration = Clamp(ReadFloat(s, "OffroadVibration", c.offroadVibration), 0.0f, 2.0f);
+    c.nosLighter = Clamp(ReadFloat(s, "NosLighter", c.nosLighter), 0.0f, 0.9f);
     c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);
     // ForceSign moved from [Calibration] (written by older versions) to [FFB].
     int legacySign = ReadInt("Calibration", "ForceSign", 0);

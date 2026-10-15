@@ -411,6 +411,34 @@ static void TestEngine() {
         Step s = e.Update(t, true, 0.6f, now, 0.0025f, 0.0);
         assert(isfinite(s.out));
     }
+    // Nitrous makes the steering lighter, by NosLighter, and it comes back after.
+    {
+        g_cfg = Config();
+        g_cfg.nosLighter = 0.5f;
+        g_cfg.oscillationGuard = false;
+        Engine a, b;
+        Telemetry n = Car(30, 1.0f);
+        Telemetry plain = n;
+        n.nos = true;
+        float withNos = 0, without = 0;
+        double at = now;
+        for (int i = 0; i < 800; i++) {
+            at += 0.0025;
+            n.time = plain.time = at;
+            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
+            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
+        }
+        assert(fabsf(without) > 0.05f && fabsf(withNos - without * 0.5f) < 0.02f * fabsf(without) + 1e-4f);
+        n.nos = false;
+        for (int i = 0; i < 800; i++) {
+            at += 0.0025;
+            n.time = plain.time = at;
+            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
+            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
+        }
+        assert(fabsf(withNos - without) < 0.02f * fabsf(without) + 1e-4f);
+        g_cfg = Config();
+    }
     // The force fades in after the effect (re)starts.
     g_cfg = Config();
     Engine fresh;

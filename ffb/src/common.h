@@ -52,6 +52,7 @@ struct Config {
     float scrapes = 0.4f;           // grinding along walls
     float breakables = 0.6f;        // knocks from smashing breakable props (benches, sign posts...)
     float offroadVibration = 0.4f;  // rumble on grass, dirt, mud, gravel
+    float nosLighter = 0.3f;        // steering this much lighter while the nitrous is on (0..0.9)
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens
