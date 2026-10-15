@@ -1330,7 +1330,41 @@ int __fastcall hkCarPixelSize(uint8_t* view, void*, const float* pos, float radi
     const float* eye = &At<float>(cam, kCamPosition);
     float dx = pos[0] - eye[0], dy = pos[1] - eye[1], dz = pos[2] - eye[2];
     float reach = radius + 1.0f;
-    return dx * dx + dy * dy + dz * dz < reach * reach ? std::max(size, 4096) : size;
+    if (dx * dx + dy * dy + dz * dz >= reach * reach || size >= 4096) return size;
+    static int logged;
+    if (size < 64 && logged < 3) {
+        logged++;
+        Log("cockpit: car drawn from inside it kept (its screen size was %d)", size);
+    }
+    return 4096;
+}
+
+// Then eView::GetVisibleState: the car's bounding box against the view (0 = not visible). With the
+// camera inside the box (or within a metre of it) the car counts as partly visible.
+constexpr uintptr_t kCallCarVisible = 0x74E346;     // CarRenderInfo::Render
+constexpr uintptr_t kVisibleState = 0x4FCA70;       // int eView::GetVisibleState(const bVector3* min, max, const bMatrix4*), thiscall
+
+int __fastcall hkCarVisible(uint8_t* view, void*, const float* mn, const float* mx, const float* m) {
+    int state = ((int(__thiscall*)(void*, const float*, const float*, const float*))kVisibleState)(view, mn, mx, m);
+    void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
+    if (state != 0 || !cam || !mn || !mx || !m) return state;
+    // The eye in the box's own space (row vectors: p = local * m; the axes may carry a scale).
+    const float* eye = &At<float>(cam, kCamPosition);
+    float rel[3] = {eye[0] - m[12], eye[1] - m[13], eye[2] - m[14]};
+    for (int a = 0; a < 3; a++) {
+        const float* axis = m + a * 4;
+        float len2 = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+        if (len2 < 1e-8f) return state;
+        float local = (rel[0] * axis[0] + rel[1] * axis[1] + rel[2] * axis[2]) / len2;
+        float margin = 1.0f / sqrtf(len2);
+        if (local < mn[a] - margin || local > mx[a] + margin) return state;
+    }
+    static int logged;
+    if (logged < 3) {
+        logged++;
+        Log("cockpit: car seen from inside its box kept visible");
+    }
+    return 1;
 }
 
 bool GameFocused() {
@@ -1346,6 +1380,7 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
     for (uintptr_t site : kCallsPixelSize) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
+    PatchCall(kCallCarVisible, kVisibleState, (void*)&hkCarVisible);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;
