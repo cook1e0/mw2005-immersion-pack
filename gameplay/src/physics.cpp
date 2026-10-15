@@ -41,6 +41,13 @@
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
 //
+// Grip balance and off-road grip: SuspensionRacer::TuneWheelParams sets each tyre's traction boost
+// for the step (Tire::BeginFrame resets it every step) and ends with DoDrifting; that call is
+// wrapped, and for the player's car the rear tyres' boost is scaled by [Physics] RearGrip (below 1:
+// the rear lets go first, oversteer) and any tyre on an off-road surface (its simsurface name:
+// grass, dirt, mud, gravel, sand...) by [Physics] OffroadGrip. UpdateLoaded applies the boost to
+// both the tyre's sliding friction and its grip limit.
+//
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
 // runs over a spike strip can barely move. That branch is replaced by a call: for the player's
@@ -90,6 +97,11 @@ constexpr float kMaxSpinAccel = 150.0f;
 constexpr int kTire_Brake = 0xC8;                   // SuspensionRacer::Tire: brake 0..1
 constexpr int kTire_EBrake = 0xCC;                  // ... handbrake 0..1
 constexpr int kTire_Traction = 0xEC;                // ... traction scale for this step
+constexpr int kTire_Surface = 0x9C;                 // ... road surface: Attrib::Instance (layout at +8)
+constexpr int kSurf_Name = 0xDC;                    // simsurface layout: CollectionName (char*)
+constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
+constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
+constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -344,6 +356,39 @@ void CheckPrediction(uint8_t* rb, const float predicted[3], const float before[3
     Log("physics: spin change predicted %.3f rad/s, off by %.4f", sqrtf(change), sqrtf(err));
 }
 
+// A tyre on an off-road surface, by the surface's own name.
+bool OffroadTire(uint8_t* tire) {
+    uintptr_t layout = *(uintptr_t*)(tire + kTire_Surface + 8);
+    if (layout < 0x10000 || layout >= 0x7FFF0000) return false;
+    const char* name = *(const char**)(layout + kSurf_Name);
+    if ((uintptr_t)name < 0x10000 || (uintptr_t)name >= 0x7FFF0000 || IsBadStringPtrA(name, 32)) return false;
+    static const char* const kWords[] = {"grass", "dirt", "mud", "gravel", "sand", "soil", "earth", "field",
+                                         "offroad", "off_road", "forest", "bush", "shrub", "snow", "rock"};
+    char low[48] = {};
+    for (int k = 0; k < 47 && name[k]; k++) low[k] = (char)tolower((unsigned char)name[k]);
+    for (const char* w : kWords)
+        if (strstr(low, w)) return true;
+    return false;
+}
+
+typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
+
+void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
+    ((DoDrifting_t)kDoDrifting)(susp, state);
+    if (!s_playerSusp || !g_cfg.physics) return;
+    float rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
+    if (rear == 1.0f && off == 1.0f) return;
+    uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
+    if (!iface) return;
+    for (int i = 0; i < 4; i++) {
+        uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+        if ((uintptr_t)tire < 0x10000 || (uintptr_t)tire >= 0x7FFF0000) continue;
+        float k = i >= 2 ? rear : 1.0f;
+        if (off != 1.0f && OffroadTire(tire)) k *= off;
+        Field<float>(tire, kTire_Traction) *= k;
+    }
+}
+
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     DropIfAsked(rb);
     if (Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) {
@@ -459,6 +504,7 @@ const PerCar kPerCar[] = {
     {&Config::grip, "Grip", 0.3f, 2.0f},
     {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
     {&Config::drivetrain, "Drivetrain", 0.7f, 3.0f},
+    {&Config::rearGrip, "RearGrip", 0.5f, 1.5f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
@@ -541,6 +587,16 @@ void Physics_Install() {
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
     InstallBlownTire();
+    if (Expect(kCallDoDrifting, {0xE8}) && kCallDoDrifting + 5 + *(int32_t*)(kCallDoDrifting + 1) == kDoDrifting) {
+        DWORD old;
+        VirtualProtect((void*)kCallDoDrifting, 5, PAGE_EXECUTE_READWRITE, &old);
+        *(int32_t*)(kCallDoDrifting + 1) = (int32_t)((uintptr_t)&Hook_DoDrifting - (kCallDoDrifting + 5));
+        VirtualProtect((void*)kCallDoDrifting, 5, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kCallDoDrifting, 5);
+        Log("physics: grip balance ready (rear grip %.2f, off-road grip %.2f)", g_cfg.rearGrip, g_cfg.offroadGrip);
+    } else {
+        Log("physics: grip balance unavailable");
+    }
     // fmul dword ptr [abs32] at both uses of the ratio: point them at our copies.
     if (Expect(kEllipseMul, {0xD8, 0x0D, 0x78, 0xAC, 0x8A, 0x00}) && Expect(kEllipseDiv, {0xD8, 0x0D, 0x64, 0x6D, 0x89, 0x00}) &&
         *(float*)kEllipseRatio > 1.0f) {

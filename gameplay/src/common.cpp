@@ -226,6 +226,8 @@ void LoadConfig() {
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
     c.torqueSplit = Clamp(ReadFloat("Physics", "TorqueSplit", c.torqueSplit), 0.0f, 3.0f);
     c.drivetrain = Clamp(ReadFloat("Physics", "Drivetrain", c.drivetrain), 0.7f, 3.0f);
+    c.rearGrip = Clamp(ReadFloat("Physics", "RearGrip", c.rearGrip), 0.5f, 1.5f);
+    c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
     c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);

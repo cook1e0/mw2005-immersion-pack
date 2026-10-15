@@ -144,6 +144,14 @@ constexpr uintptr_t kCallsDirectorSetAction[] = {0x479DD5, 0x479EFD};
 constexpr uintptr_t kCallNisOverlay = 0x482EAC;   // call ShowNISOverlay(id) for an NIS event
 constexpr uintptr_t kNisOverlay = 0x46EA50;       // cdecl, 1 arg (the id, a byte)
 constexpr int kNisOverlayBusted = 3;
+// Pursuit breakers also start an NIS (the game's scripted cutscene, let through for race intros
+// and busted): ETriggerMomentNIS (handled at 0x63BE40, from its event slot 0 at 0x6424B3) stamps
+// the sim time in 0x90D9D4, and the moment code (0x641080) starts the NIS while that stamp is under
+// 2 s old, freezing the world and placing the car again after it. In VR the stamp is put back, so
+// the moment never starts: no frozen world, no respawn.
+constexpr uintptr_t kCallTriggerMomentNis = 0x6424B3;
+constexpr uintptr_t kTriggerMomentNis = 0x63BE40;     // thiscall, no args
+constexpr uintptr_t kMomentNisTime = 0x90D9D4;        // float: when the last moment NIS was asked for
 // Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
 // them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
 constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
@@ -689,6 +697,16 @@ void __cdecl hkNisOverlay(int id) {
     ((void(__cdecl*)(int))kNisOverlay)(id);
 }
 
+void __fastcall hkTriggerMomentNis(void* ev, void*) {
+    float* stamp = (float*)kMomentNisTime;
+    float saved = *stamp;
+    ((void(__thiscall*)(void*))kTriggerMomentNis)(ev);
+    if (Xr_Available() && *stamp != saved) {
+        *stamp = saved;
+        Log("game: pursuit breaker cutscene skipped (VR)");
+    }
+}
+
 struct ActionKey { uint32_t hash64[2], hash32; const char* string; };
 
 // Director::SetAction for the player's view while VR runs: anything but the driving camera (or a
@@ -844,6 +862,7 @@ bool Game_InstallHooks() {
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
     for (uintptr_t site : kCallsDirectorSetAction) PatchCall(site, kDirectorSetAction, (void*)&hkDirectorSetAction, "camera director action");
     PatchCall(kCallNisOverlay, kNisOverlay, (void*)&hkNisOverlay, "busted overlay");
+    PatchCall(kCallTriggerMomentNis, kTriggerMomentNis, (void*)&hkTriggerMomentNis, "pursuit breaker cutscene");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
     PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
     PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");

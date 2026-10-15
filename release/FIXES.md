@@ -62,6 +62,13 @@
   around the map gaining speed with nobody driving (logged at 15-23 rad/s, hits up to 76 m/s). The
   player's spin is now limited to 8 rad/s (normal driving stays under 5). F4 > Physics > Spin
   limit, `[Physics] MaxSpin` (0 = the game's).
+- **VR: pursuit breakers no longer freeze the game and respawn the car:** besides the camera, a
+  pursuit breaker starts an NIS (ETriggerMomentNIS), which paused the world for ~10 s and then
+  placed the car again; in VR that trigger is now dropped.
+- **Physics: rear grip (oversteer) and off-road grip:** F4 > Physics > Rear grip scales the rear
+  tyres' grip against the front (below 100% the rear steps out, per car, `[Physics] RearGrip`);
+  Offroad grip scales grip on grass, dirt, mud, gravel and sand by each tyre's surface
+  (`[Physics] OffroadGrip`, 75%).
 - **Testing: Drop from air:** F4 > Menu and testing > "Drop from air" lifts the car straight up by
   "Drop height" (`[Tires] DropHeight`, 5 m) and lets it fall, keeping its forward speed, to test
   landings anywhere.
