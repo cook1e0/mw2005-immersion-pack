@@ -252,13 +252,14 @@ const struct {
     {MOD_VR, "HideArms", 1.0f},
     {MOD_FFB, "CentreWeight", 0.3f}, {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.5f},
     {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
+    {MOD_FFB, "Breakables", 0.6f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
-    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, EXT_COUNT
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -496,6 +497,7 @@ const Item kItems[] = {
     {NUMBER, "Road surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Breakable objects", "FFB", "Breakables", &s_ext[FFB_BREAKABLES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -1298,6 +1300,7 @@ const struct {
     {&s_ext[FFB_SURFACE], "The game's own rumble for the surface under the front tyres: grass, gravel, dirt, rumble strips."},
     {&s_ext[FFB_CRASHES], "A jolt when you hit something: cars, walls, and props such as benches, sign posts and fences."},
     {&s_ext[FFB_SCRAPES], "Grinding while the car slides along a wall, and a pull toward it."},
+    {&s_ext[FFB_BREAKABLES], "A sharp knock when you smash a breakable object (bench, sign post, fence, bin): the game's own breakable props, recognised as such, not any light contact."},
     {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
     {&s_ext[FFB_FRICTION], "Constant resistance, like a real steering rack."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},

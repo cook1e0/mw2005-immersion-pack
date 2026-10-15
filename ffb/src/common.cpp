@@ -128,6 +128,7 @@ void LoadConfig() {
     c.surfaceRumble = Clamp(ReadFloat(s, "SurfaceRumble", c.surfaceRumble), 0.0f, 2.0f);
     c.crashes = Clamp(ReadFloat(s, "Crashes", c.crashes), 0.0f, 2.0f);
     c.scrapes = Clamp(ReadFloat(s, "Scrapes", c.scrapes), 0.0f, 2.0f);
+    c.breakables = Clamp(ReadFloat(s, "Breakables", c.breakables), 0.0f, 2.0f);
     c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);
     // ForceSign moved from [Calibration] (written by older versions) to [FFB].
     int legacySign = ReadInt("Calibration", "ForceSign", 0);

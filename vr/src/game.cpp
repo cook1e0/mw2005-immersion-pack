@@ -55,7 +55,11 @@ constexpr uintptr_t kMirrorCamOption = 0x4766A7;  // RearViewMirrorCameraMover::
 constexpr uintptr_t kHudMirrorOption = 0x595DCC;  // HUD mirror shown: mov cl, [eax+0x39]
 constexpr uint8_t kMirrorCamGame[3] = {0x8A, 0x41, 0x39}, kMirrorCamOn[3] = {0xB0, 0x01, 0x90};     // mov al, 1
 constexpr uint8_t kHudMirrorGame[3] = {0x8A, 0x48, 0x39}, kHudMirrorOff[3] = {0xB1, 0x00, 0x90};    // mov cl, 0
-constexpr uintptr_t kRvmTexture = 0x982B48;       // TextureInfo* "RVM": +0 platform info, its +0x18 the D3D texture
+// ___eDisplayFrame renders eViews[3] while it is active into this render target (type, ?, colour
+// surface, depth surface), then the HUD draws it; the image is taken from its colour surface.
+constexpr uintptr_t kRvmTarget = 0x93DB0C;
+constexpr int kTargetSurface = 0x08;
+constexpr uintptr_t kRvmViewActive = 0x919738;    // eViews[3] + 8
 constexpr int kPlatView = 0x00;                   // eViewPlatInfo: view matrix (the camera's), projection at +0x40
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
@@ -332,16 +336,21 @@ void UpdateMirrorPatch() {
     Log("game: rear view %s", want ? "on the side mirrors (HUD mirror hidden)" : "as the game's option");
 }
 
-void* RvmTexture() {
-    uint8_t* info = *(uint8_t**)kRvmTexture;
-    uint8_t* plat = info ? *(uint8_t**)info : nullptr;
-    return plat ? *(void**)(plat + 0x18) : nullptr;
+void* RvmSurface() {
+    static int logged = -1;
+    int active = *(uint8_t*)kRvmViewActive != 0;
+    void* surface = *(void**)(kRvmTarget + kTargetSurface);
+    if (active != logged) {
+        logged = active;
+        Log("game: rear view %s (surface %p)", active ? "rendering" : "not rendering", surface);
+    }
+    return active ? surface : nullptr;
 }
 
 // After an eye's scene: the rear view on the side mirror glass drawn in it.
 void DrawMirrors(void* view) {
     if (!s_mirrorPatched) return;
-    void* tex = RvmTexture();
+    void* tex = RvmSurface();
     MirrorQuad quads[4];
     int n = tex ? Cockpit_Mirrors(quads, 4) : 0;
     if (n <= 0) return;

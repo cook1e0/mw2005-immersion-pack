@@ -72,6 +72,10 @@ static IDirect3DQuery9* s_fence;
 static int s_dumpRequested; // frames left to dump
 static int s_dumpIndex;
 
+static IDirect3DTexture9* s_mirrorTex;
+static IDirect3DSurface9* s_mirrorSurf;
+static UINT s_mirrorW, s_mirrorH;
+
 static void ReleaseEyeTargets() {
     for (int i = 0; i < 3; i++) {
         if (s_eyeSurf[i]) s_eyeSurf[i]->Release();
@@ -81,6 +85,11 @@ static void ReleaseEyeTargets() {
     }
     if (s_hudRT) s_hudRT->Release();
     s_hudRT = nullptr;
+    if (s_mirrorSurf) s_mirrorSurf->Release();
+    if (s_mirrorTex) s_mirrorTex->Release();
+    s_mirrorSurf = nullptr;
+    s_mirrorTex = nullptr;
+    s_mirrorW = s_mirrorH = 0;
     s_eyeW = s_eyeH = 0;
     s_eyeOk = false;
 }
@@ -162,8 +171,40 @@ void D3D_ResetForNextEye() {
     if (ds) ds->Release();
 }
 
-void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* texture, float brightness) {
-    if (!s_dev || quads <= 0 || !texture) return;
+
+// The rear view render target copied into a texture of our own (it may be multisampled, or a
+// plain surface no texture owns).
+static IDirect3DTexture9* MirrorTexture(IDirect3DSurface9* source) {
+    D3DSURFACE_DESC d;
+    if (FAILED(source->GetDesc(&d)) || d.Width == 0 || d.Height == 0) return nullptr;
+    if (!s_mirrorTex || d.Width != s_mirrorW || d.Height != s_mirrorH) {
+        if (s_mirrorSurf) s_mirrorSurf->Release();
+        if (s_mirrorTex) s_mirrorTex->Release();
+        s_mirrorSurf = nullptr;
+        s_mirrorTex = nullptr;
+        if (FAILED(s_dev->CreateTexture(d.Width, d.Height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                        &s_mirrorTex, nullptr))) {
+            Log("d3d9: mirror texture %ux%u could not be created", d.Width, d.Height);
+            return nullptr;
+        }
+        s_mirrorTex->GetSurfaceLevel(0, &s_mirrorSurf);
+        s_mirrorW = d.Width;
+        s_mirrorH = d.Height;
+        Log("d3d9: rear view %ux%u (format %d, msaa %d) copied for the side mirrors", d.Width, d.Height, d.Format, d.MultiSampleType);
+    }
+    HRESULT hr = s_dev->StretchRect(source, nullptr, s_mirrorSurf, nullptr, D3DTEXF_LINEAR);
+    static bool warned;
+    if (FAILED(hr) && !warned) {
+        warned = true;
+        Log("d3d9: copying the rear view failed 0x%08lx", hr);
+    }
+    return SUCCEEDED(hr) ? s_mirrorTex : nullptr;
+}
+
+void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* source, float brightness) {
+    if (!s_dev || quads <= 0 || !source) return;
+    IDirect3DTexture9* texture = MirrorTexture((IDirect3DSurface9*)source);
+    if (!texture) return;
     IDirect3DStateBlock9* saved = nullptr;
     if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
     IDirect3DSurface9 *rt = nullptr, *ds = nullptr, *bb = nullptr;

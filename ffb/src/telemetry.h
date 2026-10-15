@@ -44,6 +44,11 @@ struct Telemetry {
     float    hitSpeed;     // m/s, closing speed along the contact normal
     float    hitImpulse;   // the game's impulse on the car (light objects give little)
     float    hitLat;       // -1..1: the push on the car's nose to the right (+) or left (-)
+    // Breakable props (benches, sign posts, fences, bins: the game's Smackables) knocked by the car,
+    // told apart from other contacts by the object's class, counted up in breakSeq.
+    uint32_t breakSeq;
+    float    breakSpeed;   // m/s, the car's speed at the knock
+    float    breakLat;     // -1..1: the prop is to the right (+) or left (-) of the car's nose
     double   scrapeTime;   // Now() of the latest sliding contact
     float    scrapeSpeed;  // m/s along the wall
     float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)

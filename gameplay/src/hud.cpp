@@ -16,9 +16,9 @@
 // Warn or above both arcs pulse. The car icon is drawn like the game's own HUD: gray with no
 // damage, the HUD's beige (the arc's colour) when damaged, and pulsing red like the arc from
 // IconRedFrom (75%) up. Above it a clone of it shows the spike strip milestone icon
-// (MILESTONE_SPIKESTRIPS) the same way: gray, flashing red while a tire is popped. It stays
-// opaque (it sits over the arc, so a translucent one takes on the arc's colour): it flashes by
-// brightness, in the car icon's rhythm. Neither icon has an outline. The HUD package owns the clones and frees them with the
+// (MILESTONE_SPIKESTRIPS), only while a tire is popped, flashing red. It stays opaque (it sits
+// over the arc, so a translucent one takes on the arc's colour): it flashes by brightness, in
+// the car icon's rhythm. Neither icon has an outline. The HUD package owns the clones and frees them with the
 // rest of the package; a new HUD (or a clone that is gone from its list) gets new ones.
 #include "hud.h"
 #include "common.h"
@@ -340,10 +340,10 @@ void UpdateSpike(int popped, float flash) {
             return;
         }
     }
-    SetColor(s.spike, popped ? Bright(kHeatColor, flash) : kIconGray);
-    // Bit 0 = invisible (FEngSetInvisible): shown whenever the car icon is.
+    SetColor(s.spike, Bright(kHeatColor, flash));
+    // Bit 0 = invisible (FEngSetInvisible): shown with the car icon, and only with a popped tire.
     uint32_t& flags = Field<uint32_t>(s.spike, kFO_Flags);
-    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u);
+    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (popped ? 0u : 1u);
     if (vis != flags) flags = vis | kDirty;
     if (!s.spikeOutline.empty() && InList(s.iconList, s.spikeOutline[0]))
         UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, false);

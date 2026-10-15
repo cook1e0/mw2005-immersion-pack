@@ -311,6 +311,27 @@ static void TestEffects() {
         m.hitSpeed = 20;
         assert(NearZero(menu.Step(m, 0.0f, now + 0.02, dt, p).crash));
     }
+    // Breakable props: a knock toward the prop's side, over quickly; separate from crashes.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        fx.Step(t, 1.0f, now, dt, p);
+        t.breakSeq = 1;
+        t.breakSpeed = 20;
+        t.breakLat = 0.8f;                                     // on the right
+        float peak = 0, crash = 0;
+        for (int i = 0; i < 20; i++) {
+            EffectParts e = fx.Step(t, 1.0f, now + i * dt, dt, p);
+            peak = std::max(peak, e.breakable);
+            crash += fabsf(e.crash);
+        }
+        assert(peak > 0.2f && crash == 0.0f);
+        assert(NearZero(fx.Step(t, 1.0f, now + 0.5, dt, p).breakable));
+        p.breakables = 0;
+        t.breakSeq = 2;
+        assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, p).breakable));
+        p = EffectParams();
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;

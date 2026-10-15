@@ -46,12 +46,17 @@
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
+- **Force feedback: breakable objects:** smashing a bench, sign post, fence or bin gives a sharp
+  knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
+  recognised as the game's own breakable props (Smackables), by their class in the collision
+  report or when one is knocked loose where your car is, not guessed from light contacts.
 - **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
   player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
   option). The mirror glass is found in each car's model (checked offline on every car, including
   the few that have their mirrors in the body); the left mirror shows the left half of the rear
   view, the right one the right half. `[VR] Mirrors`, `MirrorSplit`, `MirrorFlip` (if the image
-  is the wrong way round), `MirrorBrightness`.
+  is the wrong way round), `MirrorBrightness`. The image is taken from the rear view's own render
+  target (the first try read the HUD's texture and showed black).
 - **Drivetrain multiplication:** F4 > Physics > Drivetrain multiplication (`[Physics] Drivetrain`,
   also per car) exaggerates how the driven wheels lose side grip under power: at 2x a rear drive
   car's power oversteer and a front drive car's understeer are doubled, all-wheel drive cars get
@@ -67,8 +72,8 @@
   F4 > Traffic and HUD > Drive drag races normally, `[Races] NormalDragRaces`.
 - **Damage meter car icon back to the game's look:** it was drawn opaque with a black outline,
   which looked harsh. It now uses the HUD's own colours: gray with no damage, the HUD's beige when
-  damaged, pulsing red like the damage arc from 75%. The spike strip icon matches it: always
-  shown, gray, flashing red while a tyre is popped, no outline.
+  damaged, pulsing red like the damage arc from 75%. The spike strip icon shows only while a tyre
+  is popped, flashing red, without the outline.
 - **VR: no more occasional cutscene camera at pursuit breakers:** the camera director had other
   ways off the driving camera (the cinematic camera when a moment or the game asks for it). In VR
   the player's camera is now turned straight back to the driving camera whatever picks another,

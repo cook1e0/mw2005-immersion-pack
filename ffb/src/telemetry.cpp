@@ -21,6 +21,13 @@ const uintptr_t VT_SuspensionRacer_ISuspension = 0x8ABAC8;
 const uintptr_t OnCollision    = 0x6F2370;  // void LocalPlayer::OnCollision(const Sim::Collision::Info&)
 const uintptr_t OnCollisionSlots[] = {0x8B0B08, 0x8B0BCC};  // LocalPlayer's and OnlineLocalPlayer's listener vtables
 const uintptr_t FindSimable    = 0x41AD40;  // ISimable* ISimable::FindInstance(HSIMABLE), cdecl
+// Breakable props: a Smackable (Sim object of a bench, sign, post, fence...) is created from the
+// world's placed scenery when something hits it, by sub_6895A0 at CallSmackableCtor. Its
+// vtables (primary and interfaces, as Smackable::Smackable installs them) identify it in a
+// collision report.
+const uintptr_t CallSmackableCtor = 0x6897DB;
+const uintptr_t SmackableCtor  = 0x688660;  // Smackable::Smackable(const Matrix4&, ...), thiscall, 7 args
+const uintptr_t SmackableVtables[] = {0x8AA6D0, 0x8AA638, 0x8AA618, 0x8AA5FC, 0x8AA5F4, 0x8AA5D8, 0x8AA5D4, 0x8AA5CC, 0x8AA5C4};
 }
 
 // ISuspension vtable slots (byte offsets)
@@ -82,7 +89,11 @@ struct {
 struct {
     void* simable;          // the player car's ISimable, from the latest sample
     Vec3 centre, fwd, right;
-    float halfBase;
+    float halfBase, speed;
+    uint32_t breakSeq;
+    float breakSpeed, breakLat;
+    double breakTime;
+    void* breakObject;
     uint32_t hitSeq;
     float hitSpeed, hitImpulse, hitLat;
     double hitTime, scrapeTime, scrapeLogTime;
@@ -97,6 +108,28 @@ void Publish(const Telemetry& t) {
 
 Vec3 ReadVec(const uint8_t* p) { Vec3 v; memcpy(&v, p, sizeof(v)); return v; }
 
+bool IsSmackable(const void* simable) {
+    if (!simable) return false;
+    uintptr_t vt = *(const uintptr_t*)simable;
+    for (uintptr_t v : addr::SmackableVtables)
+        if (vt == v) return true;
+    return false;
+}
+
+// One knock per prop: the reports keep coming while the car pushes it along.
+void Break(const void* object, Vec3 at, const char* how) {
+    double now = Now();
+    if (now - s_car.breakTime < 0.25 || (object && object == s_car.breakObject && now - s_car.breakTime < 1.0)) return;
+    s_car.breakSeq++;
+    s_car.breakTime = now;
+    s_car.breakObject = (void*)object;
+    s_car.breakSpeed = s_car.speed;
+    Vec3 rel = at - s_car.centre;
+    float side = Dot(rel, s_car.right);
+    s_car.breakLat = Clamp(side / 1.0f, -1.0f, 1.0f);
+    if (g_cfg.logTelemetry) Log("contact: breakable prop (%s) at %.1f m/s, side %.2f", how, s_car.speed, s_car.breakLat);
+}
+
 // The game reports a contact of the player car with another car, a prop (benches, sign posts,
 // fences) or the world. Hits become jolts; contact sliding along something becomes a scrape.
 void OnPlayerCollision(const uint8_t* info) {
@@ -107,6 +140,12 @@ void OnPlayerCollision(const uint8_t* info) {
     void* b = type == kCollisionObject ? ((void* (__cdecl*)(void*))addr::FindSimable)(*(void* const*)(info + kCiObjB)) : nullptr;
     bool isA = a == s_car.simable;
     if (!isA && b != s_car.simable) return;
+    // A breakable prop: its own knock, not a crash.
+    void* other = isA ? b : a;
+    if (type == kCollisionObject && IsSmackable(other)) {
+        Break(other, ReadVec(info + kCiPosition), "contact");
+        return;
+    }
 
     // The normal pushes object A away from B.
     Vec3 n = Norm(ReadVec(info + kCiNormal)) * (isA ? 1.0f : -1.0f);
@@ -143,6 +182,17 @@ void OnPlayerCollision(const uint8_t* info) {
     }
 }
 
+void* THISCALL Hook_SmackableCtor(void* self, const float* m, void* a2, void* a3, int a4, void* a5, int a6, int a7) {
+    typedef void* (THISCALL *Ctor_t)(void*, const float*, void*, void*, int, void*, int, int);
+    void* r = ((Ctor_t)addr::SmackableCtor)(self, m, a2, a3, a4, a5, a6, a7);
+    // Created where the car is, while it moves: the car just knocked it loose.
+    if (m && s_car.simable && s_car.speed > 2.0f) {
+        Vec3 at = {m[12], m[13], m[14]};
+        if (Len(at - s_car.centre) < 4.0f) Break(nullptr, at, "knocked loose");
+    }
+    return r;
+}
+
 void THISCALL Hook_OnCollision(void* self, const uint8_t* info) {
     if (info) OnPlayerCollision(info);
     ((OnCollision_t)addr::OnCollision)(self, info);
@@ -158,6 +208,9 @@ void Sample(void* player) {
     t.hitSpeed = s_car.hitSpeed;
     t.hitImpulse = s_car.hitImpulse;
     t.hitLat = s_car.hitLat;
+    t.breakSeq = s_car.breakSeq;
+    t.breakSpeed = s_car.breakSpeed;
+    t.breakLat = s_car.breakLat;
     t.scrapeTime = s_car.scrapeTime;
     t.scrapeSpeed = s_car.scrapeSpeed;
     t.scrapeLat = s_car.scrapeLat;
@@ -209,6 +262,7 @@ void Sample(void* player) {
     Vec3 vFront = (vel[0] + vel[1]) * 0.5f, vRear = (vel[2] + vel[3]) * 0.5f;
     Vec3 v = (vFront + vRear) * 0.5f;
     t.speed = Len(v);
+    s_car.speed = t.speed;
     t.vLong = Dot(v, fwd);
     t.vLatFront = Dot(vFront, right);
     t.vLatRear = Dot(vRear, right);
@@ -311,5 +365,16 @@ bool Telemetry_Install() {
     }
     if (hooked) Log("telemetry: hooked the player's collision reports (%d)", hooked);
     else Log("telemetry: unexpected collision listener - crash and scrape effects off");
+
+    uint8_t* c = (uint8_t*)addr::CallSmackableCtor;
+    if (c[0] == 0xE8 && (uintptr_t)(c + 5 + *(int32_t*)(c + 1)) == addr::SmackableCtor) {
+        VirtualProtect(c, 5, PAGE_EXECUTE_READWRITE, &old);
+        *(int32_t*)(c + 1) = (int32_t)((uintptr_t)&Hook_SmackableCtor - (uintptr_t)(c + 5));
+        VirtualProtect(c, 5, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), c, 5);
+        Log("telemetry: hooked breakable props being knocked loose");
+    } else {
+        Log("telemetry: unexpected breakable prop code - knocked-loose detection off");
+    }
     return true;
 }

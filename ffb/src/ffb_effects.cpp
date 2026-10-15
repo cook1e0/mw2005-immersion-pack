@@ -57,6 +57,30 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     if (!haveHitSeq_) {
         haveHitSeq_ = true;
         lastHitSeq_ = t.hitSeq;
+        lastBreakSeq_ = t.breakSeq;
+    }
+
+    // --- breakable props: a short, sharp knock, harder the faster the car hits ---
+    if (t.breakSeq != lastBreakSeq_) {
+        lastBreakSeq_ = t.breakSeq;
+        float amp = p.breakables * Clampf(0.35f + 0.65f * tanhf(t.breakSpeed / 15.0f), 0.0f, 1.0f);
+        if (amp > 0.01f) {
+            breakStart_ = now;
+            breakAmp_ = amp;
+            breakDir_ = Clampf(t.breakLat, -1.0f, 1.0f);
+        }
+    }
+    if (breakStart_ >= 0) {
+        float tau = (float)(now - breakStart_);
+        if (tau > 0.25f || tau < 0) {
+            breakStart_ = -1;
+        } else {
+            // Toward the prop's side (the front wheel on that side takes it), then a quick rattle.
+            float knock = tau < 0.05f ? sinf(3.14159265f * tau / 0.05f) : 0.0f;
+            float rattle = 0.5f * expf(-tau / 0.06f) * sinf((float)(kTwoPi * 28.0) * tau);
+            float dir = fabsf(breakDir_) > 0.2f ? (breakDir_ > 0 ? 1.0f : -1.0f) : 0.0f;
+            e.breakable = breakAmp_ * (dir * knock + rattle) * drive;
+        }
     }
     if (t.hitSeq != lastHitSeq_) {
         lastHitSeq_ = t.hitSeq;

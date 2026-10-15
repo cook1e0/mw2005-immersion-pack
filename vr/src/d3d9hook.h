@@ -16,8 +16,9 @@ void D3D_ResetForNextEye();
 
 // Draws textured quads (four vertices each: x, y, z, u, v) over the eye just rendered, into the
 // back buffer with the frame's depth buffer, using the game's view and projection matrices
-// (row vectors, as the game sets them). Used for the side mirrors. All device state is restored.
-void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* texture, float brightness);
+// (row vectors, as the game sets them). The image is the render target surface `source` (copied
+// into a texture first). Used for the side mirrors. All device state is restored.
+void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* source, float brightness);
 
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.

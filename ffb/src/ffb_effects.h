@@ -8,6 +8,8 @@
 //   crashes   a jolt when the car hits something: other cars, walls, and props such as benches,
 //             sign posts and fences; sideways from the side that was hit, then a short shake
 //   scrapes   grinding while the car slides along a wall, and a pull toward it
+//   breakables a sharp knock when the car smashes a breakable prop (bench, sign post, fence, bin),
+//             toward the side it was on: the game's own Smackable objects, not any light contact
 //
 // All in shares of full scale, + = turns the wheel to the right. Pure: no DirectInput or globals.
 #pragma once
@@ -21,11 +23,12 @@ struct EffectParams {
     float surface = 0.3f;
     float crashes = 0.6f;
     float scrapes = 0.4f;
+    float breakables = 0.6f;
 };
 
 struct EffectParts {
-    float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0;
-    float Sum() const { return engine + kerb + surface + crash + scrape; }
+    float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0;
+    float Sum() const { return engine + kerb + surface + crash + scrape + breakable; }
 };
 
 class Effects {
@@ -34,8 +37,10 @@ public:
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
     double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0;
-    uint32_t lastSeq_ = 0, lastHitSeq_ = 0;
+    uint32_t lastSeq_ = 0, lastHitSeq_ = 0, lastBreakSeq_ = 0;
     bool haveHitSeq_ = false;
+    double breakStart_ = -1;
+    float breakAmp_ = 0, breakDir_ = 0;
     float kerbKick_ = 0, kerbShake_ = 0;
     double hitStart_ = -1;
     float hitAmp_ = 0, hitDir_ = 0;

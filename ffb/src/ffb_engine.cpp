@@ -82,6 +82,7 @@ public:
         ep.surface = c.surfaceRumble;
         ep.crashes = c.crashes;
         ep.scrapes = c.scrapes;
+        ep.breakables = c.breakables;
         s.effects = effects_.Step(t, drive_, now, dt, ep);
         float fx = s.effects.Sum();
 
@@ -202,11 +203,11 @@ DWORD WINAPI FfbThread(LPVOID) {
             logTime = now;
             Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) "
                 "rpm=%.0f bump=%.2f/%.2f surf=%.2f@%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
-                "fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f | guard=%.2f raw=%.3f out=%.3f",
+                "fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f break=%.3f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
                 engine.RoadLock(), t.maxSteerDeg, t.steerDeg, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
-                s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.guard, s.raw, s.out);
+                s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable, s.guard, s.raw, s.out);
         }
         if (now - statTime > 30.0) {
             if (engine.Limiting() > engine.Ticks() / 10)
