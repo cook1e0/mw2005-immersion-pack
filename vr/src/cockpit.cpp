@@ -1344,16 +1344,24 @@ int __fastcall hkCarPixelSize(uint8_t* view, void*, const float* pos, float radi
 constexpr uintptr_t kCallCarVisible = 0x74E346;     // CarRenderInfo::Render
 // The same test per model (0x6DA9A2) and per draw entry (0x6DAB11, eViewPlatInterface::Render:
 // the entry's own box): looking down in the IS300 the car's parts were skipped one by one.
-constexpr uintptr_t kCallsPartVisible[] = {0x6DA9A2, 0x6DAB11};
+constexpr uintptr_t kCallsPartVisible[] = {0x6DA9A2, 0x6DAB11, 0x50288E, 0x5055B6, 0x505656, 0x505F07};
+// Every other caller of the test and of the screen size (models, car parts, scenery).
+constexpr uintptr_t kCallsVisibleState[] = {0x723F4E, 0x7267EF, 0x726900, 0x7291FD, 0x7296C1, 0x7297B7, 0x742A62};
+constexpr uintptr_t kCallsPixelSizeOther[] = {0x728E79, 0x742A21, 0x753858};
 constexpr uintptr_t kPlatVisibleState = 0x6CF2B0;   // eViewPlatInterface::GetVisibleState, thiscall, 3 args
 constexpr uintptr_t kVisibleState = 0x4FCA70;       // int eView::GetVisibleState(const bVector3* min, max, const bMatrix4*), thiscall
 
 int __fastcall hkCarVisible(uint8_t* view, void*, const float* mn, const float* mx, const float* m) {
     int state = ((int(__thiscall*)(void*, const float*, const float*, const float*))kVisibleState)(view, mn, mx, m);
     void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
-    if (state != 0 || !cam || !mn || !mx || !m) return state;
-    // The eye in the box's own space (row vectors: p = local * m; the axes may carry a scale).
+    if (state != 0 || !cam || !mn || !mx) return state;
     const float* eye = &At<float>(cam, kCamPosition);
+    if (!m) {   // a box in world space
+        for (int a = 0; a < 3; a++)
+            if (eye[a] < mn[a] - 1.0f || eye[a] > mx[a] + 1.0f) return state;
+        return 1;
+    }
+    // The eye in the box's own space (row vectors: p = local * m; the axes may carry a scale).
     float rel[3] = {eye[0] - m[12], eye[1] - m[13], eye[2] - m[14]};
     for (int a = 0; a < 3; a++) {
         const float* axis = m + a * 4;
@@ -1386,6 +1394,8 @@ void Cockpit_Install() {
     for (uintptr_t site : kCallsPixelSize) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
     PatchCall(kCallCarVisible, kVisibleState, (void*)&hkCarVisible);
     for (uintptr_t site : kCallsPartVisible) PatchCall(site, kPlatVisibleState, (void*)&hkCarVisible);
+    for (uintptr_t site : kCallsVisibleState) PatchCall(site, kVisibleState, (void*)&hkCarVisible);
+    for (uintptr_t site : kCallsPixelSizeOther) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;
