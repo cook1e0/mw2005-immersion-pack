@@ -135,6 +135,7 @@ void LoadConfig() {
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
+    c.sharedViewsOnce = ReadInt(ini, "SharedViewsOnce", c.sharedViewsOnce) != 0;
     c.stableReflections = ReadInt(ini, "StableReflections", c.stableReflections) != 0;
     c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;

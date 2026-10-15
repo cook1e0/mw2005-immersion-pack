@@ -92,6 +92,10 @@ enum {
 // sound, animated world models, the sun flare, the light flares' parameters, tunnel bloom and
 // tinting fades. Run twice, the second eye got a later step than the first: blinking lights,
 // flares and fades differed between the eyes. It runs for the first eye only.
+// The views that don't depend on the eye are rendered once a frame, for the first eye: the rear
+// view (3) and the environment map's six cube faces (18..23, rendered in ___eDisplayFrame's loop while
+// active). For the second eye they are switched off and back; it uses the first eye's images.
+constexpr int kSharedViews[] = {3, 18, 19, 20, 21, 22, 23};
 constexpr uintptr_t kCallPreDisplay = 0x6DE3D1;   // call ePreDisplay in ___eDisplayFrame
 constexpr uintptr_t kPreDisplay = 0x504C50;       // cdecl, no args
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
@@ -558,7 +562,17 @@ void __cdecl hkRenderScene() {
         Cockpit_BeginEye();
         BeginMirrors(view);
         s_secondEye = eye > 0;
+        int8_t sharedActive[sizeof(kSharedViews) / sizeof(kSharedViews[0])] = {};
+        if (s_secondEye && g_cfg.sharedViewsOnce)
+            for (size_t i = 0; i < sizeof(kSharedViews) / sizeof(kSharedViews[0]); i++) {
+                int8_t& active = At<int8_t>((void*)(kViews + kSharedViews[i] * kViewStride), kViewActive);
+                sharedActive[i] = active;
+                active = 0;
+            }
         oRenderScene();
+        if (s_secondEye && g_cfg.sharedViewsOnce)
+            for (size_t i = 0; i < sizeof(kSharedViews) / sizeof(kSharedViews[0]); i++)
+                At<int8_t>((void*)(kViews + kSharedViews[i] * kViewStride), kViewActive) = sharedActive[i];
         s_secondEye = false;
         EndMirrors();
         if (eye == 0) D3D_CaptureEye(0);

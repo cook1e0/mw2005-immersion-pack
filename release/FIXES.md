@@ -50,6 +50,10 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
+- **VR: faster frames:** the rear view mirror and the six faces of the reflections' environment
+  map were rendered again for the second eye (seven extra scene renders a frame, none of which
+  depend on the eye). They are rendered once a frame now and both eyes use them.
+  `[VR] SharedViewsOnce`.
 - **VR: both eyes see the same lights:** each eye runs the game's frame drawing, which starts by
   stepping per-frame state (animated world models, the sun flare, light flare parameters, tunnel
   bloom and tinting fades, sound). Done twice, the second eye saw a later step than the first, so

@@ -53,6 +53,7 @@ struct Config {
     bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
     float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
+    bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
     bool  stableReflections = true; // reflections use the seat's view, not the head's (they sit still as the head moves)
     bool  mirrors = true;            // the game's rear view on the interior rear view mirror (VR), no HUD mirror
