@@ -133,6 +133,17 @@ constexpr uintptr_t kDirectorSetAction = 0x4797F0; // thiscall, Attrib::StringKe
 constexpr uintptr_t kStringKeyCtor = 0x453760;    // Attrib::StringKey::StringKey(const char*), thiscall
 constexpr uintptr_t kNisInstance = 0x9885C8;      // UTL::Singleton<INIS>::mInstance: non-null during an NIS
 constexpr uintptr_t kActionDriveName = 0x894C20;  // "CDActionDrive" in speed.exe
+// Not only SelectAction changes the camera: CameraAI::SetAction (0x479EB0) sets an action
+// directly, from the cinematic moment (pursuit breakers: "CDActionIce") and from 0x47A12F
+// ("CDActionTrackCar", the slow-motion moment camera), between the director's selections. Both of
+// the director's own SetAction calls are checked, so no path cuts away from the cockpit.
+constexpr uintptr_t kCallsDirectorSetAction[] = {0x479DD5, 0x479EFD};
+// NIS screen overlays (table at 0x8EDEEC: 1 FLASHERS, 2 BLACK_FADE_OUT, 3 BUSTED_OVERLAY,
+// 4 BLACK_BACKGROUND), pushed by id for an NIS event. BUSTED_OVERLAY.fng is the square
+// camera-viewfinder frame over the busted cutscene.
+constexpr uintptr_t kCallNisOverlay = 0x482EAC;   // call ShowNISOverlay(id) for an NIS event
+constexpr uintptr_t kNisOverlay = 0x46EA50;       // cdecl, 1 arg (the id, a byte)
+constexpr int kNisOverlayBusted = 3;
 // Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
 // them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
 constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
@@ -450,23 +461,24 @@ void* RvmSurface() {
 
 // Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
 // models (d3d9proxy); the rear view is copied afterwards for the next eye.
-// While driving (in the world, simulation running, not paused): the HUD can be cockpit elements.
-bool HudInWorld() {
+// Driving: in the world, the simulation running, not paused.
+bool DrivingUnpaused() {
     if (!((bool(__cdecl*)())0x468380)()) return false;                  // GameFlow: in the world
     if (((int(__cdecl*)())0x6E8D20)() != 3) return false;              // Sim::GetState: running
     return !(*(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true));   // FEManager::ShouldPauseSimulation
 }
 
-// The seat (the game camera in the seat, without the head) as world axes for the HUD elements:
-// origin, right, up, forward.
-void BeginHud(void* view, const uint8_t* seatParams) {
+// The steering wheel in front of the HUD (d3d9proxy): the seat (the game camera in the seat,
+// without the head) as world axes, origin, right, up, forward, and the eye's view and projection.
+void BeginWheelHud(void* view, const uint8_t* seatParams) {
+    bool on = g_cfg.wheelOverHud > 0.5f && DrivingUnpaused();
     M4 V;
     memcpy(&V, seatParams + kCamMatrix, sizeof(V));
-    M4 W = MInvRigid(V);
+    M4 W = MInvRigid(V);   // rows: right, down, forward, position
     float seat[12] = {W.m[3][0], W.m[3][1], W.m[3][2], W.m[0][0], W.m[0][1], W.m[0][2],
-                      W.m[1][0], W.m[1][1], W.m[1][2], W.m[2][0], W.m[2][1], W.m[2][2]};
+                      -W.m[1][0], -W.m[1][1], -W.m[1][2], W.m[2][0], W.m[2][1], W.m[2][2]};
     void* plat = At<void*>(view, kViewPlatInfo);
-    D3D_BeginHudEye(seat, (const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection));
+    D3D_BeginWheelEye(on, seat, (const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection));
 }
 
 void BeginMirrors(void* view) {
@@ -580,7 +592,7 @@ void __cdecl hkRenderScene() {
         }
         Cockpit_BeginEye();
         BeginMirrors(view);
-        BeginHud(view, base);
+        BeginWheelHud(view, base);
         s_secondEye = eye > 0;
         int8_t sharedActive[sizeof(kSharedViews) / sizeof(kSharedViews[0])] = {};
         if (s_secondEye && g_cfg.sharedViewsOnce)
@@ -595,7 +607,7 @@ void __cdecl hkRenderScene() {
                 At<int8_t>((void*)(kViews + kSharedViews[i] * kViewStride), kViewActive) = sharedActive[i];
         s_secondEye = false;
         EndMirrors();
-        D3D_EndHudEye();
+        D3D_EndWheelEye();
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
@@ -666,6 +678,39 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
     ((void*(__thiscall*)(StringKey*, const char*))kStringKeyCtor)(&key, drive);
     ((void(__thiscall*)(void*, StringKey))kDirectorSetAction)(director, key);
     At<float>(director, kDirectorTrackCopTimer) = 0.0f;
+}
+
+// The busted cutscene without its viewfinder frame while VR runs: the scene is seen as it is.
+void __cdecl hkNisOverlay(int id) {
+    if (Xr_Available() && (id & 0x7F) == kNisOverlayBusted) {
+        Log("game: busted overlay skipped (VR)");
+        return;
+    }
+    ((void(__cdecl*)(int))kNisOverlay)(id);
+}
+
+struct ActionKey { uint32_t hash64[2], hash32; const char* string; };
+
+// Director::SetAction for the player's view while VR runs: anything but the driving camera (or a
+// debug camera) becomes the driving camera, except during an NIS.
+void __fastcall hkDirectorSetAction(uint8_t* director, void*, ActionKey key) {
+    auto set = (void(__thiscall*)(void*, ActionKey))kDirectorSetAction;
+    const char* drive = (const char*)kActionDriveName;
+    const char* action = key.string;
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
+        action != drive && strcmp(action, drive) != 0 && strncmp(action, "CDActionDebug", 13) != 0) {
+        static DWORD lastLog = 0;
+        if (GetTickCount() - lastLog > 2000) {
+            lastLog = GetTickCount();
+            Log("game: camera '%s' refused, driving camera kept (VR)", action);
+        }
+        ActionKey driveKey;
+        ((void*(__thiscall*)(ActionKey*, const char*))kStringKeyCtor)(&driveKey, drive);
+        At<float>(director, kDirectorTrackCopTimer) = 0.0f;
+        set(director, driveKey);
+        return;
+    }
+    set(director, key);
 }
 
 // Swaps in the seat position when `pos` is the eye camera's (not some other point).
@@ -797,6 +842,8 @@ bool Game_InstallHooks() {
     PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
+    for (uintptr_t site : kCallsDirectorSetAction) PatchCall(site, kDirectorSetAction, (void*)&hkDirectorSetAction, "camera director action");
+    PatchCall(kCallNisOverlay, kNisOverlay, (void*)&hkNisOverlay, "busted overlay");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
     PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
     PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");
@@ -830,5 +877,3 @@ void Game_ToggleStereo() {
     s_stereoEnabled = !s_stereoEnabled;
     Log("game: stereo %s", s_stereoEnabled ? "on" : "off");
 }
-
-bool Game_HudInWorld() { return HudInWorld(); }

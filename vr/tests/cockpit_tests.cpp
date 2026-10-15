@@ -10,7 +10,7 @@ void Log(const char*, ...) {}
 void ConfigFile(const char*, char* out, bool) { strcpy(out, "missing-cockpit-test.ini"); }
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}
-void D3D_SetHudAnchor(void*) {}
+void D3D_RegisterWheelDraw(void*, int) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
 static void* moverVtbl[8];
@@ -337,7 +337,32 @@ static void TestMirrorGlass() {
     Check(mirror::InBodyMirrorRegion(in, 1.0f) && !mirror::InBodyMirrorRegion(in, -1.0f) && !mirror::InBodyMirrorRegion(low, 1.0f), "mirror glass 8");
 }
 
+// The levelled camera stays upright when the car is on its roof (rolled 180 degrees), and a
+// half-levelled one keeps half the roll.
+static void TestLevelUpsideDown() {
+    const V3 up = {0, 0, 1};
+    auto camera = [](V3 r, V3 d, V3 f) {
+        M4 w = Identity();
+        const V3 axes[3] = {r, d, f};
+        for (int i = 0; i < 3; i++) { w.m[i][0] = axes[i].x; w.m[i][1] = axes[i].y; w.m[i][2] = axes[i].z; }
+        w.m[3][0] = 5; w.m[3][1] = 6; w.m[3][2] = 7;
+        return MInvRigid(w);
+    };
+    M4 upright = MInvRigid(LevelCamera(camera({1, 0, 0}, {0, 0, -1}, {0, 1, 0}), up, 1, 0));
+    Near(upright.m[0][0], 1, "upright camera keeps its right axis");
+    Near(upright.m[1][2], -1, "upright camera keeps down");
+    M4 roof = MInvRigid(LevelCamera(camera({-1, 0, 0}, {0, 0, 1}, {0, 1, 0}), up, 1, 0));
+    Near(roof.m[0][0], 1, "car on its roof: right axis levelled back");
+    Near(roof.m[1][2], -1, "car on its roof: down still points at the ground");
+    Near(roof.m[2][1], 1, "car on its roof: same heading");
+    Near(roof.m[3][2], 7, "levelling keeps the position");
+    const float s = 0.70710678f;
+    M4 half = MInvRigid(LevelCamera(camera({s, 0, -s}, {-s, 0, -s}, {0, 1, 0}), up, 0.5f, 0));
+    Near(half.m[0][0], cosf(3.14159265f / 8), "half levelling keeps half the roll");
+}
+
 int main() {
+    TestLevelUpsideDown();
     TestMirrorGlass();
     testTime = Now();
     static_assert(sizeof(void*) == 4, "test the game's 32-bit layout");

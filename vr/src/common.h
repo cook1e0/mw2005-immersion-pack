@@ -52,6 +52,7 @@ struct Config {
     bool  seat = true;               // bumper / hood camera: eyes at the driver model's head
     bool  hideHead = true;           // leave out the driver model's head when it is at the eyes
     float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
+    float wheelOverHud = 0.0f;       // 1 = the car's steering wheel in front of the HUD panel while driving (live from F4)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
@@ -69,13 +70,6 @@ struct Config {
 };
 extern Config g_cfg;
 void LoadConfig();
-
-#include "hud_layout.h"
-extern HudLayout g_hud;
-// [VR] Hud* keys in nfsmw_vr.ini (LoadConfig loads them too).
-void HudLoad();
-// A live HUD value by its [VR] key, null if none.
-float* HudSetting(const char* name);
 
 // Directory containing speed.exe (with trailing backslash).
 const char* GameDir();

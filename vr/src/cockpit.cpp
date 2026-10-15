@@ -859,10 +859,6 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
     if (info && m && g_cfg.mirrors && DrawingPlayerCar()) NoteMirrors(solid, *info, m);
-    if (info && info->interior && DrawingPlayerCar()) {
-        uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-        if (plat) D3D_SetHudAnchor(At<void*>(plat, kPlatIndexBuffer));
-    }
     Driver* d = info ? info->driver : nullptr;
     if (!d || !d->ok || !m) return entry;
     const float* h = d->head;
@@ -954,7 +950,8 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
     auto it = solid && e == entry ? s_solids.find(solid) : s_solids.end();
     Wheel* w = it != s_solids.end() ? it->second.wheel : nullptr;
     float angle = g_steeringWheelAngle;
-    if (w && w->ok && matrix && fabsf(angle) > 0.05f && DrawingPlayerCar()) {
+    bool wheelOverHud = g_cfg.wheelOverHud > 0.5f;
+    if (w && w->ok && matrix && (fabsf(angle) > 0.05f || wheelOverHud) && DrawingPlayerCar()) {
         uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
         int i = (int)(entry - entries) / kEntrySize;
         if (entry >= entries && i < (int)w->turned.size() && w->turned[i] > 0) {
@@ -971,6 +968,8 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
             float* turned = s_turned[s_turnedNext++ % 256];
             TurnedMatrix(*w, angle, matrix, turned);
             if (w->kept[i] > 0) submit(rest, a2, a3, a4, a5, matrix, a7, a8, a9);
+            if (wheelOverHud)
+                D3D_RegisterWheelDraw(At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer), At<int>(wheel, kEntryFirstIndex));
             submit(wheel, a2, a3, a4, a5, turned, a7, a8, a9);
             return;
         }

@@ -50,6 +50,20 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
+- **Force feedback: grass pull:** the game's own surface name under each front tyre tells grass
+  apart (grass, grass_shoulder): a pull toward the side whose wheel is on grass, eased in, harder
+  with speed. F4 > Force feedback > Grass pull, `[FFB] GrassPull`.
+- **VR: steering wheel in front of the HUD:** F4 > VR > "Steering wheel rendered in front of HUD"
+  (`[VR] WheelOverHud`). While driving, the HUD panel is drawn into the picture behind the car's
+  steering wheel; in the pause menu, other menus and while the F4 menu is open it is the usual
+  panel on top again.
+- **VR: the view no longer turns over with the car:** with the horizon levelled (`LevelRoll`), a car
+  on its roof or barrel-rolling kept the view upside down; now "down" always points at the ground.
+- **VR: pursuit breakers no longer cut away:** the slow-motion moment camera (CDActionTrackCar) and
+  any other camera set directly, not only through the camera director's selection, is refused in
+  VR (the game's own NIS cutscenes still play).
+- **VR: busted cutscene without the viewfinder frame:** the BUSTED_OVERLAY square over the scene is
+  not shown in VR.
 - **VR: faster frames:** the rear view mirror and the six faces of the reflections' environment
   map were rendered again for the second eye (seven extra scene renders a frame, none of which
   depend on the eye). They are rendered once a frame now and both eyes use them.
