@@ -124,6 +124,29 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         e.offroad = offroadLevel_ * 0.5f * rough * drive;
     }
 
+    // --- landing: all four wheels off the ground for 0.15 s or more, then touching down: a hard
+    // kick (toward the side the front is sliding, else alternating) and a short shake ---
+    if (t.valid && t.wheelsOnGround == 0) {
+        airTime_ += dt;
+    } else {
+        if (t.valid && airTime_ >= 0.15f && p.landing > 0.0f) {
+            landStart_ = now;
+            landAmp_ = p.landing * Clampf(0.55f + airTime_ * 0.6f, 0.55f, 1.2f);
+            landDir_ = fabsf(t.vLatFront) > 0.3f ? (t.vLatFront > 0 ? 1.0f : -1.0f) : -landDir_;
+        }
+        airTime_ = 0.0f;
+    }
+    if (landStart_ >= 0) {
+        float tau = (float)(now - landStart_);
+        if (tau > 0.35f) {
+            landStart_ = -1;
+        } else {
+            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
+            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
+            e.landing = landAmp_ * (landDir_ * kick + shake) * drive;
+        }
+    }
+
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
     float since = (float)(now - t.scrapeTime);
     if (t.scrapeTime > 0 && since >= 0 && since < 0.12f && p.scrapes > 0.0f && speed > 1.0f) {

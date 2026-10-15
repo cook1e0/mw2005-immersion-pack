@@ -129,6 +129,7 @@ void LoadConfig() {
     c.crashes = Clamp(ReadFloat(s, "Crashes", c.crashes), 0.0f, 2.0f);
     c.scrapes = Clamp(ReadFloat(s, "Scrapes", c.scrapes), 0.0f, 2.0f);
     c.breakables = Clamp(ReadFloat(s, "Breakables", c.breakables), 0.0f, 2.0f);
+    c.landing = Clamp(ReadFloat(s, "Landing", c.landing), 0.0f, 2.0f);
     c.offroadVibration = Clamp(ReadFloat(s, "OffroadVibration", c.offroadVibration), 0.0f, 2.0f);
     c.nosLighter = Clamp(ReadFloat(s, "NosLighter", c.nosLighter), 0.0f, 0.9f);
     c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);

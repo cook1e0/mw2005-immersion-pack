@@ -254,13 +254,10 @@ void PlayMoment(uint32_t moment) {
     ((void(__thiscall*)(void*))kMessageDeliver)(msg);
 }
 
-// A missed shift: the drag race "missed shift" event (exhaust pop) and, since that has no sound
-// outside drag races, the totaled car's engine failure sound ([Shifter] GrindSound).
+// A missed shift: the totaled car's engine failure sound ([Shifter] GrindSound). The drag race
+// "missed shift" event isn't sent any more: its exhaust smoke stayed where the shift was missed.
 void MissShift(uint8_t* eng) {
-    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
-    if (!owner) return;
-    void* ev = ((void*(__cdecl*)(size_t))kEventNew)(0x10);
-    if (ev) ((void(__thiscall*)(void*, void*, float))kEMissShift)(ev, Field<void*>(owner, 8), 0.0f);
+    if (!Field<uint8_t*>(eng, kER_Owner)) return;
     if (g_cfg.grindSound) PlayMoment(g_cfg.grindSound);
 }
 

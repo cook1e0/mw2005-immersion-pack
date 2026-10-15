@@ -51,6 +51,7 @@ struct Config {
     float crashes = 0.6f;           // jolts from hitting cars, walls and props
     float scrapes = 0.4f;           // grinding along walls
     float breakables = 0.6f;        // knocks from smashing breakable props (benches, sign posts...)
+    float landing = 0.8f;           // kick and shake when landing after a jump
     float offroadVibration = 0.4f;  // rumble on grass, dirt, mud, gravel
     float nosLighter = 0.3f;        // steering this much lighter while the nitrous is on (0..0.9)
 

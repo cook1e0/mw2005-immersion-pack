@@ -364,6 +364,20 @@ static void TestEffects() {
         off.offroad = 0;
         assert(rms(t, off, &lo, &hi) < 1e-4f);
     }
+    // Landing: nothing in the air, a strong jolt on touchdown after a jump, gone after it.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        t.wheelsOnGround = 0;
+        double at = now;
+        float peak = 0;
+        for (int i = 0; i < 200; i++) peak = std::max(peak, fabsf(fx.Step(t, 1.0f, at += dt, dt, p).landing));
+        assert(peak < 1e-6f);
+        t.wheelsOnGround = 4;
+        for (int i = 0; i < 100; i++) peak = std::max(peak, fabsf(fx.Step(t, 1.0f, at += dt, dt, p).landing));
+        assert(peak > 0.4f);
+        assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).landing) < 1e-6f);
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;

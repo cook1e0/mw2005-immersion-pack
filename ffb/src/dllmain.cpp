@@ -42,6 +42,7 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"MenuAxes", &g_cfg.menuAxes}, {"CentreWeight", &g_cfg.centreWeight}, {"EngineRumble", &g_cfg.engineRumble},
         {"Kerbs", &g_cfg.kerbs}, {"SurfaceRumble", &g_cfg.surfaceRumble}, {"Crashes", &g_cfg.crashes},
         {"Scrapes", &g_cfg.scrapes}, {"Breakables", &g_cfg.breakables},
+        {"Landing", &g_cfg.landing},
         {"OffroadVibration", &g_cfg.offroadVibration},
         {"NosLighter", &g_cfg.nosLighter},
     };

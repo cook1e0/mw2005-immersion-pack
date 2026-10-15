@@ -862,7 +862,7 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     }
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
     for (int side = 0; side < 2; side++)
-        if (info.glass[side].ok) RegisterGlassEntry(solid, info, side);
+        if (info.glass[side].ok && g_cfg.gameMirrors) RegisterGlassEntry(solid, info, side);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`

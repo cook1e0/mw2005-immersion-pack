@@ -72,6 +72,12 @@
 - **Physics: slide grip:** a tyre that breaks loose now slides with less grip than its peak
   (F4 > Physics > Slide grip, every car alike, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
   car goes into a slide you can catch instead of snapping into the turn.
+- **VR: vanilla side mirrors:** the side mirrors are the game's own again (`[VR] GameMirrors=0`); the
+  interior rear view mirror stays.
+- **Force feedback: landing:** a hard kick and a short shake in the wheel when the car lands after a
+  jump, stronger the longer it flew (F4 > Force feedback > Landing, `[FFB] Landing`).
+- **No smoke left behind by a missed shift:** the drag race "missed shift" event isn't sent any more
+  (its exhaust smoke stayed where the shift was missed); the grind sound stays.
 - **Physics: slide oversteer you can catch:** the rear's lost side grip now follows the throttle
   (lifting off in front drive cars) and comes back as the slide passes 20-45 degrees, so lifting
   or countersteering recovers it instead of the car spinning.
