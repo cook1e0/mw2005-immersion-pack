@@ -8,6 +8,7 @@
 // The menu is driven by bindings ([UI] Menu / MenuUp / ...), so it works with a keyboard, a
 // wheel's d-pad or a button box, in VR as well as on a flat screen. While it is open the car's
 // controls are blocked; settings are written to the ini when it closes.
+#include "../../vr/src/hud_layout.h"
 #include "ui.h"
 #include "common.h"
 #include "game.h"
@@ -265,6 +266,14 @@ enum {
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
+// Setup UI (the VR HUD layout, live in the VR mod).
+bool s_hudSetup = false;
+bool s_hudDirty = false;
+int s_hudSel = 0;
+HudLayout* HudLayoutPtr();
+void HudSetupClose();
+void DrawHudSetup(int W, int H, float k);
+
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
 // (proxy and .asi), only the running one answers for its first key.
 HMODULE FindModule(const char* exportName, const char* key) {
@@ -300,6 +309,13 @@ HMODULE ExtModule(int mod) {
         }
     }
     return m[mod];
+}
+
+// The VR mod's HUD layout (null without it).
+HudLayout* HudLayoutPtr() {
+    HMODULE vr = ExtModule(MOD_VR);
+    FARPROC f = vr ? GetProcAddress(vr, "NfsmwVr_HudLayout") : nullptr;
+    return f ? ((HudLayout*(__cdecl*)())f)() : nullptr;
 }
 
 // The mod's live value for s_ext[i], or null without the mod (or a build that lacks the key).
@@ -596,6 +612,7 @@ const Item kItems[] = {
     PAGE_("VR"),
     BACK_,
     {ACTION, "Recenter view", nullptr, "RecenterVr", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Setup UI", nullptr, "SetupUi", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD PANEL"),
     {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
@@ -1024,6 +1041,15 @@ void Change(int index, int dir) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
             return;
         }
+        if (strcmp(it.key, "SetupUi") == 0) {
+            if (!HudLayoutPtr()) {
+                Note("Needs the updated VR mod");
+                return;
+            }
+            s_hudSetup = true;
+            s_hudSel = 0;
+            return;
+        }
         if (strcmp(it.key, "FfbStatus") == 0) {
             Note(FfbStatus());
             return;
@@ -1118,6 +1144,7 @@ void SetOpen(bool open) {
             if (ExtSetting(i)) s_ext[i] = *ExtSetting(i);
     if (!open) {
         CancelCapture();
+        if (s_hudSetup) HudSetupClose();
         if (s_menu.dirty) {
             Save();
             s_menu.dirty = false;
@@ -1172,6 +1199,11 @@ void UpdateMenu(const InputSnapshot& in, bool driving) {
     }
     if (toggles & 1) SetOpen(!s_menu.open);
     if (!s_menu.open) return;
+    if (s_hudSetup) {
+        // Setup UI is worked with the mouse; Left (back) leaves it.
+        if (nav[2] > 0) HudSetupClose();
+        return;
+    }
     for (int n = 0; n < nav[0]; n++) Step(-1);
     for (int n = 0; n < nav[1]; n++) Step(+1);
     for (int n = 0; n < nav[2] && s_menu.capture < 0; n++) Change(s_menu.sel, -1);
@@ -1376,6 +1408,9 @@ const struct {
 
 const char* HelpText(const Item& it) {
     if (it.kind == CAR) return "This car keeps its own physics values, saved in its [Car.<name>] section.";
+    if (it.kind == ACTION && strcmp(it.key, "SetupUi") == 0)
+        return "Lay out the HUD in the cockpit: pick what each element shows on the HUD (drag the boxes with the mouse), "
+               "where it sits, its size, and whether the steering wheel hides it. Saved to nfsmw_vr.ini [HUD].";
     if (it.kind == ACTION && strcmp(it.key, "RecenterVr") == 0)
         return "Makes the way you are facing now straight ahead, at the driver's seat (same as the VR mod's key, F8).";
     if (it.kind == ACTION && strcmp(it.key, "FfbStatus") == 0)
@@ -1862,6 +1897,156 @@ void DrawPage(int page, bool focused, float k) {
     }
 }
 
+// --- Setup UI: the VR HUD layout (hud_layout.h, kept by the VR mod) ---------------------------------
+struct {
+    int crop = -1;          // crop being dragged
+    bool resize = false;    // by its corner
+} s_hudDrag;
+
+void HudSetupClose() {
+    if (!s_hudSetup) return;
+    s_hudSetup = false;
+    s_hudDrag.crop = -1;
+    if (s_hudDirty) {
+        HMODULE vr = ExtModule(MOD_VR);
+        FARPROC save = vr ? GetProcAddress(vr, "NfsmwVr_HudSave") : nullptr;
+        bool ok = save && ((int(__cdecl*)())save)() != 0;
+        Note(ok ? "HUD layout saved" : "HUD layout not saved");
+        s_hudDirty = false;
+    }
+}
+
+int HudElementOfCrop(int c) {
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        int crops[3];
+        int n = HudElementCrops(e, crops);
+        for (int i = 0; i < n; i++)
+            if (crops[i] == c) return e;
+    }
+    return 0;
+}
+
+ImU32 HudColour(int e, int alpha) {
+    static const ImU32 rgb[HUD_NUM_ELEMENTS] = {IM_COL32(255, 150, 0, 0), IM_COL32(0, 200, 255, 0), IM_COL32(80, 230, 80, 0),
+                                                IM_COL32(230, 90, 230, 0)};
+    return (rgb[e] & 0x00FFFFFF) | ((ImU32)alpha << 24);
+}
+
+void DrawHudSetup(int W, int H, float k) {
+    HudLayout* L = HudLayoutPtr();
+    if (!L) {
+        s_hudSetup = false;
+        return;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    io.MouseDrawCursor = true;
+
+    // The crops, over the HUD itself: drag a box to move it, its corner to resize it.
+    ImDrawList* bg = ImGui::GetBackgroundDrawList();
+    float hs = 12 * k;   // corner handle
+    if (!io.WantCaptureMouse && ImGui::IsMouseClicked(0)) {
+        for (int c = HUD_NUM_CROPS - 1; c >= 0 && s_hudDrag.crop < 0; c--) {
+            const HudCrop& r = L->crop[c];
+            ImVec2 a(r.x * W, r.y * H), b((r.x + r.w) * W, (r.y + r.h) * H);
+            ImVec2 m = io.MousePos;
+            if (m.x >= b.x - hs && m.x <= b.x + hs / 2 && m.y >= b.y - hs && m.y <= b.y + hs / 2) {
+                s_hudDrag.crop = c;
+                s_hudDrag.resize = true;
+            } else if (m.x >= a.x && m.x <= b.x && m.y >= a.y && m.y <= b.y) {
+                s_hudDrag.crop = c;
+                s_hudDrag.resize = false;
+            }
+        }
+        if (s_hudDrag.crop >= 0) s_hudSel = HudElementOfCrop(s_hudDrag.crop);
+    }
+    if (s_hudDrag.crop >= 0) {
+        if (ImGui::IsMouseDown(0)) {
+            HudCrop& r = L->crop[s_hudDrag.crop];
+            float dx = io.MouseDelta.x / W, dy = io.MouseDelta.y / H;
+            if (dx != 0 || dy != 0) s_hudDirty = true;
+            if (s_hudDrag.resize) {
+                r.w = Clamp(r.w + dx, 0.02f, 1.0f - r.x);
+                r.h = Clamp(r.h + dy, 0.02f, 1.0f - r.y);
+            } else {
+                r.x = Clamp(r.x + dx, 0.0f, 1.0f - r.w);
+                r.y = Clamp(r.y + dy, 0.0f, 1.0f - r.h);
+            }
+        } else {
+            s_hudDrag.crop = -1;
+        }
+    }
+    for (int c = 0; c < HUD_NUM_CROPS; c++) {
+        const HudCrop& r = L->crop[c];
+        int e = HudElementOfCrop(c);
+        bool sel = e == s_hudSel;
+        ImVec2 a(r.x * W, r.y * H), b((r.x + r.w) * W, (r.y + r.h) * H);
+        bg->AddRectFilled(a, b, HudColour(e, sel ? 45 : 20));
+        bg->AddRect(a, b, HudColour(e, sel ? 255 : 150), 0, 0, (sel ? 3.0f : 1.5f) * k);
+        bg->AddRectFilled(ImVec2(b.x - hs, b.y - hs), b, HudColour(e, 230));
+        bg->AddText(ImVec2(a.x + 4 * k, a.y + 2 * k), HudColour(e, 255), HudCropName(c));
+    }
+
+    // The panel: the selected element's place in the cockpit.
+    ImGui::SetNextWindowPos(ImVec2(roundf(W * 0.5f - 250 * k), roundf(H * 0.25f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(roundf(500 * k), 0), ImGuiCond_Always);
+    ImGui::Begin("Setup UI", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings);
+    ImGui::TextWrapped("Drag the coloured boxes over the HUD to choose what each element shows (corner: resize). "
+                       "Then place the element in the cockpit below (drag the values).");
+    ImGui::Separator();
+    bool on = L->enabled > 0.5f;
+    if (ImGui::Checkbox("HUD as elements in the cockpit", &on)) {
+        L->enabled = on ? 1.0f : 0.0f;
+        s_hudDirty = true;
+    }
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        if (e) ImGui::SameLine();
+        ImGui::PushStyleColor(ImGuiCol_Text, HudColour(e, 255));
+        if (ImGui::RadioButton(HudElementName(e), s_hudSel == e)) s_hudSel = e;
+        ImGui::PopStyleColor();
+    }
+    HudPlace& p = L->place[s_hudSel];
+    ImGui::PushItemWidth(roundf(220 * k));
+    s_hudDirty |= ImGui::DragFloat("Right / left (m)", &p.x, 0.002f, -1.0f, 1.0f, "%.3f");
+    s_hudDirty |= ImGui::DragFloat("Up / down (m)", &p.y, 0.002f, -1.0f, 1.0f, "%.3f");
+    s_hudDirty |= ImGui::DragFloat("Forward (m)", &p.z, 0.002f, 0.1f, 3.0f, "%.3f");
+    s_hudDirty |= ImGui::DragFloat("Width (m)", &p.width, 0.002f, 0.03f, 1.5f, "%.3f");
+    if (s_hudSel == HUD_BOX) {
+        s_hudDirty |= ImGui::SliderFloat("Background", &L->boxOpacity, 0.0f, 1.0f, "%.2f");
+    } else {
+        bool occ = p.occlude > 0.5f;
+        if (ImGui::Checkbox("Occlude behind 3D wheel", &occ)) {
+            p.occlude = occ ? 1.0f : 0.0f;
+            s_hudDirty = true;
+        }
+    }
+    int crops[3];
+    int n = HudElementCrops(s_hudSel, crops);
+    for (int i = 0; i < n; i++) {
+        HudCrop& r = L->crop[crops[i]];
+        char label[64];
+        snprintf(label, sizeof(label), "%s crop", HudCropName(crops[i]));
+        s_hudDirty |= ImGui::DragFloat4(label, &r.x, 0.001f, 0.0f, 1.0f, "%.3f");
+    }
+    ImGui::PopItemWidth();
+    ImGui::Separator();
+    if (ImGui::Button("Reset element")) {
+        HudLayout d = HudDefaults();
+        L->place[s_hudSel] = d.place[s_hudSel];
+        for (int i = 0; i < n; i++) L->crop[crops[i]] = d.crop[crops[i]];
+        if (s_hudSel == HUD_BOX) L->boxOpacity = d.boxOpacity;
+        s_hudDirty = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) {
+        s_hudDirty = true;
+        HudSetupClose();
+        s_hudSetup = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Done")) HudSetupClose();
+    ImGui::End();
+}
+
 void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     if (!s_im.init) {
         ImGui::CreateContext();
@@ -1885,6 +2070,12 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     s_im.wasOpen = true;
 
     ImGui::NewFrame();
+    if (s_hudSetup) {
+        DrawHudSetup(W, H, k);
+        ImGui::Render();
+        RenderImGui(dev, ImGui::GetDrawData(), W, H);
+        return;
+    }
     float winW = std::min(W - 40.0f * k, roundf(900 * k)), winH = std::min(H - 24.0f * k, roundf(H * 0.86f));
     ImGui::SetNextWindowPos(ImVec2(roundf((W - winW) / 2), roundf((H - winH) / 2)));
     ImGui::SetNextWindowSize(ImVec2(winW, winH));
@@ -2034,6 +2225,11 @@ void Ui_Frame() {
         Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
     }
     UpdateMenu(in, st.driving);
+    if (HudLayout* hud = HudLayoutPtr()) {
+        hud->menuOpen = s_menu.open ? 1.0f : 0.0f;
+        hud->setup = s_menu.open && s_hudSetup ? 1.0f : 0.0f;
+        hud->selected = s_menu.open && s_hudSetup ? (float)s_hudSel : -1.0f;
+    }
     if (!st.driving) return;
     if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
 

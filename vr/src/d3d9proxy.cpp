@@ -558,6 +558,192 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     saved->Release();
 }
 
+// --- the HUD as elements in the cockpit ------------------------------------------------------------
+static struct {
+    bool active, drawn;
+    float seat[12];
+    D3DMATRIX view, proj;
+    void* anchor;
+} s_hudEye;
+static bool s_hudHadImage;                // the HUD texture holds a HUD (last frame's)
+
+void D3D_BeginHudEye(const float seat[12], const float* view, const float* proj) {
+    s_hudEye.active = g_hud.enabled > 0.5f && s_eyeTex[2] && s_hudHadImage;
+    s_hudEye.drawn = false;
+    s_hudEye.anchor = nullptr;
+    memcpy(s_hudEye.seat, seat, sizeof(s_hudEye.seat));
+    memcpy(&s_hudEye.view, view, sizeof(s_hudEye.view));
+    memcpy(&s_hudEye.proj, proj, sizeof(s_hudEye.proj));
+}
+
+void D3D_SetHudAnchor(void* ib) {
+    if (s_hudEye.active && !s_hudEye.anchor) s_hudEye.anchor = ib;
+}
+
+struct HudVertex {
+    float x, y, z;
+    DWORD color;
+    float u, v;
+};
+
+// A quad at seat-space centre (cx, cy, cz), w x h metres, facing the driver.
+static void HudQuad(std::vector<HudVertex>& out, float cx, float cy, float cz, float w, float h, float u0, float v0, float u1,
+                    float v1, DWORD color) {
+    const float* s = s_hudEye.seat;   // origin, right, up, forward
+    auto at = [&](float x, float y) {
+        HudVertex p;
+        p.x = s[0] + s[3] * x + s[6] * y + s[9] * cz;
+        p.y = s[1] + s[4] * x + s[7] * y + s[10] * cz;
+        p.z = s[2] + s[5] * x + s[8] * y + s[11] * cz;
+        p.color = color;
+        return p;
+    };
+    HudVertex a = at(cx - w / 2, cy + h / 2), b = at(cx + w / 2, cy + h / 2), c = at(cx + w / 2, cy - h / 2), d = at(cx - w / 2, cy - h / 2);
+    a.u = u0; a.v = v0; b.u = u1; b.v = v0; c.u = u1; c.v = v1; d.u = u0; d.v = v1;
+    HudVertex tri[6] = {a, b, c, a, c, d};
+    out.insert(out.end(), tri, tri + 6);
+}
+
+// Width / height of a crop as it appears (the HUD image's pixels).
+static float CropAspect(const HudCrop& c) {
+    float w = c.w * (float)s_eyeW, h = c.h * (float)s_eyeH;
+    return h > 1 ? w / h : 1.0f;
+}
+
+// One element's quads: `image` samples the HUD, `plain` is the black box's background, `frame` the
+// Setup UI outline.
+static void HudElementQuads(int e, std::vector<HudVertex>& image, std::vector<HudVertex>& plain, std::vector<HudVertex>& frame) {
+    const HudPlace& p = g_hud.place[e];
+    int crops[3];
+    int n = HudElementCrops(e, crops);
+    float w = p.width > 0.01f ? p.width : 0.01f, h = 0;
+    if (e == HUD_BOX) {
+        float pad = w * 0.04f, inner = w - 2 * pad, y = 0;
+        float hs[3];
+        for (int i = 0; i < n; i++) {
+            hs[i] = inner / CropAspect(g_hud.crop[crops[i]]);
+            h += hs[i];
+        }
+        h += pad * (n + 1);
+        BYTE a = (BYTE)(g_hud.boxOpacity < 0 ? 0 : g_hud.boxOpacity > 1 ? 255 : g_hud.boxOpacity * 255);
+        HudQuad(plain, p.x, p.y, p.z + 0.002f, w, h, 0, 0, 0, 0, D3DCOLOR_ARGB(a, 8, 8, 10));
+        y = p.y + h / 2 - pad;
+        for (int i = 0; i < n; i++) {
+            const HudCrop& c = g_hud.crop[crops[i]];
+            HudQuad(image, p.x, y - hs[i] / 2, p.z, inner, hs[i], c.x, c.y, c.x + c.w, c.y + c.h, 0xFFFFFFFF);
+            y -= hs[i] + pad;
+        }
+    } else if (n == 1) {
+        const HudCrop& c = g_hud.crop[crops[0]];
+        h = w / CropAspect(c);
+        HudQuad(image, p.x, p.y, p.z, w, h, c.x, c.y, c.x + c.w, c.y + c.h, 0xFFFFFFFF);
+    }
+    if (g_hud.setup > 0.5f) {
+        DWORD col = (int)g_hud.selected == e ? D3DCOLOR_ARGB(255, 255, 150, 0) : D3DCOLOR_ARGB(160, 255, 255, 255);
+        float t = 0.003f, z = p.z - 0.001f;
+        HudQuad(frame, p.x, p.y + h / 2, z, w + t, t, 0, 0, 0, 0, col);
+        HudQuad(frame, p.x, p.y - h / 2, z, w + t, t, 0, 0, 0, 0, col);
+        HudQuad(frame, p.x - w / 2, p.y, z, t, h + t, 0, 0, 0, 0, col);
+        HudQuad(frame, p.x + w / 2, p.y, z, t, h + t, 0, 0, 0, 0, col);
+    }
+}
+
+static void DrawHudElements(bool sceneDepth) {
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    s_dev->SetVertexShader(nullptr);
+    s_dev->SetPixelShader(nullptr);
+    s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_DIFFUSE | D3DFVF_TEX1);
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    s_dev->SetTransform(D3DTS_WORLD, &identity);
+    s_dev->SetTransform(D3DTS_VIEW, &s_hudEye.view);
+    s_dev->SetTransform(D3DTS_PROJECTION, &s_hudEye.proj);
+    s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
+    s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    s_dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    s_dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    // Clear parts of the HUD write no depth (alpha test), so things behind them still show.
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ALPHAREF, 8);
+    s_dev->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
+    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        std::vector<HudVertex> image, plain, frame;
+        HudElementQuads(e, image, plain, frame);
+        bool depth = sceneDepth && g_hud.place[e].occlude > 0.5f;
+        s_dev->SetRenderState(D3DRS_ZENABLE, depth ? D3DZB_TRUE : D3DZB_FALSE);
+        s_dev->SetRenderState(D3DRS_ZWRITEENABLE, depth ? TRUE : FALSE);
+        // Background: its colour only.
+        s_dev->SetTexture(0, nullptr);
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+        if (!plain.empty()) s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)plain.size() / 3, plain.data(), sizeof(HudVertex));
+        // The HUD's own pixels.
+        s_dev->SetTexture(0, s_eyeTex[2]);
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_DIFFUSE);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_DIFFUSE);
+        if (!image.empty()) s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)image.size() / 3, image.data(), sizeof(HudVertex));
+        if (!frame.empty()) {
+            s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+            s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+            s_dev->SetTexture(0, nullptr);
+            s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+            s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
+            s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+            s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
+            s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)frame.size() / 3, frame.data(), sizeof(HudVertex));
+        }
+    }
+    saved->Apply();
+    saved->Release();
+    static int logged;
+    if (logged < 2) {
+        logged++;
+        Log("d3d9: HUD elements drawn %s", sceneDepth ? "with the cockpit (scene depth)" : "over the scene");
+    }
+}
+
+void D3D_EndHudEye() {
+    if (s_hudEye.active && !s_hudEye.drawn) {
+        IDirect3DSurface9 *rt = nullptr, *bb = nullptr;
+        s_dev->GetRenderTarget(0, &rt);
+        if (SUCCEEDED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb) {
+            s_dev->SetRenderTarget(0, bb);
+            DrawHudElements(false);
+            s_dev->SetRenderTarget(0, rt);
+            bb->Release();
+        }
+        if (rt) rt->Release();
+    }
+    s_hudEye.active = false;
+}
+
 // After the game's draw from `ib`: the mirror glass of that model, once per eye.
 // The car is also drawn into shadow maps, the environment map and the rear view: only the player
 // view's draw counts, the one into a target the size of the back buffer, with a depth buffer.
@@ -576,6 +762,10 @@ static bool DrawingPlayerView() {
 }
 
 static void AfterModelDraw() {
+    if (s_hudEye.active && !s_hudEye.drawn && s_hudEye.anchor && s_hudEye.anchor == s_curIndices && DrawingPlayerView()) {
+        s_hudEye.drawn = true;
+        DrawHudElements(true);
+    }
     if (!s_mirrorEye || s_pendingMirrors.empty()) return;
     bool checked = false, playerView = false;
     for (PendingMirror& m : s_pendingMirrors) {
@@ -661,6 +851,7 @@ static void EndHudPhase() {
     if (cur == s_hudRT) s_dev->SetRenderTarget(0, s_backBuffer);
     if (cur) cur->Release();
     s_hudValid = s_eyeSurf[2] && SUCCEEDED(s_dev->StretchRect(s_hudRT, nullptr, s_eyeSurf[2], nullptr, D3DTEXF_NONE));
+    s_hudHadImage = s_hudValid;
     if (s_hudValid && Spectator_Mode() == SpectatorMode::Eye) Spectator_BlendFullscreen(s_dev, s_eyeTex[2], s_eyeW, s_eyeH);
     s_backBuffer->Release();
     s_backBuffer = nullptr;
@@ -749,7 +940,9 @@ static void OnPresent() {
             WaitForGpu();
             float tx, ty;
             Game_RenderedFov(&tx, &ty);
-            Xr_EndFrame(LayerMode::Stereo, tx, ty, s_hudValid);
+            // With the HUD as cockpit elements, the HUD panel only in menus, pause and Setup UI.
+            bool panel = g_hud.enabled < 0.5f || g_hud.setup > 0.5f || g_hud.menuOpen > 0.5f || !Game_HudInWorld();
+            Xr_EndFrame(LayerMode::Stereo, tx, ty, s_hudValid && panel);
         } else if (Xr_BeginFrame()) {
             // Menus, movies, loading screens: show the flat frame on a virtual screen.
             D3D_CaptureEye(0);
@@ -1106,6 +1299,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "SeatReset")) return &g_seatInput[3];
     return nullptr;
 }
+
+// The VR HUD layout (hud_layout.h), edited live by the gameplay mod's Setup UI.
+HudLayout* __cdecl Proxy_NfsmwVr_HudLayout() { return s_active ? &g_hud : nullptr; }
+int __cdecl Proxy_NfsmwVr_HudSave() { return s_active && HudSave() ? 1 : 0; }
 
 // Same as the recentre key. 0 when no headset session is running.
 int __cdecl Proxy_NfsmwVr_Recenter() {

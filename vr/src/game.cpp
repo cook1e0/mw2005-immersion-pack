@@ -446,6 +446,25 @@ void* RvmSurface() {
 
 // Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
 // models (d3d9proxy); the rear view is copied afterwards for the next eye.
+// While driving (in the world, simulation running, not paused): the HUD can be cockpit elements.
+bool HudInWorld() {
+    if (!((bool(__cdecl*)())0x468380)()) return false;                  // GameFlow: in the world
+    if (((int(__cdecl*)())0x6E8D20)() != 3) return false;              // Sim::GetState: running
+    return !(*(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true));   // FEManager::ShouldPauseSimulation
+}
+
+// The seat (the game camera in the seat, without the head) as world axes for the HUD elements:
+// origin, right, up, forward.
+void BeginHud(void* view, const uint8_t* seatParams) {
+    M4 V;
+    memcpy(&V, seatParams + kCamMatrix, sizeof(V));
+    M4 W = MInvRigid(V);
+    float seat[12] = {W.m[3][0], W.m[3][1], W.m[3][2], W.m[0][0], W.m[0][1], W.m[0][2],
+                      W.m[1][0], W.m[1][1], W.m[1][2], W.m[2][0], W.m[2][1], W.m[2][2]};
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_BeginHudEye(seat, (const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection));
+}
+
 void BeginMirrors(void* view) {
     if (!s_mirrorPatched) return;
     void* plat = At<void*>(view, kViewPlatInfo);
@@ -557,10 +576,12 @@ void __cdecl hkRenderScene() {
         }
         Cockpit_BeginEye();
         BeginMirrors(view);
+        BeginHud(view, base);
         s_secondEye = eye > 0;
         oRenderScene();
         s_secondEye = false;
         EndMirrors();
+        D3D_EndHudEye();
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
@@ -795,3 +816,5 @@ void Game_ToggleStereo() {
     s_stereoEnabled = !s_stereoEnabled;
     Log("game: stereo %s", s_stereoEnabled ? "on" : "off");
 }
+
+bool Game_HudInWorld() { return HudInWorld(); }

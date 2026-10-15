@@ -88,6 +88,54 @@ static int ReadInt(const char* ini, const char* key, int def) {
     return (int)GetPrivateProfileIntA("VR", key, def, ini);
 }
 
+HudLayout g_hud = HudDefaults();
+
+static void HudIniPath(char* ini) { ConfigFile("nfsmw_vr.ini", ini, false); }
+
+void HudLoad() {
+    char ini[MAX_PATH], buf[128];
+    HudIniPath(ini);
+    HudLayout l = HudDefaults();
+    l.enabled = GetPrivateProfileIntA("HUD", "Enabled", 0, ini) ? 1.0f : 0.0f;
+    GetPrivateProfileStringA("HUD", "BoxOpacity", "", buf, sizeof(buf), ini);
+    if (buf[0]) l.boxOpacity = (float)atof(buf);
+    for (int c = 0; c < HUD_NUM_CROPS; c++) {
+        char key[64];
+        snprintf(key, sizeof(key), "Crop%s", HudCropKey(c));
+        GetPrivateProfileStringA("HUD", key, "", buf, sizeof(buf), ini);
+        HudCrop v = l.crop[c];
+        if (buf[0] && sscanf(buf, "%f,%f,%f,%f", &v.x, &v.y, &v.w, &v.h) == 4) l.crop[c] = v;
+    }
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        GetPrivateProfileStringA("HUD", HudElementKey(e), "", buf, sizeof(buf), ini);
+        HudPlace v = l.place[e];
+        if (buf[0] && sscanf(buf, "%f,%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.width, &v.occlude) == 5) l.place[e] = v;
+    }
+    g_hud = l;
+}
+
+bool HudSave() {
+    char ini[MAX_PATH], buf[128];
+    HudIniPath(ini);
+    bool ok = WritePrivateProfileStringA("HUD", "Enabled", g_hud.enabled > 0.5f ? "1" : "0", ini) != 0;
+    snprintf(buf, sizeof(buf), "%.2f", g_hud.boxOpacity);
+    ok &= WritePrivateProfileStringA("HUD", "BoxOpacity", buf, ini) != 0;
+    for (int c = 0; c < HUD_NUM_CROPS; c++) {
+        char key[64];
+        snprintf(key, sizeof(key), "Crop%s", HudCropKey(c));
+        const HudCrop& v = g_hud.crop[c];
+        snprintf(buf, sizeof(buf), "%.4f,%.4f,%.4f,%.4f", v.x, v.y, v.w, v.h);
+        ok &= WritePrivateProfileStringA("HUD", key, buf, ini) != 0;
+    }
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        const HudPlace& v = g_hud.place[e];
+        snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.3f,%d", v.x, v.y, v.z, v.width, v.occlude > 0.5f ? 1 : 0);
+        ok &= WritePrivateProfileStringA("HUD", HudElementKey(e), buf, ini) != 0;
+    }
+    Log("hud: layout saved%s", ok ? "" : " (failed)");
+    return ok;
+}
+
 void LoadConfig() {
     char ini[MAX_PATH];
     ConfigFile("nfsmw_vr.ini", ini, true);
@@ -135,6 +183,7 @@ void LoadConfig() {
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
+    HudLoad();
     c.stableReflections = ReadInt(ini, "StableReflections", c.stableReflections) != 0;
     c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
