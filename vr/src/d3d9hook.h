@@ -25,7 +25,8 @@ void D3D_HideTextures(void* a, void* b, void* c);
 // after the game's first draw from that index buffer, so the scene's depth hides it where the car
 // does. Set as the cars are submitted, before the queue is drawn.
 void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness);
-void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount);
+// `frame` (optional): drawn plain black first, under the image (the housing's rim).
+void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount, const float* frame, int frameCount);
 // After the eye: mirrors whose model never came through are drawn now (over the scene), and the
 // rear view surface is copied for the next eye's mirrors.
 void D3D_EndMirrorEye(void* rearViewSurface);

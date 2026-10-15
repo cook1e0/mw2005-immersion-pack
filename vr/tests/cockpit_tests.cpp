@@ -8,7 +8,7 @@ volatile uint8_t gameAddressPadding[0x600000];
 static double testTime = 1;
 void Log(const char*, ...) {}
 void ConfigFile(const char*, char* out, bool) { strcpy(out, "missing-cockpit-test.ini"); }
-void D3D_AddMirror(void*, const float*, int) {}
+void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
 static void* moverVtbl[8];

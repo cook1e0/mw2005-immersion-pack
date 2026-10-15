@@ -736,13 +736,16 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
 }
 
-// The glass's triangles in world space, a few millimetres toward the driver, with their place in
-// the glass (0..1 across, 0..1 down) as texture coordinates: x, y, z, u, v per vertex.
-void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out) {
+// The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
+// about the glass's centre, with their place in the glass (0..1 across, 0..1 down) as texture
+// coordinates: x, y, z, u, v per vertex.
+void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, float lift = 0.008f, float scale = 1.0f) {
     float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
     out.clear();
-    for (const V3& p : g.tris) {
-        V3 q = {p.x + g.normal.x * 0.003f, p.y + g.normal.y * 0.003f, p.z + g.normal.z * 0.003f};
+    for (const V3& p0 : g.tris) {
+        V3 p = {g.centre.x + (p0.x - g.centre.x) * scale, g.centre.y + (p0.y - g.centre.y) * scale,
+                g.centre.z + (p0.z - g.centre.z) * scale};
+        V3 q = {p.x + g.normal.x * lift, p.y + g.normal.y * lift, p.z + g.normal.z * lift};
         for (int a = 0; a < 3; a++) out.push_back(q.x * m.m[0][a] + q.y * m.m[1][a] + q.z * m.m[2][a] + m.m[3][a]);
         out.push_back(g.halfU > 0 ? (mirror::Dot(p, g.u) - (cu - g.halfU)) / (2 * g.halfU) : 0.0f);
         out.push_back(g.halfV > 0 ? ((cv + g.halfV) - mirror::Dot(p, g.v)) / (2 * g.halfV) : 0.0f);
@@ -765,9 +768,13 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         d.glass = info.glass[side];
         memcpy(&d.m, m, sizeof(d.m));
         s_mirrorDraws.push_back(d);
-        // To be drawn with the model: the side mirrors each show their half of the rear view.
-        std::vector<float> verts;
-        GlassVertices(d.glass, d.m, verts);
+        // To be drawn with the model: a dark rim the shape of the glass, and the rear view on the
+        // glass shrunk inside it, as if set into the housing. The side mirrors each show their
+        // half of the rear view.
+        std::vector<float> verts, frame;
+        float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
+        GlassVertices(d.glass, d.m, frame, 0.006f, 1.0f);
+        GlassVertices(d.glass, d.m, verts, 0.008f, inner);
         float u0 = 0.0f, u1 = 1.0f;
         if (g_cfg.mirrorSplit && side < 2) {
             u0 = side == 0 ? 0.0f : 0.5f;
@@ -781,7 +788,8 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         for (size_t i = 3; i < verts.size(); i += 5) verts[i] = u0 + (u1 - u0) * verts[i];
         uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
         void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
-        D3D_AddMirror(ib, verts.data(), (int)(verts.size() / 5));
+        D3D_AddMirror(ib, verts.data(), (int)(verts.size() / 5), inner < 0.999f ? frame.data() : nullptr,
+                      inner < 0.999f ? (int)(frame.size() / 5) : 0);
     }
 }
 

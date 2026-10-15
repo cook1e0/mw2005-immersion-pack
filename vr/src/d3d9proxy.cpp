@@ -234,7 +234,7 @@ void* D3D_TextureOfSurface(void* surface) {
 // --- mirrors with the models -------------------------------------------------------------------
 struct PendingMirror {
     void* ib;
-    std::vector<float> verts;
+    std::vector<float> verts, frame;
     bool drawn;
 };
 static std::vector<PendingMirror> s_pendingMirrors;
@@ -251,11 +251,17 @@ void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness) 
     s_mirrorEye = true;
 }
 
-void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount) {
+void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount, const float* frame, int frameCount) {
     if (!s_mirrorEye || !indexBuffer || vertexCount < 3) return;
     for (PendingMirror& p : s_pendingMirrors)
-        if (p.ib == indexBuffer && p.verts.size() == (size_t)vertexCount * 5) return;
-    s_pendingMirrors.push_back({indexBuffer, std::vector<float>(verts, verts + vertexCount * 5), false});
+        if (p.ib == indexBuffer && p.verts.size() == (size_t)vertexCount * 5 && !memcmp(p.verts.data(), verts, 5 * sizeof(float)))
+            return;
+    PendingMirror m;
+    m.ib = indexBuffer;
+    m.verts.assign(verts, verts + vertexCount * 5);
+    if (frame && frameCount >= 3) m.frame.assign(frame, frame + frameCount * 5);
+    m.drawn = false;
+    s_pendingMirrors.push_back(m);
 }
 
 // Draws one mirror's glass into whatever the game is drawing to now, with its depth buffer.
@@ -285,6 +291,10 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
     s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    // Pulled toward the camera in depth too, so the game's own glass under it never shows through.
+    float bias = -0.00002f, slope = -1.0f;
+    s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
+    s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD*)&slope);
     BYTE k = (BYTE)(s_mirrorBrightness < 0 ? 0 : s_mirrorBrightness > 1 ? 255 : s_mirrorBrightness * 255.0f);
     s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
     s_dev->SetTexture(0, s_mirrorTex);
@@ -304,6 +314,16 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
     s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    if (!m.frame.empty()) {
+        // The rim: plain near-black, the housing's plastic around the glass.
+        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, 10, 10, 12));
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+        s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(m.frame.size() / 15), m.frame.data(), 5 * sizeof(float));
+        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    }
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(m.verts.size() / 15), m.verts.data(), 5 * sizeof(float));
     saved->Apply();
     saved->Release();
