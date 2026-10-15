@@ -21,6 +21,13 @@
 // player's car the slider values are swapped in for the duration of the call and the game's own
 // values put back after it, so AI and traffic keep the stock physics.
 //
+// Spin limit: the game lets a body spin at up to 30 rad/s (RigidBody::DoIntegration). Once the
+// player's car spins that fast (props launching it, a landing while rotating, with the aids turned
+// down) each step turns it deep into walls or the ground, and the push-out adds more speed than the
+// hit took: the car tumbles around the map gaining speed with nobody driving. Before each of the
+// player's integration steps its spin is limited to [Physics] MaxSpin, far above anything a car
+// does on its wheels or in a real crash.
+//
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
 //
@@ -219,8 +226,30 @@ void DropIfAsked(uint8_t* rb) {
     Log("physics: car dropped from %.1f m (speed %.1f m/s)", g_cfg.dropHeight, sqrtf(vel[0] * vel[0] + vel[2] * vel[2]));
 }
 
+// Before the player's body integrates: its spin limited to [Physics] MaxSpin.
+void LimitSpin(uint8_t* rb) {
+    float limit = g_cfg.maxSpin;
+    if (limit <= 0.0f || !Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return;
+    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+    uint8_t* data = holder ? *holder : nullptr;
+    if (!data) return;
+    float* av = (float*)(data + kRV_AngularVel);
+    float w = sqrtf(av[0] * av[0] + av[1] * av[1] + av[2] * av[2]);
+    if (!(w > limit)) return;   // also skips NaN
+    float k = limit / w;
+    av[0] *= k;
+    av[1] *= k;
+    av[2] *= k;
+    static double lastLog = -1e9;
+    if (Now() - lastLog > 1.0) {
+        lastLog = Now();
+        Log("physics: car spinning at %.1f rad/s, limited to %.1f", w, limit);
+    }
+}
+
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     DropIfAsked(rb);
+    LimitSpin(rb);
     float k = g_cfg.gravity;
     uint8_t* specs = Field<uint8_t*>(rb, kRB_Specs);
     if (!g_cfg.physics || k == 1.0f || !specs ||

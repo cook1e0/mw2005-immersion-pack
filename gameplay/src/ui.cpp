@@ -588,6 +588,7 @@ const Item kItems[] = {
     {NUMBER, "Drivetrain multiplication", "Physics", "Drivetrain", &g_cfg.drivetrain, 0.7f, 3.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Spin limit", "Physics", "MaxSpin", &g_cfg.maxSpin, 0.0f, 30.0f, 0.5f, 1, "%.1f rad/s", 0},
     RESET_,
     RESET_GAME_,
 
@@ -919,6 +920,7 @@ const struct {
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
     {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.drivetrain, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
+    {&g_cfg.maxSpin, 0},
     {&g_cfg.noSuvCops, 0}, {&g_cfg.normalDragRaces, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
@@ -1390,6 +1392,7 @@ const struct {
     {&g_cfg.drivetrain, "Exaggerates how the driven wheels lose grip under power: 2x doubles a rear drive car's power oversteer, a front drive car's understeer, and all-wheel drive by its torque split. Below 1 softens it."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
+    {&g_cfg.maxSpin, "The fastest your car may rotate (8 rad/s is over one turn a second). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
     {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
     {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},

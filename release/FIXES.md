@@ -56,6 +56,12 @@
 - **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
   view as it is, without the car paint's gloss and reflections that washed it out (the brightness
   and contrast sliders may want lowering now).
+- **Physics: no more pinballing around the map:** the game lets a car spin at up to 30 rad/s; once
+  the player's car spins that fast (props launching it, landing while rotating, with low aids),
+  every step turns it deep into walls and the ground and the push-out adds speed, so it tumbles
+  around the map gaining speed with nobody driving (logged at 15-23 rad/s, hits up to 76 m/s). The
+  player's spin is now limited to 8 rad/s (normal driving stays under 5). F4 > Physics > Spin
+  limit, `[Physics] MaxSpin` (0 = the game's).
 - **Testing: Drop from air:** F4 > Menu and testing > "Drop from air" lifts the car straight up by
   "Drop height" (`[Tires] DropHeight`, 5 m) and lets it fall, keeping its forward speed, to test
   landings anywhere.
