@@ -66,11 +66,11 @@
   pursuit breaker starts an NIS (ETriggerMomentNIS), which paused the world for ~10 s and then
   placed the car again; in VR that trigger is now dropped.
 - **Physics: rear grip (oversteer) and off-road grip:** F4 > Physics > Rear grip scales the rear
-  tyres' grip against the front (below 100% the rear steps out, every car alike, front drive too, `[Physics] RearGrip`);
+  tyres' grip against the front (below 100% the rear steps out, front drive too, `[Physics] RearGrip`);
   Offroad grip scales grip on grass, dirt, mud, gravel and sand by each tyre's surface
   (`[Physics] OffroadGrip`, 75%).
 - **Physics: slide grip:** a tyre that breaks loose now slides with less grip than its peak
-  (F4 > Physics > Slide grip, every car alike, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
+  (F4 > Physics > Slide grip, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
   car goes into a slide you can catch instead of snapping into the turn.
 - **VR: vanilla side mirrors:** the side mirrors are the game's own again (`[VR] GameMirrors=0`); the
   interior rear view mirror stays.
@@ -80,6 +80,9 @@
   (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
   type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
   hits, `[FFB] CarHits`).
+- **Physics: "Settings for this car" covers every physics slider:** Rear grip, Offroad grip, Slide
+  grip, Slide oversteer, Rain grip and Spin limit are kept per car too (a car's section without them
+  uses the [Physics] values).
 - **VR: side mirrors show a wider, fixed view:** each shows `[VR] SideMirrorWidth` (60%) of the rear
   view from its side, full height.
 - **VR: side mirrors per car:** with `[VR] GameMirrors=1`, cars listed in `GameMirrorsSkip` (e.g.
@@ -103,7 +106,7 @@
   adds only a third more, so the two don't pile up.
 - **Physics: slide oversteer:** the rear tyres lose side grip the way they do on grass while keeping
   their drive grip, so the rear slides out under power on the road too (F4 > Physics > Slide
-  oversteer, every car alike, `[Physics] SlideOversteer`, 80%; 100% = off).
+  oversteer, `[Physics] SlideOversteer`, 80%; 100% = off).
 - **Physics: rain grip:** tyres have 10% less grip in the rain (`[Physics] RainGrip`, 90%).
 - **Engine smoke no longer hangs in the air:** when the smoke stopped (repair, respawn, engine cooled)
   the game switched the effect off without updating it again, freezing its last puffs in place for

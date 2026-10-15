@@ -599,6 +599,12 @@ const PerCar kPerCar[] = {
     {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
     {&Config::drivetrain, "Drivetrain", 0.7f, 3.0f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
+    {&Config::rearGrip, "RearGrip", 0.5f, 1.5f},
+    {&Config::offroadGrip, "OffroadGrip", 0.2f, 1.0f},
+    {&Config::slideGrip, "SlideGrip", 0.4f, 1.0f},
+    {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
+    {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
+    {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 
