@@ -88,6 +88,12 @@ enum {
     kMatDiffMinR = 1, kMatDiffMaxR = 5, kMatSpecMinScale = 11, kMatSpecMaxScale = 15, kMatEnvPower = 19,
     kMatEnvMinScale = 20, kMatEnvMaxScale = 24,
 };
+// Both eyes run ___eDisplayFrame, and it starts with ePreDisplay, which steps per-frame state:
+// sound, animated world models, the sun flare, the light flares' parameters, tunnel bloom and
+// tinting fades. Run twice, the second eye got a later step than the first: blinking lights,
+// flares and fades differed between the eyes. It runs for the first eye only.
+constexpr uintptr_t kCallPreDisplay = 0x6DE3D1;   // call ePreDisplay in ___eDisplayFrame
+constexpr uintptr_t kPreDisplay = 0x504C50;       // cdecl, no args
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -385,6 +391,13 @@ void FixGameMirrors() {
     memcpy(f, want, sizeof(want));
 }
 
+bool s_secondEye = false;
+
+void __cdecl hkPreDisplay() {
+    if (s_secondEye) return;
+    ((void(__cdecl*)())kPreDisplay)();
+}
+
 bool s_mirrorPatchOk = false;
 
 void WriteCode(uintptr_t at, const uint8_t* bytes, int n) {
@@ -544,7 +557,9 @@ void __cdecl hkRenderScene() {
         }
         Cockpit_BeginEye();
         BeginMirrors(view);
+        s_secondEye = eye > 0;
         oRenderScene();
+        s_secondEye = false;
         EndMirrors();
         if (eye == 0) D3D_CaptureEye(0);
     }
@@ -749,6 +764,7 @@ bool Game_InstallHooks() {
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
     PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
+    PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");
     for (uintptr_t site : kCallsCloneLightContext)
         PatchCall(site, kCloneLightContext, (void*)&hkCloneLightContext, "car reflections");
     for (uintptr_t site : kCallsSetupLightContext)
