@@ -705,14 +705,26 @@ void __cdecl hkNisOverlay(int id) {
     ((void(__cdecl*)(int))kNisOverlay)(id);
 }
 
+// The event's scene (ETriggerMomentNIS::fSceneName at +8): pursuit breakers are the world moments
+// (NIS\Scene_WM*: WMGasStation, WMBoat, WMDriveIn...). Story scenes (the first safehouse visit
+// and the like) come the same way and must play, or the career falls back to the main menu.
+bool PursuitBreakerScene(const char* scene) {
+    if (!scene || IsBadStringPtrA(scene, 64)) return false;
+    if (_strnicmp(scene, "Scene_", 6) == 0) scene += 6;
+    return _strnicmp(scene, "WM", 2) == 0;
+}
+
 void __fastcall hkTriggerMomentNis(void* ev, void*) {
     float* stamp = (float*)kMomentNisTime;
     float saved = *stamp;
+    const char* scene = ev ? *(const char**)((uint8_t*)ev + 8) : nullptr;
+    bool skip = Xr_Available() && PursuitBreakerScene(scene);
     ((void(__thiscall*)(void*))kTriggerMomentNis)(ev);
-    if (Xr_Available() && *stamp != saved) {
-        *stamp = saved;
-        Log("game: pursuit breaker cutscene skipped (VR)");
-    }
+    bool started = *stamp != saved;
+    if (skip && started) *stamp = saved;
+    if (started)
+        Log("game: moment cutscene '%s' %s", scene && !IsBadStringPtrA(scene, 64) ? scene : "?",
+            skip ? "skipped (VR, pursuit breaker)" : "plays");
 }
 
 struct ActionKey { uint32_t hash64[2], hash32; const char* string; };
