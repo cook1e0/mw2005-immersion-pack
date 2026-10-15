@@ -30,6 +30,11 @@
 // from the spin it finds (tyre side forces are limited by the wheels' point speed, which a fast
 // spin makes huge), so limiting it only before integration let those forces pin it at the game's
 // cap again (30 rad/s on each axis, 52 in all) in the same step.
+// The torque itself is limited too: in the pinball the game applied, every step and whatever the
+// spin was, a torque that took the car from 8 rad/s to the cap in one step, rolling it about half
+// a radian left, then right (the car "can't decide which way it's tilted"). Before integrating,
+// the spin change the torque will make (DoIntegration's own formula) is worked out, and the torque
+// scaled down so the spin after the step stays within MaxSpin.
 //
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
@@ -73,7 +78,10 @@ constexpr int kRB_Specs = 0x84;                     // RigidBody: rigidbodyspecs
 // RigidBody::mData (**(rb + 0x78)), RigidBody::Volatile, as OnBeginFrame (0x6A7050) and
 // DoIntegration (0x6978F0) use it: position, linear and angular velocity (y up).
 constexpr int kRB_Data = 0x78;
-constexpr int kRV_Position = 0x10, kRV_LinearVel = 0x20, kRV_AngularVel = 0x30;
+constexpr int kRV_Position = 0x10, kRV_LinearVel = 0x20, kRV_AngularVel = 0x30, kRV_Torque = 0x60;
+// RigidBody::mInvWorldTensor: DoIntegration turns torque * dT into a spin change with
+// UMath::Rotate (row vector times this 4x4, 0x401670) and adds it to the angular velocity.
+constexpr int kRB_InvWorldTensor = 0x90;
 constexpr int kTire_Brake = 0xC8;                   // SuspensionRacer::Tire: brake 0..1
 constexpr int kTire_EBrake = 0xCC;                  // ... handbrake 0..1
 constexpr int kTire_Traction = 0xEC;                // ... traction scale for this step
@@ -252,9 +260,70 @@ void LimitSpin(uint8_t* rb) {
     }
 }
 
+// Before the player's body integrates: the torque scaled so the spin it adds stays within MaxSpin.
+// Returns the spin predicted after the step (for the check after it), or false if not limited.
+bool LimitTorque(uint8_t* rb, float dT, float predicted[3]) {
+    float limit = g_cfg.maxSpin;
+    if (limit <= 0.0f || !(dT > 0.0f) || !Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return false;
+    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+    uint8_t* data = holder ? *holder : nullptr;
+    if (!data || data[0x5D] != 0) return false;            // not awake: no integration
+    float* T = (float*)(data + kRV_Torque);
+    const float* av = (const float*)(data + kRV_AngularVel);
+    const float* M = (const float*)(rb + kRB_InvWorldTensor);
+    float d[3];
+    for (int i = 0; i < 3; i++) d[i] = (T[0] * M[i] + T[1] * M[4 + i] + T[2] * M[8 + i]) * dT;
+    float w1[3] = {av[0] + d[0], av[1] + d[1], av[2] + d[2]};
+    float n1 = sqrtf(w1[0] * w1[0] + w1[1] * w1[1] + w1[2] * w1[2]);
+    float s = 1.0f;
+    if (n1 > limit) {
+        // The largest share s of the torque with |av + s d| <= limit (|av| <= limit already).
+        float dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        float wd = av[0] * d[0] + av[1] * d[1] + av[2] * d[2];
+        float ww = av[0] * av[0] + av[1] * av[1] + av[2] * av[2];
+        float disc = wd * wd - dd * (ww - limit * limit);
+        s = dd > 1e-12f && disc >= 0.0f ? std::max(0.0f, std::min(1.0f, (-wd + sqrtf(disc)) / dd)) : 0.0f;
+        static double lastLog = -1e9;
+        if (Now() - lastLog > 1.0) {
+            lastLog = Now();
+            float tn = sqrtf(T[0] * T[0] + T[1] * T[1] + T[2] * T[2]);
+            Log("physics: torque %.0f N m would spin the car to %.1f rad/s in one step: scaled to %.3f", tn, n1, s);
+        }
+        for (int i = 0; i < 3; i++) T[i] *= s;
+    } else if (!(n1 >= 0.0f)) {
+        return false;                                       // NaN: leave it to the game
+    }
+    for (int i = 0; i < 3; i++) predicted[i] = av[i] + d[i] * s;
+    return true;
+}
+
+// After the step: how well LimitTorque predicted the spin (a few times, to confirm the layout).
+void CheckPrediction(uint8_t* rb, const float predicted[3], const float before[3]) {
+    static int checked = 0;
+    if (checked >= 3) return;
+    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+    uint8_t* data = holder ? *holder : nullptr;
+    if (!data) return;
+    const float* av = (const float*)(data + kRV_AngularVel);
+    float change = 0, err = 0;
+    for (int i = 0; i < 3; i++) {
+        change += (predicted[i] - before[i]) * (predicted[i] - before[i]);
+        err += (av[i] - predicted[i]) * (av[i] - predicted[i]);
+    }
+    if (sqrtf(change) < 0.05f) return;                      // too small to tell
+    checked++;
+    Log("physics: spin change predicted %.3f rad/s, off by %.4f", sqrtf(change), sqrtf(err));
+}
+
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     DropIfAsked(rb);
     LimitSpin(rb);
+    float predicted[3], before[3] = {0, 0, 0};
+    bool limited = LimitTorque(rb, dT, predicted);
+    if (limited) {
+        const float* av = (const float*)(*Field<uint8_t**>(rb, kRB_Data) + kRV_AngularVel);
+        for (int i = 0; i < 3; i++) before[i] = av[i];
+    }
     float k = g_cfg.gravity;
     uint8_t* specs = Field<uint8_t*>(rb, kRB_Specs);
     if (!g_cfg.physics || k == 1.0f || !specs ||
@@ -268,6 +337,7 @@ void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
         s_origRB(rb, dT);
         gravity = saved;
     }
+    if (limited) CheckPrediction(rb, predicted, before);
     LimitSpin(rb);   // after integrating: the next suspension step starts from a sane spin
 }
 
