@@ -24,9 +24,12 @@
 // Spin limit: the game lets a body spin at up to 30 rad/s (RigidBody::DoIntegration). Once the
 // player's car spins that fast (props launching it, a landing while rotating, with the aids turned
 // down) each step turns it deep into walls or the ground, and the push-out adds more speed than the
-// hit took: the car tumbles around the map gaining speed with nobody driving. Before each of the
-// player's integration steps its spin is limited to [Physics] MaxSpin, far above anything a car
-// does on its wheels or in a real crash.
+// hit took: the car tumbles around the map gaining speed with nobody driving. The player's spin is
+// limited to [Physics] MaxSpin, far above anything a car does on its wheels or in a real crash,
+// before and after each integration step: the suspension step that comes next computes its forces
+// from the spin it finds (tyre side forces are limited by the wheels' point speed, which a fast
+// spin makes huge), so limiting it only before integration let those forces pin it at the game's
+// cap again (30 rad/s on each axis, 52 in all) in the same step.
 //
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
@@ -226,7 +229,7 @@ void DropIfAsked(uint8_t* rb) {
     Log("physics: car dropped from %.1f m (speed %.1f m/s)", g_cfg.dropHeight, sqrtf(vel[0] * vel[0] + vel[2] * vel[2]));
 }
 
-// Before the player's body integrates: its spin limited to [Physics] MaxSpin.
+// The player's body: its spin limited to [Physics] MaxSpin.
 void LimitSpin(uint8_t* rb) {
     float limit = g_cfg.maxSpin;
     if (limit <= 0.0f || !Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return;
@@ -243,7 +246,9 @@ void LimitSpin(uint8_t* rb) {
     static double lastLog = -1e9;
     if (Now() - lastLog > 1.0) {
         lastLog = Now();
-        Log("physics: car spinning at %.1f rad/s, limited to %.1f", w, limit);
+        const float* v = (const float*)(data + kRV_LinearVel);
+        Log("physics: car spinning at %.1f rad/s, limited to %.1f (speed %.1f m/s, vertical %+.1f)", w, limit,
+            sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), v[1]);
     }
 }
 
@@ -256,13 +261,14 @@ void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
         !(g_cfg.gravityAll ? Game_PlayerInterface(nullptr) != nullptr   // in game, any car
                            : Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle)))) {
         s_origRB(rb, dT);
-        return;
+    } else {
+        float& gravity = Field<float>(specs, 0xF0);
+        float saved = gravity;
+        gravity = saved * k;
+        s_origRB(rb, dT);
+        gravity = saved;
     }
-    float& gravity = Field<float>(specs, 0xF0);
-    float saved = gravity;
-    gravity = saved * k;
-    s_origRB(rb, dT);
-    gravity = saved;
+    LimitSpin(rb);   // after integrating: the next suspension step starts from a sane spin
 }
 
 bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
