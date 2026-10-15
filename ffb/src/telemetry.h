@@ -56,7 +56,7 @@ struct Telemetry {
     // Hits on another vehicle (traffic, cops, racers: the other object's ISimable type is
     // SIMABLE_VEHICLE), counted up in carHitSeq; they don't count as generic hits.
     uint32_t carHitSeq;
-    float    carHitSpeed;  // m/s closing speed
+    float    carHitSpeed;  // m/s, the car's speed at the hit
     float    carHitLat;    // -1..1: the hit pushes the car to the right (+) or left (-)
     double   scrapeTime;   // Now() of the latest sliding contact
     float    scrapeSpeed;  // m/s along the wall

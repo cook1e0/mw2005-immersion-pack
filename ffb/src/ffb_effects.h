@@ -10,7 +10,7 @@
 //   scrapes   grinding while the car slides along a wall, and a pull toward it
 //   offroad   a rough, uneven vibration while front wheels are on grass, dirt, mud, gravel...
 //   carHits   the same kick and shake when the car hits another vehicle (traffic, cops, racers),
-//             toward the side it was pushed, harder the faster they closed
+//             toward the side it was pushed; full strength from 150 km/h (as breakables)
 //   landing   a hard kick and a short shake when the car lands after a jump (stronger with airtime)
 //   breakables a sharp knock when the car smashes a breakable prop (bench, sign post, fence, bin),
 //             toward the side it was on: the game's own Smackable objects, not any light contact

@@ -80,6 +80,12 @@
   (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
   type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
   hits, `[FFB] CarHits`).
+- **Vehicle hit and breakable jolts scale with speed:** full slider strength from 150 km/h, less
+  below it (a tenth at least).
+- **Challenge races no longer end with a blown engine at the start:** a rolling start put the car at
+  speed in the shifter's gear (2nd at 170 km/h blew the engine in 4 s and knocked the car out of the
+  race). Engine heat now waits 8 s after the game resets the car (race start, restart, respawn) and
+  doesn't rise during cutscenes.
 - **No smoke left behind by a missed shift:** the drag race "missed shift" event isn't sent any more
   (its exhaust smoke stayed where the shift was missed); the grind sound stays.
 - **Physics: slide oversteer you can catch:** the rear's lost side grip now follows the throttle

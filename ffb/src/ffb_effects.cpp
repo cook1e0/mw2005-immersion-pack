@@ -11,6 +11,8 @@ float Ramp(float a, float b, float x) {
     return t * t * (3.0f - 2.0f * t);
 }
 double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * hz * dt, kTwoPi); }
+// Share of a knock's full strength at the car's speed (m/s): full from 150 km/h, a tenth at least.
+float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0f); }
 }
 
 EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p) {
@@ -64,7 +66,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     // --- breakable props: a short, sharp knock, harder the faster the car hits ---
     if (t.breakSeq != lastBreakSeq_) {
         lastBreakSeq_ = t.breakSeq;
-        float amp = p.breakables * Clampf(0.35f + 0.65f * tanhf(t.breakSpeed / 15.0f), 0.0f, 1.0f);
+        float amp = p.breakables * SpeedShare(t.breakSpeed);
         if (amp > 0.01f) {
             breakStart_ = now;
             breakAmp_ = amp;
@@ -153,7 +155,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         lastCarHitSeq_ = t.carHitSeq;
         if (p.carHits > 0.0f) {
             carStart_ = now;
-            carAmp_ = p.carHits * Clampf(0.55f + t.carHitSpeed / 20.0f, 0.55f, 1.2f);
+            carAmp_ = p.carHits * SpeedShare(t.carHitSpeed);
             carDir_ = t.carHitLat >= 0.0f ? 1.0f : -1.0f;
         }
     }

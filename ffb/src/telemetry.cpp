@@ -186,9 +186,10 @@ void OnPlayerCollision(const uint8_t* info) {
             s_car.carHitSeq++;
             s_car.carHitTime = now;
             s_car.carHitObject = other;
-            s_car.carHitSpeed = closingSpeed;
+            s_car.carHitSpeed = s_car.speed;
             s_car.carHitLat = Clamp(lat * noseShare, -1.0f, 1.0f);
-            if (g_cfg.logTelemetry) Log("contact: vehicle hit %.1f m/s, side %.2f", closingSpeed, s_car.carHitLat);
+            if (g_cfg.logTelemetry)
+                Log("contact: vehicle hit %.1f m/s (car at %.1f m/s), side %.2f", closingSpeed, s_car.speed, s_car.carHitLat);
         }
         return;
     }

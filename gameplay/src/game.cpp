@@ -624,8 +624,16 @@ bool NosOn(uint8_t* eng) {
     return (((uint32_t(__thiscall*)(void*))Vtbl(iface)[8])(iface) & 0xFF) != 0;
 }
 
+// The game resets the engine at a race start, restart or respawn: a rolling start puts the car at
+// speed in whatever gear the shifter is in (2nd at 170 km/h blew the engine in 4 s), so the heat
+// waits this long after a reset for a gear to be picked. Nor does it rise in a cutscene (NIS).
+constexpr double kWearGraceAfterReset = 8.0;
+constexpr uintptr_t kNisInstance = 0x9885C8;          // UTL::Singleton<INIS>::mInstance: non-null during an NIS
+double s_wearGraceUntil = 0;
+
 void UpdateWear(uint8_t* eng, float dT) {
     if (IsBlown(eng)) return;
+    if (Now() < s_wearGraceUntil || *(void**)kNisInstance) return;
     // Like EngineDragster::ComputeEngineHeat: frozen at the start line and in the speedbreaker.
     if (dT <= 0.0f || IsStaging(eng) || InSpeedBreaker(eng)) return;
     uint8_t* layout = Field<uint8_t*>(eng, kER_EngineLayout);
@@ -686,6 +694,7 @@ void __fastcall Hook_Repair(uint8_t* damage) {
             IsBlown(eng) ? "blown" : "ok", s.heat);
         s.heat = 0.0f;
         s.heatStep = 0;
+        s_wearGraceUntil = Now() + kWearGraceAfterReset;
     }
     ((Void_t)kRepair)(damage);
 }

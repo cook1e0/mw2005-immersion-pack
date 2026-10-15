@@ -385,7 +385,7 @@ static void TestEffects() {
         double at = now;
         fx.Step(t, 1.0f, at += dt, dt, p);
         t.carHitSeq = 1;
-        t.carHitSpeed = 15.0f;
+        t.carHitSpeed = 45.0f;
         t.carHitLat = 1.0f;
         float first = 0, peak = 0;
         for (int i = 0; i < 10; i++) {
