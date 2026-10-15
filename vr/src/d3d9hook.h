@@ -20,6 +20,9 @@ void D3D_ResetForNextEye();
 // into a texture first). Used for the side mirrors. All device state is restored.
 void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* source, float brightness);
 
+// Draws sampling either texture are skipped (null: none). Used for the HUD's rear view mirror.
+void D3D_HideTextures(void* a, void* b);
+
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.
 void D3D_BeginHudPhase();

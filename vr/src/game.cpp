@@ -49,12 +49,17 @@ constexpr uintptr_t kCallsSetupLightContext[] = {0x502AAF, 0x73BB67, 0x73BB89};
 // Side mirrors. The game renders its rear view (eViews[3], EVIEW_PLAYER1_RVM, from a
 // RearViewMirrorCameraMover the driving camera always creates) into the "RVM" texture, shown at
 // the top of the HUD when the rear view mirror option is on. In the headset that HUD mirror is
-// clutter, so the image goes onto the player car's side mirrors instead (cockpit.cpp finds the
-// glass): the mirror camera's option check reads "on" and the HUD's reads "off" while VR runs.
+// clutter, so the image goes onto the player car's mirrors instead (cockpit.cpp finds the glass).
+// MaybeChangeViewMode only renders the rear view (view mode ONE_RVM) while sub_595D40 allows it:
+// option on, the race HUD up and not an in-car camera, so never in the headset's bumper/hood
+// views. While VR runs it always allows it, the mirror camera's option check reads "on", and the
+// HUD's mirror (drawn with the "RVM" and "RVM_MASK" textures) is left out by the d3d9 wrapper.
 constexpr uintptr_t kMirrorCamOption = 0x4766A7;  // RearViewMirrorCameraMover::Update: mov al, [ecx+0x39]
-constexpr uintptr_t kHudMirrorOption = 0x595DCC;  // HUD mirror shown: mov cl, [eax+0x39]
 constexpr uint8_t kMirrorCamGame[3] = {0x8A, 0x41, 0x39}, kMirrorCamOn[3] = {0xB0, 0x01, 0x90};     // mov al, 1
-constexpr uint8_t kHudMirrorGame[3] = {0x8A, 0x48, 0x39}, kHudMirrorOff[3] = {0xB1, 0x00, 0x90};    // mov cl, 0
+constexpr uintptr_t kRvmAllowed = 0x595D40;       // bool sub_595D40(view): rear view mirror allowed
+constexpr uint8_t kRvmAllowedGame[3] = {0xA1, 0x84, 0xD8}, kRvmAllowedOn[3] = {0xB0, 0x01, 0xC3};   // mov al, 1; ret
+constexpr uintptr_t kRvmTexture = 0x982B48;       // TextureInfo* "RVM": +0 platform info, its +0x18 the D3D texture
+constexpr uintptr_t kRvmMaskTexture = 0x982B4C;   // TextureInfo* "RVM_MASK"
 // ___eDisplayFrame renders eViews[3] while it is active into this render target (type, ?, colour
 // surface, depth surface), then the HUD draws it; the image is taken from its colour surface.
 constexpr uintptr_t kRvmTarget = 0x93DB0C;
@@ -351,9 +356,21 @@ void UpdateMirrorPatch() {
     bool want = s_mirrorPatchOk && g_cfg.mirrors && Xr_Available();
     if (want == s_mirrorPatched) return;
     WriteCode(kMirrorCamOption, want ? kMirrorCamOn : kMirrorCamGame, 3);
-    WriteCode(kHudMirrorOption, want ? kHudMirrorOff : kHudMirrorGame, 3);
+    WriteCode(kRvmAllowed, want ? kRvmAllowedOn : kRvmAllowedGame, 3);
     s_mirrorPatched = want;
-    Log("game: rear view %s", want ? "on the side mirrors (HUD mirror hidden)" : "as the game's option");
+    Log("game: rear view %s", want ? "on the car's mirrors (HUD mirror hidden)" : "as the game's option");
+}
+
+void* TextureOf(uintptr_t slot) {
+    uint8_t* info = *(uint8_t**)slot;
+    uint8_t* plat = info ? *(uint8_t**)info : nullptr;
+    return plat ? *(void**)(plat + 0x18) : nullptr;
+}
+
+// The HUD's mirror textures, for the d3d9 wrapper to leave out while the mirrors are on.
+void UpdateHiddenTextures() {
+    if (s_mirrorPatched) D3D_HideTextures(TextureOf(kRvmTexture), TextureOf(kRvmMaskTexture));
+    else D3D_HideTextures(nullptr, nullptr);
 }
 
 void* RvmSurface() {
@@ -419,6 +436,7 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
 void __cdecl hkRenderScene() {
     s_stereoFrame = false;
     UpdateMirrorPatch();
+    UpdateHiddenTextures();
     void* view = (void*)kPlayerView;
     void* cam = At<void*>(view, kViewCamera);
     bool active = At<int8_t>(view, kViewActive) != 0;
@@ -684,7 +702,7 @@ bool Game_ValidateHooks() {
 }
 
 bool Game_InstallHooks() {
-    s_mirrorPatchOk = !memcmp((void*)kMirrorCamOption, kMirrorCamGame, 3) && !memcmp((void*)kHudMirrorOption, kHudMirrorGame, 3);
+    s_mirrorPatchOk = !memcmp((void*)kMirrorCamOption, kMirrorCamGame, 3) && !memcmp((void*)kRvmAllowed, kRvmAllowedGame, 3);
     if (!s_mirrorPatchOk) Log("game: unexpected rear view code, side mirrors off");
     if (!Game_ValidateHooks()) return false;
     EnlargeFrameMemory();

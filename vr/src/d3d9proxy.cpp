@@ -72,6 +72,17 @@ static IDirect3DQuery9* s_fence;
 static int s_dumpRequested; // frames left to dump
 static int s_dumpIndex;
 
+static void* s_hideTex[2];               // draws sampling these are left out (the HUD mirror)
+static void* s_boundTex[4];              // textures bound to stages 0..3
+static bool s_texHidden;                 // one of them is hidden
+
+void D3D_HideTextures(void* a, void* b) {
+    s_hideTex[0] = a;
+    s_hideTex[1] = b;
+    s_texHidden = false;
+    for (void* t : s_boundTex) s_texHidden = s_texHidden || (t && (t == a || t == b));
+}
+
 static IDirect3DTexture9* s_mirrorTex;
 static IDirect3DSurface9* s_mirrorSurf;
 static UINT s_mirrorW, s_mirrorH;
@@ -546,20 +557,29 @@ public:
         s_skipPostPass = false;
         return real->EndScene();
     }
+    HRESULT STDMETHODCALLTYPE SetTexture(DWORD stage, IDirect3DBaseTexture9* tex) override {
+        if (stage < 4) {
+            s_boundTex[stage] = tex;
+            s_texHidden = false;
+            for (void* t : s_boundTex) s_texHidden = s_texHidden || (t && (t == s_hideTex[0] || t == s_hideTex[1]));
+        }
+        return real->SetTexture(stage, tex);
+    }
     HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE type, UINT start, UINT count) override {
-        return s_skipPostPass ? D3D_OK : real->DrawPrimitive(type, start, count);
+        return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawPrimitive(type, start, count);
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts, UINT start,
                                                    UINT count) override {
-        return s_skipPostPass ? D3D_OK : real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
-        return s_skipPostPass ? D3D_OK : real->DrawPrimitiveUP(type, count, data, stride);
+        return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawPrimitiveUP(type, count, data, stride);
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT minIndex, UINT verts, UINT count,
                                                      CONST void* indices, D3DFORMAT fmt, CONST void* data,
                                                      UINT stride) override {
-        return s_skipPostPass ? D3D_OK : real->DrawIndexedPrimitiveUP(type, minIndex, verts, count, indices, fmt, data, stride);
+        return s_skipPostPass || s_texHidden ? D3D_OK
+                                             : real->DrawIndexedPrimitiveUP(type, minIndex, verts, count, indices, fmt, data, stride);
     }
 
     HRESULT STDMETHODCALLTYPE Present(CONST RECT* src, CONST RECT* dst, HWND wnd, CONST RGNDATA* dirty) override {
