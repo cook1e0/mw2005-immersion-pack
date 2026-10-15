@@ -50,6 +50,10 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
+- **VR: reflections sit still when you move your head:** the car paint and window shaders turn
+  their reflections with the view's rotation (WorldView), which in the headset is your head's. While
+  the eyes render, that one matrix now comes from the seat (the game camera without your head),
+  so reflections stay put as you look around; positions are untouched. `[VR] StableReflections`.
 - **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
   player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
   option). The mirror glass is found in each car's model (checked offline on every car, including

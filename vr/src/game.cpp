@@ -61,6 +61,15 @@ constexpr uintptr_t kRvmTarget = 0x93DB0C;
 constexpr int kTargetSurface = 0x08;
 constexpr uintptr_t kRvmViewActive = 0x919738;    // eViews[3] + 8
 constexpr int kPlatView = 0x00;                   // eViewPlatInfo: view matrix (the camera's), projection at +0x40
+// Reflections and the head: the per-object transform setup (sub_6C8000) gives every shader
+// WorldView = local * view, with D3DXMatrixMultiply at kCallWorldView (WorldViewProj is a separate
+// multiply). The car paint shader turns its reflection vector into the environment map with
+// WorldView's rotation, and the glossy window shader slides its reflection with WorldView's first
+// row: in the headset, with the eye's view, every reflection turned with the head. While the eyes
+// render, WorldView gets the seat's view (the game camera in the seat, without the head) instead,
+// so reflections sit still as the head moves, as they do with the flat screen's camera.
+constexpr uintptr_t kCallWorldView = 0x6C8147;    // call D3DXMatrixMultiply(out, local, view) (stdcall thunk)
+constexpr uintptr_t kMatrixMultiply = 0x7E7D5E;
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -315,6 +324,17 @@ template <class Fn> void ForEachCompanion(void* cam, Fn fn) {
     }
 }
 
+// While the eyes render: the eye's view matrix and the seat's, for WorldView.
+bool s_stableView = false;
+M4 s_eyeView, s_seatView;
+
+typedef void*(__stdcall* MatrixMultiply_t)(void* out, const void* a, const void* b);
+
+void* __stdcall hkWorldViewMultiply(void* out, const void* local, const void* view) {
+    if (s_stableView && view && !memcmp(view, &s_eyeView, sizeof(s_eyeView))) view = &s_seatView;
+    return ((MatrixMultiply_t)kMatrixMultiply)(out, local, view);
+}
+
 bool s_mirrorPatchOk = false;
 bool s_mirrorPatched = false;
 
@@ -474,12 +494,18 @@ void __cdecl hkRenderScene() {
         if (eye > 0) D3D_ResetForNextEye();
         ApplyEyeToCamera(cam, base, Xr_Eye(eye));
         SetupPlayerView(view, cam, tanX, tanY);
+        if (g_cfg.stableReflections) {
+            memcpy(&s_eyeView, (const char*)cam + kCamMatrix, sizeof(s_eyeView));
+            memcpy(&s_seatView, base + kCamMatrix, sizeof(s_seatView));
+            s_stableView = true;
+        }
         Cockpit_BeginEye();
         oRenderScene();
         DrawMirrors(view);
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
+    s_stableView = false;
 
     memcpy(cam, saved, sizeof(saved));
     oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
@@ -678,6 +704,7 @@ bool Game_InstallHooks() {
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
+    PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
     for (uintptr_t site : kCallsCloneLightContext)
         PatchCall(site, kCloneLightContext, (void*)&hkCloneLightContext, "car reflections");
     for (uintptr_t site : kCallsSetupLightContext)
