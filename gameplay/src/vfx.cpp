@@ -16,6 +16,11 @@
 // smoke only showed once the car stopped.
 // The player's smoke effect update is wrapped: its particles get [Damage] SmokeTrail of the
 // car's render-space velocity (from its render matrix's movement) instead.
+//
+// When the smoke stops (repaired, respawned, the engine cooled down) UpdateEffects only switches
+// the effect's emitter group off (EmitterGroup::Disable, 0x503C50) and no longer updates it: its
+// particles stop ageing and hang where they were for good. That call is wrapped: a group that was
+// the player's smoke goes on being updated (EmitterGroup::Update, 0x50AF90) until it is empty.
 #include "vfx.h"
 #include "common.h"
 #include "game.h"
@@ -48,6 +53,17 @@ constexpr int kData_InheritLocal = 0xE0;            // layout: nonzero = no velo
 constexpr int kData_Inherit = 0xEC;                 // layout: VelocityInherit
 
 typedef void(__thiscall* EffectUpdate_t)(void* eff, const void* mtx, uint32_t key, float dt, float intensity, const float* vel);
+
+constexpr uintptr_t kSmokeDisableCall = 0x756491;   // UpdateEffects: call EmitterGroup::Disable (no effect for the slot)
+constexpr uintptr_t kGroupDisable = 0x503C50;       // thiscall
+constexpr uintptr_t kGroupUpdate = 0x50AF90;        // void EmitterGroup::Update(float dt), thiscall
+
+// Emitter groups that have carried the player's smoke, and when each was last aged by us.
+struct SmokeGroup {
+    uint8_t* group;
+    double aged;
+};
+SmokeGroup s_smokeGroups[4];
 
 constexpr uintptr_t kSmokeHealthLoad = 0x756436;    // UpdateEffects: fld [edx+0x90] (health) before the <= 0.5 test
 
@@ -142,7 +158,34 @@ static void __fastcall SmokeUpdate(void* eff, void*, const float* mtx, uint32_t 
         }
         vel = nullptr;  // keep these instead of the game's
     }
+    bool player = s_playerSmoke;
     ((EffectUpdate_t)kEffectUpdate)(eff, mtx, key, dt, intensity, vel);
+    uint8_t* now = *(uint8_t**)((uint8_t*)eff + kEffect_Group);
+    if (player && now) {
+        bool known = false;
+        for (SmokeGroup& g : s_smokeGroups) known = known || g.group == now;
+        for (SmokeGroup& g : s_smokeGroups)
+            if (!known && !g.group) {
+                g = {now, Now()};
+                known = true;
+            }
+    }
+}
+
+// Replaces UpdateEffects' EmitterGroup::Disable for an effect slot with nothing to show.
+static void __fastcall SmokeDisable(uint8_t* group, void*) {
+    ((void(__thiscall*)(void*))kGroupDisable)(group);
+    for (SmokeGroup& g : s_smokeGroups) {
+        if (g.group != group) continue;
+        double now = Now();
+        float dt = (float)(now - g.aged);
+        g.aged = now;
+        if (dt <= 0.0005f) return;               // twice in a frame (both eyes in VR)
+        if (dt > 0.1f) dt = 0.1f;
+        ((void(__thiscall*)(void*, float))kGroupUpdate)(group, dt);
+        if (((unsigned(__thiscall*)(void*))kGroupNumParticles)(group) == 0) g.group = nullptr;
+        return;
+    }
 }
 
 // Replaces "mov ecx,[esp+0x18]; test ecx,ecx" (6 bytes) with a call; the flags are set on return.
@@ -184,6 +227,15 @@ void Vfx_Install() {
         memcpy((void*)(kSmokeUpdateCall + 1), &r, 4);
         VirtualProtect((void*)kSmokeUpdateCall, 5, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeUpdateCall, 5);
+    }
+    if (*(uint8_t*)kSmokeDisableCall == 0xE8 && kSmokeDisableCall + 5 + *(int32_t*)(kSmokeDisableCall + 1) == kGroupDisable) {
+        int32_t r = (int32_t)((uintptr_t)&SmokeDisable - (kSmokeDisableCall + 5));
+        VirtualProtect((void*)kSmokeDisableCall, 5, PAGE_EXECUTE_READWRITE, &old);
+        memcpy((void*)(kSmokeDisableCall + 1), &r, 4);
+        VirtualProtect((void*)kSmokeDisableCall, 5, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeDisableCall, 5);
+    } else {
+        Log("vfx: unexpected code, stopped smoke may linger");
     }
     static const uint8_t healthLoad[] = {0xD9, 0x82, 0x90, 0x00, 0x00, 0x00};   // fld [edx+0x90]
     if (memcmp((void*)kSmokeHealthLoad, healthLoad, sizeof(healthLoad)) == 0) {

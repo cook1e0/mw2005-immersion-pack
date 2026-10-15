@@ -45,8 +45,14 @@
 // for the step (Tire::BeginFrame resets it every step) and ends with DoDrifting; that call is
 // wrapped, and for the player's car the rear tyres' boost is scaled by [Physics] RearGrip (below 1:
 // the rear lets go first, oversteer) and any tyre on an off-road surface (its simsurface name:
-// grass, dirt, mud, gravel, sand...) by [Physics] OffroadGrip. UpdateLoaded applies the boost to
-// both the tyre's sliding friction and its grip limit.
+// grass, dirt, mud, gravel, sand...) by [Physics] OffroadGrip, and every tyre in the rain by
+// [Physics] RainGrip (with the player view's rain intensity: eViews[1].Precipitation, a Rain, at
+// 0x9196B8, intensity at +0x4C). UpdateLoaded applies the boost to both the tyre's sliding friction
+// and its grip limit.
+// Slide grip: a tyre that has broken loose slides on its dynamic friction (UpdateLoaded,
+// DYNAMIC_GRIP * traction boost * pilot factor at 0x69DD22), its grip limit is the static one. For
+// the player's car that multiply also takes [Physics] SlideGrip: below 1 a sliding tyre has less
+// grip than at its peak, so a rear that lets go slides the car instead of tightening the turn.
 //
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
@@ -102,6 +108,9 @@ constexpr int kSurf_Name = 0xDC;                    // simsurface layout: Collec
 constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
 constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
+constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
+constexpr int kRain_Intensity = 0x4C;
+constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -110,6 +119,8 @@ constexpr float kPoppedDrag = 0.06f;
 typedef void(__thiscall* Simulate_t)(void* obj, float dT);
 Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
+extern "C" float s_slideGrip;
+float s_slideGrip = 1.0f;   // the sliding friction factor for the suspension simulating now
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -192,7 +203,7 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.torqueSplit == 1.0f && c.drivetrain == 1.0f;
+           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f;
 }
 
 // Diagnostics: the player's physics step lengths (the game's forces divide by them).
@@ -224,10 +235,22 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     }
     Saved sv;
     Apply(susp, sv);
+    s_slideGrip = g_cfg.slideGrip;
     s_origSusp(susp, dT);
+    s_slideGrip = 1.0f;
     Restore(sv);
     s_playerSusp = false;
 }
+
+// In place of UpdateLoaded's fmul [esi+0xEC] (6 bytes: a call and a nop): the same multiply and
+// the slide grip factor.
+__asm__(
+    ".text\n"
+    "_SlideFrictionStub:\n"
+    "    fmuls 0xEC(%esi)\n"
+    "    fmuls _s_slideGrip\n"
+    "    ret\n");
+extern "C" void SlideFrictionStub();
 
 // Called from TuneWheelParams for each blown tire, in place of the game's code.
 void __cdecl Hook_BlownTire(uint8_t* tire) {
@@ -371,19 +394,35 @@ bool OffroadTire(uint8_t* tire) {
     return false;
 }
 
+// Rain intensity in the player's view (0 = dry), checked against nonsense.
+float RainIntensity() {
+    uintptr_t rain = *(uintptr_t*)kPlayerRain;
+    if (rain < 0x10000 || rain >= 0x7FFF0000) return 0.0f;
+    float v = *(float*)(rain + kRain_Intensity);
+    float r = v >= 0.0f && v <= 10.0f ? v : 0.0f;
+    static float logged = -1.0f;
+    if (fabsf(r - logged) > 0.1f || (r > 0.0f) != (logged > 0.0f)) {
+        logged = r;
+        Log("physics: rain intensity %.2f", r);
+    }
+    return r;
+}
+
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp || !g_cfg.physics) return;
     float rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
-    if (rear == 1.0f && off == 1.0f) return;
+    // Full RainGrip from a light rain on (intensity 0.3).
+    float wet = 1.0f - (1.0f - g_cfg.rainGrip) * std::min(RainIntensity() / 0.3f, 1.0f);
+    if (rear == 1.0f && off == 1.0f && wet == 1.0f) return;
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
     if (!iface) return;
     for (int i = 0; i < 4; i++) {
         uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
         if ((uintptr_t)tire < 0x10000 || (uintptr_t)tire >= 0x7FFF0000) continue;
-        float k = i >= 2 ? rear : 1.0f;
+        float k = (i >= 2 ? rear : 1.0f) * wet;
         if (off != 1.0f && OffroadTire(tire)) k *= off;
         Field<float>(tire, kTire_Traction) *= k;
     }
@@ -505,6 +544,7 @@ const PerCar kPerCar[] = {
     {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
     {&Config::drivetrain, "Drivetrain", 0.7f, 3.0f},
     {&Config::rearGrip, "RearGrip", 0.5f, 1.5f},
+    {&Config::slideGrip, "SlideGrip", 0.4f, 1.0f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
@@ -587,6 +627,19 @@ void Physics_Install() {
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
     InstallBlownTire();
+    if (Expect(kSlideFriction, {0xD8, 0x8E, 0xEC, 0x00, 0x00, 0x00})) {
+        uint8_t code[6] = {0xE8, 0, 0, 0, 0, 0x90};
+        int32_t rel = (int32_t)((uintptr_t)&SlideFrictionStub - (kSlideFriction + 5));
+        memcpy(code + 1, &rel, 4);
+        DWORD old;
+        VirtualProtect((void*)kSlideFriction, sizeof(code), PAGE_EXECUTE_READWRITE, &old);
+        memcpy((void*)kSlideFriction, code, sizeof(code));
+        VirtualProtect((void*)kSlideFriction, sizeof(code), old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kSlideFriction, sizeof(code));
+        Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
+    } else {
+        Log("physics: slide grip unavailable");
+    }
     if (Expect(kCallDoDrifting, {0xE8}) && kCallDoDrifting + 5 + *(int32_t*)(kCallDoDrifting + 1) == kDoDrifting) {
         DWORD old;
         VirtualProtect((void*)kCallDoDrifting, 5, PAGE_EXECUTE_READWRITE, &old);

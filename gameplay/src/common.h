@@ -146,6 +146,8 @@ struct Config {
     float drivetrain = 1.0f;        // exaggerates the driven axle's character (RWD oversteer, FWD understeer)
     float rearGrip = 1.0f;          // rear tyres' grip relative to the front (below 1: oversteer)
     float offroadGrip = 0.75f;      // tyre grip on grass, dirt, mud, gravel, sand
+    float slideGrip = 0.85f;        // a sliding tyre's friction compared with its peak grip
+    float rainGrip = 0.9f;          // tyre grip in the rain
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30
