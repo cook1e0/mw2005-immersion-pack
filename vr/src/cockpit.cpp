@@ -1342,6 +1342,10 @@ int __fastcall hkCarPixelSize(uint8_t* view, void*, const float* pos, float radi
 // Then eView::GetVisibleState: the car's bounding box against the view (0 = not visible). With the
 // camera inside the box (or within a metre of it) the car counts as partly visible.
 constexpr uintptr_t kCallCarVisible = 0x74E346;     // CarRenderInfo::Render
+// The same test per model (0x6DA9A2) and per draw entry (0x6DAB11, eViewPlatInterface::Render:
+// the entry's own box): looking down in the IS300 the car's parts were skipped one by one.
+constexpr uintptr_t kCallsPartVisible[] = {0x6DA9A2, 0x6DAB11};
+constexpr uintptr_t kPlatVisibleState = 0x6CF2B0;   // eViewPlatInterface::GetVisibleState, thiscall, 3 args
 constexpr uintptr_t kVisibleState = 0x4FCA70;       // int eView::GetVisibleState(const bVector3* min, max, const bMatrix4*), thiscall
 
 int __fastcall hkCarVisible(uint8_t* view, void*, const float* mn, const float* mx, const float* m) {
@@ -1360,9 +1364,9 @@ int __fastcall hkCarVisible(uint8_t* view, void*, const float* mn, const float* 
         if (local < mn[a] - margin || local > mx[a] + margin) return state;
     }
     static int logged;
-    if (logged < 3) {
+    if (logged < 6) {
         logged++;
-        Log("cockpit: car seen from inside its box kept visible");
+        Log("cockpit: model seen from inside its box kept visible");
     }
     return 1;
 }
@@ -1381,6 +1385,7 @@ void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
     for (uintptr_t site : kCallsPixelSize) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
     PatchCall(kCallCarVisible, kVisibleState, (void*)&hkCarVisible);
+    for (uintptr_t site : kCallsPartVisible) PatchCall(site, kPlatVisibleState, (void*)&hkCarVisible);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;

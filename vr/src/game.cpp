@@ -158,6 +158,11 @@ constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12};
 constexpr uint32_t kFrameMemGame = 0x64000;
 constexpr uint32_t kFrameMemVr = 0x200000;
 constexpr uintptr_t kFrameMemBuffer = 0x915128;  // FrameMemoryBuffer (null until eInitEngine)
+// eInitEngine allocates both buffers from the game's own memory pool (operator new, 0x652AD0);
+// 2 x 2 MB taken from that fixed pool left too little for big story scenes (the first safehouse
+// visit fell back to the main menu). The two calls get memory of their own instead.
+constexpr uintptr_t kCallsFrameMemAlloc[] = {0x5009D6, 0x5009E5};
+constexpr uintptr_t kGameNew = 0x652AD0;
 constexpr uintptr_t kFrameMemLargest = 0x915FA0; // Eframelargest: most used in one frame (bytes)
 constexpr uintptr_t kFrameMemMaxFail = 0x915F9C; // FrameMallocMaxFailAmount: most refused in one frame (bytes)
 
@@ -786,6 +791,12 @@ void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
 // This is a possible cause of the reported right-eye failure, independent of the XR runtime.
 // Reserve 2 MB per buffer before allocation; never rewind the allocator between the eyes, as
 // queued GPU work may still use matrices and lights allocated for the first eye.
+void* __cdecl FrameMemAlloc(size_t size) {
+    return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+}
+
+void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what);
+
 void EnlargeFrameMemory() {
     if (*(void**)kFrameMemBuffer) {
         Log("game: frame memory already allocated, left at %u KB", kFrameMemGame / 1024);
@@ -803,7 +814,8 @@ void EnlargeFrameMemory() {
         VirtualProtect((void*)a, 4, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)a, 4);
     }
-    Log("game: frame memory %u KB -> %u KB per buffer", kFrameMemGame / 1024, kFrameMemVr / 1024);
+    for (uintptr_t site : kCallsFrameMemAlloc) PatchCall(site, kGameNew, (void*)&FrameMemAlloc, "frame memory allocation");
+    Log("game: frame memory %u KB -> %u KB per buffer (outside the game's pool)", kFrameMemGame / 1024, kFrameMemVr / 1024);
 }
 
 } // namespace
