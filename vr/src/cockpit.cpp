@@ -116,8 +116,8 @@ struct SolidInfo {
     bool interior = false;
     int mirrorKind = -1;                            // -1 not looked at, 0 none, 1 side mirror solid, 2 body, 3 interior
     MirrorGlass glass[3];                           // left, right, rear view (model space)
-    void* glassIb[2] = {};                          // the side glass's registered draw entry (else first -1)
-    int glassFirst[2] = {-1, -1};
+    void* glassIb[2] = {};                          // the side glass's registered draw entries (first indices)
+    std::vector<int> glassFirsts[2];
     char name[64] = {};
     uint8_t* plat = nullptr;
     uint8_t* entries = nullptr;
@@ -822,15 +822,15 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
         const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
                                  g.halfU, g.halfV, 0.0f, 1.0f, 0};
         info.glassIb[side] = ib;
-        info.glassFirst[side] = first;
+        info.glassFirsts[side].push_back(first);
         std::vector<uint16_t> used(indices + first, indices + first + tris * 3);
         std::sort(used.begin(), used.end());
         used.erase(std::unique(used.begin(), used.end()), used.end());
         D3D_RegisterMirrorGlass(ib, first, tris, basis, used.data(), (int)used.size());
         Log("mirrors: %s: %s glass is draw entry %d (%d triangles)", name, side ? "right" : "left", i, tris);
-        return;
+        // Every entry on the glass: some cars lay a second one (the old glass texture) over it.
     }
-    Log("mirrors: %s: %s glass has no draw entry of its own", name, side ? "right" : "left");
+    if (info.glassFirsts[side].empty()) Log("mirrors: %s: %s glass has no draw entry of its own", name, side ? "right" : "left");
 }
 
 // Finds the rear view mirror's glass in the player car's interior the first time it is drawn,
@@ -910,14 +910,14 @@ void SideMirrorView(const SolidInfo& info, int side, const float*) {
         std::swap(u0, u1);
     }
     const float uv[8] = {u0, 0.0f, u1, 0.0f, u0, 1.0f, u1, 1.0f};
-    D3D_SetGlassCorners(info.glassIb[side], info.glassFirst[side], uv);
+    for (int first : info.glassFirsts[side]) D3D_SetGlassCorners(info.glassIb[side], first, uv);
 }
 
 void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
     for (int side = 0; side < 2; side++)
-        if (info.glassFirst[side] >= 0 && info.glass[side].ok) SideMirrorView(info, side, m);
+        if (!info.glassFirsts[side].empty() && info.glass[side].ok) SideMirrorView(info, side, m);
     for (int side = 2; side < 3; side++) {   // the side mirrors are drawn by the game (RegisterGlassEntry)
         if (!info.glass[side].ok) continue;
         bool seen = false;
