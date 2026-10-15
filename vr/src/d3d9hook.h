@@ -2,6 +2,11 @@
 #pragma once
 #include "common.h"
 
+// Frame timing, logged every 5 s: where a VR frame's time goes (seconds, D3D_ProfNow's clock).
+enum ProfSlot { PROF_WAITFRAME, PROF_EYES, PROF_GPUWAIT, PROF_SUBMIT, PROF_SPECTATOR, PROF_PRESENT, PROF_COUNT };
+double D3D_ProfNow();
+void D3D_ProfAdd(int slot, double seconds);
+
 // Copies the current back buffer into eye texture 0 or 1.
 void D3D_CaptureEye(int eye);
 

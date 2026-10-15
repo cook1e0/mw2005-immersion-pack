@@ -22,6 +22,8 @@ void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int
 void D3D_EndMirrorEye(void*) {}
 void D3D_BeginWheelEye(bool, const float*, const float*, const float*) {}
 void D3D_EndWheelEye() {}
+double D3D_ProfNow() { return 0; }
+void D3D_ProfAdd(int, double) {}
 void D3D_HideTextures(void*, void*, void*) {}
 void* D3D_TextureOfSurface(void*) { return nullptr; }
 static void __stdcall Resolution(int* w, int* h) { *w = 1920; *h = 1080; }

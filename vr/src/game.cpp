@@ -522,7 +522,13 @@ void __cdecl hkRenderScene() {
     void* cam = At<void*>(view, kViewCamera);
     bool active = At<int8_t>(view, kViewActive) != 0;
 
-    if (!Xr_Available() || !s_stereoEnabled || !active || !cam || !s_haveSetupArgs || !Xr_BeginFrame()) {
+    bool began = false;
+    if (Xr_Available() && s_stereoEnabled && active && cam && s_haveSetupArgs) {
+        double tw = D3D_ProfNow();
+        began = Xr_BeginFrame();
+        D3D_ProfAdd(PROF_WAITFRAME, D3D_ProfNow() - tw);
+    }
+    if (!began) {
         // Flat screen: the cockpit seat still applies to the single view.
         uint8_t saved[kCameraParamsSize];
         bool seat = false;
@@ -588,6 +594,7 @@ void __cdecl hkRenderScene() {
         s_envPosSet = true;
     }
 
+    double tEyes = D3D_ProfNow();
     D3D_BeginEyes();
     for (int eye = 0; eye < 2; eye++) {
         if (eye > 0) D3D_ResetForNextEye();
@@ -625,6 +632,7 @@ void __cdecl hkRenderScene() {
     oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
                s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
     ForEachCompanion(cam, [](void* v, int, const uint32_t* a) { oViewSetup(At<void*>(v, kViewPlatInfo), nullptr, v, a[0], a[1], a[2], a[3]); });
+    D3D_ProfAdd(PROF_EYES, D3D_ProfNow() - tEyes);
     D3D_BeginHudPhase();
     s_stereoFrame = true;
 }

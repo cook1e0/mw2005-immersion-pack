@@ -66,16 +66,19 @@
   pursuit breaker starts an NIS (ETriggerMomentNIS), which paused the world for ~10 s and then
   placed the car again; in VR that trigger is now dropped.
 - **Physics: rear grip (oversteer) and off-road grip:** F4 > Physics > Rear grip scales the rear
-  tyres' grip against the front (below 100% the rear steps out, per car, `[Physics] RearGrip`);
+  tyres' grip against the front (below 100% the rear steps out, every car alike, front drive too, `[Physics] RearGrip`);
   Offroad grip scales grip on grass, dirt, mud, gravel and sand by each tyre's surface
   (`[Physics] OffroadGrip`, 75%).
 - **Physics: slide grip:** a tyre that breaks loose now slides with less grip than its peak
-  (F4 > Physics > Slide grip, per car, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
+  (F4 > Physics > Slide grip, every car alike, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
   car goes into a slide you can catch instead of snapping into the turn.
 - **Physics: rain grip:** tyres have 10% less grip in the rain (`[Physics] RainGrip`, 90%).
 - **Engine smoke no longer hangs in the air:** when the smoke stopped (repair, respawn, engine cooled)
   the game switched the effect off without updating it again, freezing its last puffs in place for
   good; they now drift and fade out.
+- **VR: frame timing in the log:** every 5 s `nfsmw_vr.log` gets a "perf:" line: fps, and the
+  average and worst milliseconds spent waiting for the headset, rendering the eyes, waiting for the
+  GPU, submitting, drawing the spectator window, presenting, and in the game itself.
 - **Testing: Drop from air:** F4 > Menu and testing > "Drop from air" lifts the car straight up by
   "Drop height" (`[Tires] DropHeight`, 5 m) and lets it fall, keeping its forward speed, to test
   landings anywhere.

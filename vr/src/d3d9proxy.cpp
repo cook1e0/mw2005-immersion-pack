@@ -938,6 +938,57 @@ static void EndHudPhase() {
     s_backBuffer = nullptr;
 }
 
+// --- frame timing ---------------------------------------------------------------------------------
+static struct {
+    double sum[PROF_COUNT], max[PROF_COUNT], frameMax, last, since;
+    int frames;
+} s_prof;
+
+double D3D_ProfNow() {
+    static LARGE_INTEGER f;
+    if (!f.QuadPart) QueryPerformanceFrequency(&f);
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    return (double)c.QuadPart / (double)f.QuadPart;
+}
+
+void D3D_ProfAdd(int slot, double seconds) {
+    if (slot < 0 || slot >= PROF_COUNT) return;
+    s_prof.sum[slot] += seconds;
+    if (seconds > s_prof.max[slot]) s_prof.max[slot] = seconds;
+}
+
+// Once per Present: the frame's length, and every 5 s the breakdown.
+static void ProfFrame() {
+    double now = D3D_ProfNow();
+    if (s_prof.last > 0) {
+        double frame = now - s_prof.last;
+        s_prof.frames++;
+        if (frame > s_prof.frameMax) s_prof.frameMax = frame;
+    } else {
+        s_prof.since = now;
+    }
+    s_prof.last = now;
+    double span = now - s_prof.since;
+    if (span < 5.0 || s_prof.frames == 0) return;
+    static const char* names[PROF_COUNT] = {"headset wait", "eyes (CPU)", "GPU wait", "submit", "spectator", "present"};
+    char line[512];
+    int n = snprintf(line, sizeof(line), "perf: %.1f fps (frame %.1f ms avg, %.1f max):", s_prof.frames / span,
+                     span / s_prof.frames * 1000.0, s_prof.frameMax * 1000.0);
+    double known = 0;
+    for (int i = 0; i < PROF_COUNT && n < (int)sizeof(line); i++) {
+        known += s_prof.sum[i];
+        n += snprintf(line + n, sizeof(line) - n, " %s %.1f/%.1f", names[i], s_prof.sum[i] / s_prof.frames * 1000.0,
+                      s_prof.max[i] * 1000.0);
+    }
+    if (n < (int)sizeof(line))
+        snprintf(line + n, sizeof(line) - n, ", game %.1f ms (avg/max ms)", (span - known) / s_prof.frames * 1000.0);
+    Log("%s", line);
+    memset(&s_prof, 0, sizeof(s_prof));
+    s_prof.last = now;
+    s_prof.since = now;
+}
+
 // D3D9Ex has no keyed mutex, so wait for the GPU before D3D11 reads the shared textures.
 static void WaitForGpu() {
     if (!s_fence && FAILED(s_dev->CreateQuery(D3DQUERYTYPE_EVENT, &s_fence))) return;
@@ -1018,11 +1069,15 @@ static void OnPresent() {
         if (stereo) {
             captured = true;
             EndHudPhase();
+            double t0 = D3D_ProfNow();
             WaitForGpu();
+            double t1 = D3D_ProfNow();
             float tx, ty;
             Game_RenderedFov(&tx, &ty);
             // With the steering wheel in front of the HUD, the HUD is already in both eyes.
             Xr_EndFrame(LayerMode::Stereo, tx, ty, s_hudValid && s_hudInEyes < 2);
+            D3D_ProfAdd(PROF_GPUWAIT, t1 - t0);
+            D3D_ProfAdd(PROF_SUBMIT, D3D_ProfNow() - t1);
         } else if (Xr_BeginFrame()) {
             // Menus, movies, loading screens: show the flat frame on a virtual screen.
             D3D_CaptureEye(0);
@@ -1048,7 +1103,9 @@ static void OnPresent() {
             sf.hmdTanY = std::max(std::max(e0.tanUp, e0.tanDown), std::max(e1.tanUp, e1.tanDown));
             sf.bbWidth = s_eyeW;
             sf.bbHeight = s_eyeH;
+            double ts = D3D_ProfNow();
             Spectator_Draw(s_dev, sf);
+            D3D_ProfAdd(PROF_SPECTATOR, D3D_ProfNow() - ts);
             if (Spectator_ConsumeResize()) FitWindow(s_wnd, s_bbW, s_bbH);
         }
         if (s_dumpRequested > 0) {
@@ -1191,7 +1248,11 @@ public:
 
     HRESULT STDMETHODCALLTYPE Present(CONST RECT* src, CONST RECT* dst, HWND wnd, CONST RGNDATA* dirty) override {
         OnPresent();
-        return real->Present(src, dst, wnd, dirty);
+        double tp = D3D_ProfNow();
+        HRESULT hr = real->Present(src, dst, wnd, dirty);
+        D3D_ProfAdd(PROF_PRESENT, D3D_ProfNow() - tp);
+        ProfFrame();
+        return hr;
     }
 
     HRESULT STDMETHODCALLTYPE CreateTexture(UINT w, UINT h, UINT levels, DWORD usage, D3DFORMAT fmt, D3DPOOL pool,
