@@ -20,6 +20,7 @@
 // stay fixed to the car model in the same frame.
 #include "cockpit.h"
 #include "mirror_glass.h"
+#include "d3d9hook.h"
 #include <d3d9.h>
 #include <algorithm>
 #include <string.h>
@@ -645,6 +646,13 @@ struct MirrorDraw {
     M4 m;
 };
 std::vector<MirrorDraw> s_mirrorDraws;
+// Cars with side mirror solids: their body is searched too and finds other things there.
+std::unordered_map<std::string, bool> s_hasMirrorSolids;
+
+std::string CarOf(const char* name) {
+    const char* kit = strstr(name, "_KIT");
+    return std::string(name, kit ? kit - name : strlen(name));
+}
 
 // All of a solid's triangles (three points each), for which `keep` is true.
 template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, Keep keep) {
@@ -709,6 +717,7 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         SolidTriangles(solid, tris, [](const V3*) { return true; });
         info.glass[left ? 0 : 1] = mirror::FindGlass(tris);
         info.mirrorKind = 1;
+        if (info.glass[left ? 0 : 1].ok) s_hasMirrorSolids[CarOf(name)] = true;
     } else if (strstr(name, "_KIT") && strstr(name, "_BODY_")) {
         for (int side = 0; side < 2; side++) {
             std::vector<V3> tris;
@@ -727,6 +736,19 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
 }
 
+// The glass's triangles in world space, a few millimetres toward the driver, with their place in
+// the glass (0..1 across, 0..1 down) as texture coordinates: x, y, z, u, v per vertex.
+void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out) {
+    float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+    out.clear();
+    for (const V3& p : g.tris) {
+        V3 q = {p.x + g.normal.x * 0.003f, p.y + g.normal.y * 0.003f, p.z + g.normal.z * 0.003f};
+        for (int a = 0; a < 3; a++) out.push_back(q.x * m.m[0][a] + q.y * m.m[1][a] + q.z * m.m[2][a] + m.m[3][a]);
+        out.push_back(g.halfU > 0 ? (mirror::Dot(p, g.u) - (cu - g.halfU)) / (2 * g.halfU) : 0.0f);
+        out.push_back(g.halfV > 0 ? ((cv + g.halfV) - mirror::Dot(p, g.v)) / (2 * g.halfV) : 0.0f);
+    }
+}
+
 void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
@@ -739,9 +761,27 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         d.solid = solid;
         d.side = side;
         d.body = info.mirrorKind == 2;
+        if (d.body && s_hasMirrorSolids.count(CarOf(info.name))) continue;
         d.glass = info.glass[side];
         memcpy(&d.m, m, sizeof(d.m));
         s_mirrorDraws.push_back(d);
+        // To be drawn with the model: the side mirrors each show their half of the rear view.
+        std::vector<float> verts;
+        GlassVertices(d.glass, d.m, verts);
+        float u0 = 0.0f, u1 = 1.0f;
+        if (g_cfg.mirrorSplit && side < 2) {
+            u0 = side == 0 ? 0.0f : 0.5f;
+            u1 = u0 + 0.5f;
+        }
+        if (g_cfg.mirrorFlip) {
+            float a = 1.0f - u1, b = 1.0f - u0;
+            u0 = b;
+            u1 = a;
+        }
+        for (size_t i = 3; i < verts.size(); i += 5) verts[i] = u0 + (u1 - u0) * verts[i];
+        uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+        void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
+        D3D_AddMirror(ib, verts.data(), (int)(verts.size() / 5));
     }
 }
 
@@ -1015,27 +1055,3 @@ void Cockpit_Keys() {
 }
 
 void Cockpit_BeginEye() { s_mirrorDraws.clear(); }
-
-int Cockpit_Mirrors(MirrorQuad* out, int max) {
-    // Cars with side mirror solids: those only (their body is searched too and finds other things).
-    bool solids = false;
-    for (const MirrorDraw& d : s_mirrorDraws) solids = solids || (!d.body && d.side < 2);
-    int n = 0;
-    for (const MirrorDraw& d : s_mirrorDraws) {
-        if (n >= max || (d.side < 2 && d.body == solids)) continue;
-        const MirrorGlass& g = d.glass;
-        // Corners as the driver sees the glass: top left, top right, bottom right, bottom left,
-        // a few millimetres in front of it.
-        const float su[4] = {-1, 1, 1, -1}, sv[4] = {1, 1, -1, -1};
-        for (int c = 0; c < 4; c++) {
-            V3 p = {g.centre.x + g.u.x * g.halfU * su[c] + g.v.x * g.halfV * sv[c] + g.normal.x * 0.004f,
-                    g.centre.y + g.u.y * g.halfU * su[c] + g.v.y * g.halfV * sv[c] + g.normal.y * 0.004f,
-                    g.centre.z + g.u.z * g.halfU * su[c] + g.v.z * g.halfV * sv[c] + g.normal.z * 0.004f};
-            for (int a = 0; a < 3; a++)
-                out[n].corner[c][a] = p.x * d.m.m[0][a] + p.y * d.m.m[1][a] + p.z * d.m.m[2][a] + d.m.m[3][a];
-        }
-        out[n].side = d.side;
-        n++;
-    }
-    return n;
-}

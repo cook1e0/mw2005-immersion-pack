@@ -2,6 +2,7 @@
 #pragma once
 #include "common.h"
 #include "vrmath.h"
+#include <vector>
 
 void Cockpit_Install();
 // Called with the game camera's world->view matrix before the eyes are placed; moves it to the
@@ -18,11 +19,7 @@ extern float g_steeringWheelAngle;
 // reset (1), through NfsmwVr_Setting("SeatRight" / "SeatUp" / "SeatForward" / "SeatReset").
 extern float g_seatInput[4];
 
-// Side mirrors: the player car's mirror glass drawn in the current eye, in world space.
-struct MirrorQuad {
-    float corner[4][3];     // top left, top right, bottom right, bottom left, as the driver sees it
-    int side;               // 0 left, 1 right, 2 rear view (inside, on the windscreen)
-};
-// Before each eye's scene: forget the mirrors noted for the previous one.
+// Mirrors: as the player car's mirror glass (side mirrors, the rear view mirror inside) is
+// submitted for the current eye, it is handed to the d3d9 side (D3D_AddMirror) to be drawn with
+// the rear view right after its model. Before each eye's scene: forget the previous eye's.
 void Cockpit_BeginEye();
-int Cockpit_Mirrors(MirrorQuad* out, int max);

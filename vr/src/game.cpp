@@ -361,6 +361,9 @@ void UpdateMirrorPatch() {
     Log("game: rear view %s", want ? "on the car's mirrors (HUD mirror hidden)" : "as the game's option");
 }
 
+// The texture whose surface the rear view renders into (the HUD may draw it directly).
+void* RvmTargetTexture() { return D3D_TextureOfSurface(*(void**)(kRvmTarget + kTargetSurface)); }
+
 void* TextureOf(uintptr_t slot) {
     uint8_t* info = *(uint8_t**)slot;
     uint8_t* plat = info ? *(uint8_t**)info : nullptr;
@@ -369,8 +372,8 @@ void* TextureOf(uintptr_t slot) {
 
 // The HUD's mirror textures, for the d3d9 wrapper to leave out while the mirrors are on.
 void UpdateHiddenTextures() {
-    if (s_mirrorPatched) D3D_HideTextures(TextureOf(kRvmTexture), TextureOf(kRvmMaskTexture));
-    else D3D_HideTextures(nullptr, nullptr);
+    if (s_mirrorPatched) D3D_HideTextures(TextureOf(kRvmTexture), TextureOf(kRvmMaskTexture), RvmTargetTexture());
+    else D3D_HideTextures(nullptr, nullptr, nullptr);
 }
 
 void* RvmSurface() {
@@ -384,40 +387,17 @@ void* RvmSurface() {
     return active ? surface : nullptr;
 }
 
-// After an eye's scene: the rear view on the side mirror glass drawn in it.
-void DrawMirrors(void* view) {
+// Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
+// models (d3d9proxy); the rear view is copied afterwards for the next eye.
+void BeginMirrors(void* view) {
     if (!s_mirrorPatched) return;
-    void* tex = RvmSurface();
-    MirrorQuad quads[4];
-    int n = tex ? Cockpit_Mirrors(quads, 3) : 0;
-    if (n <= 0) return;
-    float verts[4 * 20];
-    for (int q = 0; q < n; q++) {
-        // The HUD shows the image as a mirror does; each side mirror takes its half of it.
-        float u0 = 0.0f, u1 = 1.0f;
-        if (g_cfg.mirrorSplit && quads[q].side < 2) {
-            u0 = quads[q].side == 0 ? 0.0f : 0.5f;
-            u1 = u0 + 0.5f;
-        }
-        // Flipped (for a plain rear camera image): each mirror the other half, mirrored.
-        if (g_cfg.mirrorFlip) {
-            float a = 1.0f - u1, b = 1.0f - u0;
-            u0 = b;
-            u1 = a;
-        }
-        const float uv[4][2] = {{u0, 0}, {u1, 0}, {u1, 1}, {u0, 1}};
-        for (int c = 0; c < 4; c++) {
-            float* v = verts + q * 20 + c * 5;
-            v[0] = quads[q].corner[c][0];
-            v[1] = quads[q].corner[c][1];
-            v[2] = quads[q].corner[c][2];
-            v[3] = uv[c][0];
-            v[4] = uv[c][1];
-        }
-    }
     void* plat = At<void*>(view, kViewPlatInfo);
-    D3D_DrawMirrors(verts, n, (const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection), tex,
-                    g_cfg.mirrorBrightness);
+    D3D_BeginMirrorEye((const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection),
+                       g_cfg.mirrorBrightness);
+}
+
+void EndMirrors() {
+    if (s_mirrorPatched) D3D_EndMirrorEye(RvmSurface());
 }
 
 void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
@@ -518,8 +498,9 @@ void __cdecl hkRenderScene() {
             s_stableView = true;
         }
         Cockpit_BeginEye();
+        BeginMirrors(view);
         oRenderScene();
-        DrawMirrors(view);
+        EndMirrors();
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;

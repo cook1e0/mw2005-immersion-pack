@@ -16,6 +16,7 @@ struct MirrorGlass {
     V3 centre{}, normal{};      // normal: out of the glass, toward the driver
     V3 u{}, v{};                // in the glass: u to the right as the driver sees it, v up
     float halfU = 0, halfV = 0;
+    std::vector<V3> tris;       // the glass's own triangles (three points each), for its outline
 };
 
 namespace mirror {
@@ -111,6 +112,7 @@ inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true, G
         float fill = gr.area / fmaxf(4.0f * g.halfU * g.halfV, 1e-9f);
         if (LooksLike(kind, g, fill)) {
             g.ok = true;
+            for (const Tri* t : gr.tris) g.tris.insert(g.tris.end(), t->p, t->p + 3);
             return g;
         }
     }

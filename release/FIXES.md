@@ -66,7 +66,11 @@
   is the wrong way round), `MirrorBrightness`. The image is taken from the rear view's own render
   target. The game only renders the rear view outside the in-car cameras and only while the race
   HUD allows it, so in the headset it never rendered and the mirrors showed the game's own glass;
-  in VR it now always renders, and the HUD's mirror is left out by the d3d9 wrapper instead.
+  in VR it now always renders, and the HUD's mirror is left out by the d3d9 wrapper instead
+  (also the copy the HUD drew from the rear view's own texture, under the cop radar). The image is
+  drawn on the glass's own triangles right after the game draws that mirror's model, with the
+  scene's depth, so it has the glass's outline and the door, pillars and housing cover it as they
+  should (the first version laid a rectangle over the finished picture).
 - **Drivetrain multiplication:** F4 > Physics > Drivetrain multiplication (`[Physics] Drivetrain`,
   also per car) exaggerates how the driven wheels lose side grip under power: at 2x a rear drive
   car's power oversteer and a front drive car's understeer are doubled, all-wheel drive cars get

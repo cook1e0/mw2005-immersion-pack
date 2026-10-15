@@ -14,14 +14,21 @@ void D3D_BeginEyes();
 // next eye starts from the same blank targets as the first one.
 void D3D_ResetForNextEye();
 
-// Draws textured quads (four vertices each: x, y, z, u, v) over the eye just rendered, into the
-// back buffer with the frame's depth buffer, using the game's view and projection matrices
-// (row vectors, as the game sets them). The image is the render target surface `source` (copied
-// into a texture first). Used for the side mirrors. All device state is restored.
-void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* source, float brightness);
+// The texture a surface belongs to (null if none), looked up once per surface.
+void* D3D_TextureOfSurface(void* surface);
 
-// Draws sampling either texture are skipped (null: none). Used for the HUD's rear view mirror.
-void D3D_HideTextures(void* a, void* b);
+// Draws sampling any of these textures are skipped (null: none). Used for the HUD's rear view mirror.
+void D3D_HideTextures(void* a, void* b, void* c);
+
+// Mirrors drawn with the game's models: for the eye about to render, the view and projection it
+// uses and the mirrors' glass (triangles: x, y, z, u, v per vertex, world space), each drawn right
+// after the game's first draw from that index buffer, so the scene's depth hides it where the car
+// does. Set as the cars are submitted, before the queue is drawn.
+void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness);
+void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount);
+// After the eye: mirrors whose model never came through are drawn now (over the scene), and the
+// rear view surface is copied for the next eye's mirrors.
+void D3D_EndMirrorEye(void* rearViewSurface);
 
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.

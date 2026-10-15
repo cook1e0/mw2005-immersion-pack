@@ -72,15 +72,18 @@ static IDirect3DQuery9* s_fence;
 static int s_dumpRequested; // frames left to dump
 static int s_dumpIndex;
 
-static void* s_hideTex[2];               // draws sampling these are left out (the HUD mirror)
+static void* s_hideTex[3];               // draws sampling these are left out (the HUD mirror)
 static void* s_boundTex[4];              // textures bound to stages 0..3
 static bool s_texHidden;                 // one of them is hidden
 
-void D3D_HideTextures(void* a, void* b) {
+static bool IsHidden(void* t) { return t && (t == s_hideTex[0] || t == s_hideTex[1] || t == s_hideTex[2]); }
+
+void D3D_HideTextures(void* a, void* b, void* c) {
     s_hideTex[0] = a;
     s_hideTex[1] = b;
+    s_hideTex[2] = c;
     s_texHidden = false;
-    for (void* t : s_boundTex) s_texHidden = s_texHidden || (t && (t == a || t == b));
+    for (void* t : s_boundTex) s_texHidden = s_texHidden || IsHidden(t);
 }
 
 static IDirect3DTexture9* s_mirrorTex;
@@ -212,79 +215,151 @@ static IDirect3DTexture9* MirrorTexture(IDirect3DSurface9* source) {
     return SUCCEEDED(hr) ? s_mirrorTex : nullptr;
 }
 
-void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* source, float brightness) {
-    if (!s_dev || quads <= 0 || !source) return;
-    IDirect3DTexture9* texture = MirrorTexture((IDirect3DSurface9*)source);
-    if (!texture) return;
+void* D3D_TextureOfSurface(void* surface) {
+    static void* lastSurface;
+    static void* lastTexture;
+    if (!surface) return nullptr;
+    if (surface != lastSurface) {
+        lastSurface = surface;
+        lastTexture = nullptr;
+        IDirect3DTexture9* t = nullptr;
+        if (SUCCEEDED(((IDirect3DSurface9*)surface)->GetContainer(__uuidof(IDirect3DTexture9), (void**)&t)) && t) {
+            lastTexture = t;
+            t->Release();
+        }
+    }
+    return lastTexture;
+}
+
+// --- mirrors with the models -------------------------------------------------------------------
+struct PendingMirror {
+    void* ib;
+    std::vector<float> verts;
+    bool drawn;
+};
+static std::vector<PendingMirror> s_pendingMirrors;
+static D3DMATRIX s_mirrorView, s_mirrorProj;
+static float s_mirrorBrightness = 0.85f;
+static bool s_mirrorEye;
+static void* s_curIndices;
+
+void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness) {
+    s_pendingMirrors.clear();
+    memcpy(&s_mirrorView, view, sizeof(s_mirrorView));
+    memcpy(&s_mirrorProj, proj, sizeof(s_mirrorProj));
+    s_mirrorBrightness = brightness;
+    s_mirrorEye = true;
+}
+
+void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount) {
+    if (!s_mirrorEye || !indexBuffer || vertexCount < 3) return;
+    for (PendingMirror& p : s_pendingMirrors)
+        if (p.ib == indexBuffer && p.verts.size() == (size_t)vertexCount * 5) return;
+    s_pendingMirrors.push_back({indexBuffer, std::vector<float>(verts, verts + vertexCount * 5), false});
+}
+
+// Draws one mirror's glass into whatever the game is drawing to now, with its depth buffer.
+static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
+    if (!s_mirrorTex) return;
     IDirect3DStateBlock9* saved = nullptr;
     if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    s_dev->SetVertexShader(nullptr);
+    s_dev->SetPixelShader(nullptr);
+    s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    s_dev->SetTransform(D3DTS_WORLD, &identity);
+    s_dev->SetTransform(D3DTS_VIEW, &s_mirrorView);
+    s_dev->SetTransform(D3DTS_PROJECTION, &s_mirrorProj);
+    s_dev->SetRenderState(D3DRS_ZENABLE, depth ? D3DZB_TRUE : D3DZB_FALSE);
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, depth ? TRUE : FALSE);
+    s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
+    s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    BYTE k = (BYTE)(s_mirrorBrightness < 0 ? 0 : s_mirrorBrightness > 1 ? 255 : s_mirrorBrightness * 255.0f);
+    s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
+    s_dev->SetTexture(0, s_mirrorTex);
+    for (DWORD st = 1; st < 8; st++) s_dev->SetTexture(st, nullptr);
+    s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+    s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    s_dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(m.verts.size() / 15), m.verts.data(), 5 * sizeof(float));
+    saved->Apply();
+    saved->Release();
+}
+
+// After the game's draw from `ib`: the mirror glass of that model, once per eye.
+// The car is also drawn into shadow maps, the environment map and the rear view: only the player
+// view's draw counts, the one into a target the size of the back buffer, with a depth buffer.
+static bool DrawingPlayerView() {
     IDirect3DSurface9 *rt = nullptr, *ds = nullptr, *bb = nullptr;
-    s_dev->GetRenderTarget(0, &rt);
-    s_dev->GetDepthStencilSurface(&ds);
-    if (SUCCEEDED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb))) {
-        D3DSURFACE_DESC bd = {}, dd = {};
-        bb->GetDesc(&bd);
-        // The scene's depth, if it matches the back buffer (the car's pillars hide the mirror).
-        bool depth = s_frameDS && SUCCEEDED(s_frameDS->GetDesc(&dd)) && dd.Width == bd.Width && dd.Height == bd.Height &&
-                     dd.MultiSampleType == bd.MultiSampleType;
-        s_dev->SetRenderTarget(0, bb);
-        s_dev->SetDepthStencilSurface(depth ? s_frameDS : nullptr);
-        D3DVIEWPORT9 vp = {0, 0, bd.Width, bd.Height, 0.0f, 1.0f};
-        s_dev->SetViewport(&vp);
-        s_dev->SetVertexShader(nullptr);
-        s_dev->SetPixelShader(nullptr);
-        s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
-        D3DMATRIX identity = {};
-        identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
-        s_dev->SetTransform(D3DTS_WORLD, &identity);
-        s_dev->SetTransform(D3DTS_VIEW, (const D3DMATRIX*)view);
-        s_dev->SetTransform(D3DTS_PROJECTION, (const D3DMATRIX*)proj);
-        s_dev->SetRenderState(D3DRS_ZENABLE, depth ? D3DZB_TRUE : D3DZB_FALSE);
-        s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-        s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
-        s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
-        s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
-        s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
-        BYTE k = (BYTE)(brightness < 0 ? 0 : brightness > 1 ? 255 : brightness * 255.0f);
-        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
-        s_dev->SetTexture(0, (IDirect3DBaseTexture9*)texture);
-        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
-        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-        s_dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
-        s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-        s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
-        s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
-        s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-        s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-        s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-        s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-        s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-        s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
-        for (int q = 0; q < quads; q++) s_dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, verts + q * 20, 5 * sizeof(float));
+    bool ok = false;
+    if (SUCCEEDED(s_dev->GetRenderTarget(0, &rt)) && rt && SUCCEEDED(s_dev->GetDepthStencilSurface(&ds)) && ds &&
+        SUCCEEDED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) && bb) {
+        D3DSURFACE_DESC r, b;
+        ok = SUCCEEDED(rt->GetDesc(&r)) && SUCCEEDED(bb->GetDesc(&b)) && r.Width == b.Width && r.Height == b.Height;
+    }
+    if (rt) rt->Release();
+    if (ds) ds->Release();
+    if (bb) bb->Release();
+    return ok;
+}
+
+static void AfterModelDraw() {
+    if (!s_mirrorEye || s_pendingMirrors.empty()) return;
+    bool checked = false, playerView = false;
+    for (PendingMirror& m : s_pendingMirrors) {
+        if (m.drawn || m.ib != s_curIndices) continue;
+        if (!checked) {
+            checked = true;
+            playerView = DrawingPlayerView();
+        }
+        if (!playerView) return;
+        m.drawn = true;
+        DrawMirrorGlass(m, true);
+        static int logged;
+        if (logged < 3) {
+            logged++;
+            Log("d3d9: mirror drawn with its model (%u triangles)", (unsigned)(m.verts.size() / 15));
+        }
+    }
+}
+
+void D3D_EndMirrorEye(void* rearViewSurface) {
+    if (!s_mirrorEye) return;
+    s_mirrorEye = false;
+    for (PendingMirror& m : s_pendingMirrors) {
+        if (m.drawn) continue;
         static bool logged;
         if (!logged) {
             logged = true;
-            Log("d3d9: side mirrors drawn (%d, depth %s, %ux%u)", quads, depth ? "tested" : "off", bd.Width, bd.Height);
+            Log("d3d9: a mirror's model was not seen being drawn - drawn over the scene instead");
         }
-        bb->Release();
+        DrawMirrorGlass(m, false);
     }
-    saved->Apply();
-    saved->Release();
-    s_dev->SetRenderTarget(0, rt);
-    s_dev->SetDepthStencilSurface(ds);
-    if (rt) rt->Release();
-    if (ds) ds->Release();
+    s_pendingMirrors.clear();
+    if (rearViewSurface) MirrorTexture((IDirect3DSurface9*)rearViewSurface);
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
@@ -561,16 +636,23 @@ public:
         if (stage < 4) {
             s_boundTex[stage] = tex;
             s_texHidden = false;
-            for (void* t : s_boundTex) s_texHidden = s_texHidden || (t && (t == s_hideTex[0] || t == s_hideTex[1]));
+            for (void* t : s_boundTex) s_texHidden = s_texHidden || IsHidden(t);
         }
         return real->SetTexture(stage, tex);
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE type, UINT start, UINT count) override {
         return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawPrimitive(type, start, count);
     }
+    HRESULT STDMETHODCALLTYPE SetIndices(IDirect3DIndexBuffer9* ib) override {
+        s_curIndices = ib;
+        return real->SetIndices(ib);
+    }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts, UINT start,
                                                    UINT count) override {
-        return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        if (s_skipPostPass || s_texHidden) return D3D_OK;
+        HRESULT hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        AfterModelDraw();
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
         return s_skipPostPass || s_texHidden ? D3D_OK : real->DrawPrimitiveUP(type, count, data, stride);
