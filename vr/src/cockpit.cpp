@@ -1344,7 +1344,11 @@ bool Cockpit_ApplySeat(M4& view) {
     s_seatedConn = nullptr;
     s_base = MInvRigid(view);
     s_haveBase = true;
-    if (!g_cfg.seat || !s_head.valid || Now() - s_head.time > 0.5) return false;
+    // No time limit on the last observation of the driver: some cars (IS300) go a while without
+    // their driver drawn near the camera, and the view jumped out of the car above it and back.
+    // An outside camera still draws the driver, far away, which ends the seat (kSeatRange), and
+    // another car as the view's anchor does too (below).
+    if (!g_cfg.seat || !s_head.valid) return false;
     float d = sqrtf(s_head.cam[0] * s_head.cam[0] + s_head.cam[1] * s_head.cam[1] + s_head.cam[2] * s_head.cam[2]);
     if (d > kSeatRange) return false;
     if (s_head.car != s_offsetCar) {

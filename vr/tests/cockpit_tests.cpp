@@ -438,7 +438,7 @@ int main() {
     Cockpit_EndFrame();
     Near(s_head.body[0], 0.8f, "new car measures a new seat");
     s_head.time -= 1;
-    Check(!Cockpit_ApplySeat(view), "expired observation releases seat");
+    Check(!Cockpit_ApplySeat(view), "an observation of another car releases seat");
     TestReloadedDriver();
     TestArms();
     TestSteeringWheel();
