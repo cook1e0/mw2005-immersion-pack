@@ -615,6 +615,17 @@ void PlayerEngineStep(uint8_t* eng) {
 float PlayerDamage(uint8_t* eng);
 constexpr float kBadlyDamaged = 0.75f;      // from this much car damage the engine heats up faster
 constexpr float kDamagedHeatUp = 1.33f;     // ... by this factor
+constexpr float kNosHeatUp = 2.0f;          // nitrous on at the limiter heats it twice as fast
+constexpr float kNosHeatUpDamaged = 1.33f;  // ... a third faster on a badly damaged car (on top of its own 1.33)
+constexpr int kER_IEngine = 0x54;           // EngineRacer's IEngine sub-object (vtable 0x8AB6E0)
+constexpr uintptr_t kVtblRacerEngine = 0x8AB6E0;
+
+// The nitrous is on (IEngine::IsNOSEngaged, EngineRacer 0x6A0410, slot 8).
+bool NosOn(uint8_t* eng) {
+    void* iface = eng + kER_IEngine;
+    if (*(uintptr_t*)iface != kVtblRacerEngine) return false;
+    return (((uint32_t(__thiscall*)(void*))Vtbl(iface)[8])(iface) & 0xFF) != 0;
+}
 
 void UpdateWear(uint8_t* eng, float dT) {
     if (IsBlown(eng)) return;
@@ -629,8 +640,17 @@ void UpdateWear(uint8_t* eng, float dT) {
     if (rpm >= redline * 0.99f) {
         float over = maxRpm > redline ? Clamp((rpm - redline) / (maxRpm - redline), 0.0f, 1.0f) : 0.0f;
         rate = g_cfg.heatUp + (g_cfg.heatUpMax - g_cfg.heatUp) * over;
-        // A wrecked car's engine runs hotter: a third faster from 75% damage (cooling unchanged).
-        if (PlayerDamage(eng) >= kBadlyDamaged) rate *= kDamagedHeatUp;
+        // A wrecked car's engine runs hotter: a third faster from 75% damage. The nitrous on the
+        // limiter heats it twice as fast, but only a third faster on a car that is already badly
+        // damaged, so the two don't pile up (1.33 * 1.33, not 1.33 * 2). Cooling unchanged.
+        bool damaged = PlayerDamage(eng) >= kBadlyDamaged;
+        float k = damaged ? kDamagedHeatUp : 1.0f;
+        bool nos = NosOn(eng);
+        if (nos) k *= damaged ? kNosHeatUpDamaged : kNosHeatUp;
+        rate *= k;
+        static bool loggedNos;
+        if (nos && !loggedNos) Log("engine: nitrous on the limiter, heating x%.2f", k);
+        loggedNos = nos;
     }
     s.heat = Clamp(s.heat + rate * dT, 0.0f, 1.0f);
     int step = (int)(s.heat * 4.0f);
