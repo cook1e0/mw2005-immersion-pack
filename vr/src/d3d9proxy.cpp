@@ -15,6 +15,7 @@
 
 #include <d3d9.h>
 #include "d3d9device_gen.h"
+#include <d3dcommon.h>
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
@@ -86,8 +87,11 @@ void D3D_HideTextures(void* a, void* b, void* c) {
     for (void* t : s_boundTex) s_texHidden = s_texHidden || IsHidden(t);
 }
 
-static IDirect3DTexture9* s_mirrorTex;
+static IDirect3DTexture9* s_mirrorTex;        // the graded picture the mirrors show
 static IDirect3DSurface9* s_mirrorSurf;
+static IDirect3DTexture9* s_mirrorRaw;        // the rear view copied as rendered
+static IDirect3DSurface9* s_mirrorRawSurf;
+static IDirect3DPixelShader9* s_gradeShader;
 static UINT s_mirrorW, s_mirrorH;
 
 static void ReleaseEyeTargets() {
@@ -101,8 +105,12 @@ static void ReleaseEyeTargets() {
     s_hudRT = nullptr;
     if (s_mirrorSurf) s_mirrorSurf->Release();
     if (s_mirrorTex) s_mirrorTex->Release();
-    s_mirrorSurf = nullptr;
-    s_mirrorTex = nullptr;
+    if (s_mirrorRawSurf) s_mirrorRawSurf->Release();
+    if (s_mirrorRaw) s_mirrorRaw->Release();
+    if (s_gradeShader) s_gradeShader->Release();
+    s_mirrorSurf = s_mirrorRawSurf = nullptr;
+    s_mirrorTex = s_mirrorRaw = nullptr;
+    s_gradeShader = nullptr;
     s_mirrorW = s_mirrorH = 0;
     s_eyeW = s_eyeH = 0;
     s_eyeOk = false;
@@ -186,33 +194,113 @@ void D3D_ResetForNextEye() {
 }
 
 
+// The mirror picture's brightness and contrast: a pixel shader compiled once with the system's
+// d3dcompiler_47 (c0.x contrast, c0.y brightness).
+static IDirect3DPixelShader9* GradeShader() {
+    static bool tried;
+    if (s_gradeShader || tried) return s_gradeShader;
+    tried = true;
+    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+    typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
+                                         ID3DBlob**);
+    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
+    if (!compile) {
+        Log("d3d9: d3dcompiler_47 not available - mirror brightness and contrast off");
+        return nullptr;
+    }
+    const char* src =
+        "sampler s : register(s0); float4 k : register(c0);"
+        "float4 main(float2 uv : TEXCOORD0) : COLOR {"
+        "  float3 c = tex2D(s, uv).rgb; c = saturate(((c - 0.5) * k.x + 0.5) * k.y); return float4(c, 1); }";
+    ID3DBlob *code = nullptr, *errors = nullptr;
+    HRESULT hr = compile(src, strlen(src), "mirror", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
+    if (SUCCEEDED(hr) && code)
+        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_gradeShader);
+    else
+        Log("d3d9: mirror shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
+    if (code) code->Release();
+    if (errors) errors->Release();
+    return s_gradeShader;
+}
+
 // The rear view render target copied into a texture of our own (it may be multisampled, or a
-// plain surface no texture owns).
+// plain surface no texture owns), then graded into the texture the mirrors show.
 static IDirect3DTexture9* MirrorTexture(IDirect3DSurface9* source) {
     D3DSURFACE_DESC d;
     if (FAILED(source->GetDesc(&d)) || d.Width == 0 || d.Height == 0) return nullptr;
     if (!s_mirrorTex || d.Width != s_mirrorW || d.Height != s_mirrorH) {
-        if (s_mirrorSurf) s_mirrorSurf->Release();
-        if (s_mirrorTex) s_mirrorTex->Release();
-        s_mirrorSurf = nullptr;
-        s_mirrorTex = nullptr;
+        for (IUnknown** p : {(IUnknown**)&s_mirrorSurf, (IUnknown**)&s_mirrorTex, (IUnknown**)&s_mirrorRawSurf, (IUnknown**)&s_mirrorRaw})
+            if (*p) { (*p)->Release(); *p = nullptr; }
         if (FAILED(s_dev->CreateTexture(d.Width, d.Height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
-                                        &s_mirrorTex, nullptr))) {
-            Log("d3d9: mirror texture %ux%u could not be created", d.Width, d.Height);
+                                        &s_mirrorTex, nullptr)) ||
+            FAILED(s_dev->CreateTexture(d.Width, d.Height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                        &s_mirrorRaw, nullptr))) {
+            Log("d3d9: mirror textures %ux%u could not be created", d.Width, d.Height);
+            if (s_mirrorTex) { s_mirrorTex->Release(); s_mirrorTex = nullptr; }
             return nullptr;
         }
         s_mirrorTex->GetSurfaceLevel(0, &s_mirrorSurf);
+        s_mirrorRaw->GetSurfaceLevel(0, &s_mirrorRawSurf);
         s_mirrorW = d.Width;
         s_mirrorH = d.Height;
-        Log("d3d9: rear view %ux%u (format %d, msaa %d) copied for the side mirrors", d.Width, d.Height, d.Format, d.MultiSampleType);
+        Log("d3d9: rear view %ux%u (format %d, msaa %d) copied for the mirrors", d.Width, d.Height, d.Format, d.MultiSampleType);
     }
-    HRESULT hr = s_dev->StretchRect(source, nullptr, s_mirrorSurf, nullptr, D3DTEXF_LINEAR);
+    HRESULT hr = s_dev->StretchRect(source, nullptr, s_mirrorRawSurf, nullptr, D3DTEXF_LINEAR);
     static bool warned;
-    if (FAILED(hr) && !warned) {
-        warned = true;
-        Log("d3d9: copying the rear view failed 0x%08lx", hr);
+    if (FAILED(hr)) {
+        if (!warned) {
+            warned = true;
+            Log("d3d9: copying the rear view failed 0x%08lx", hr);
+        }
+        return nullptr;
     }
-    return SUCCEEDED(hr) ? s_mirrorTex : nullptr;
+    IDirect3DPixelShader9* ps = GradeShader();
+    if (!ps) {
+        s_dev->StretchRect(s_mirrorRawSurf, nullptr, s_mirrorSurf, nullptr, D3DTEXF_NONE);
+        return s_mirrorTex;
+    }
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return s_mirrorTex;
+    IDirect3DSurface9 *rt = nullptr, *ds = nullptr;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->GetDepthStencilSurface(&ds);
+    s_dev->SetRenderTarget(0, s_mirrorSurf);
+    s_dev->SetDepthStencilSurface(nullptr);
+    D3DVIEWPORT9 vp = {0, 0, s_mirrorW, s_mirrorH, 0.0f, 1.0f};
+    s_dev->SetViewport(&vp);
+    s_dev->SetVertexShader(nullptr);
+    s_dev->SetPixelShader(ps);
+    float k[4] = {g_cfg.mirrorContrast, g_cfg.mirrorBrightness, 0, 0};
+    s_dev->SetPixelShaderConstantF(0, k, 1);
+    s_dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
+    s_dev->SetTexture(0, s_mirrorRaw);
+    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_POINT);
+    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_POINT);
+    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
+    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    float w = (float)s_mirrorW, h = (float)s_mirrorH;
+    const float quad[4][6] = {{-0.5f, -0.5f, 0, 1, 0, 0}, {w - 0.5f, -0.5f, 0, 1, 1, 0},
+                              {w - 0.5f, h - 0.5f, 0, 1, 1, 1}, {-0.5f, h - 0.5f, 0, 1, 0, 1}};
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, quad, sizeof(quad[0]));
+    saved->Apply();
+    saved->Release();
+    s_dev->SetRenderTarget(0, rt);
+    s_dev->SetDepthStencilSurface(ds);
+    if (rt) rt->Release();
+    if (ds) ds->Release();
+    return s_mirrorTex;
 }
 
 void* D3D_TextureOfSurface(void* surface) {
@@ -433,7 +521,7 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     float bias = -0.00002f, slope = -1.0f;
     s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
     s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD*)&slope);
-    BYTE k = (BYTE)(s_mirrorBrightness < 0 ? 0 : s_mirrorBrightness > 1 ? 255 : s_mirrorBrightness * 255.0f);
+    BYTE k = 255;   // brightness and contrast are in the picture (MirrorTexture)
     s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
     s_dev->SetTexture(0, s_mirrorTex);
     for (DWORD st = 1; st < 8; st++) s_dev->SetTexture(st, nullptr);
@@ -453,7 +541,9 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
     s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
     if (!m.frame.empty()) {
-        // The rim: plain near-black, the housing's plastic around the glass.
+        // The rim: plain near-black, the housing's plastic around the glass. It only tests depth,
+        // so the picture drawn next over it can't fight it.
+        s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
         s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, 10, 10, 12));
         s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
         s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
@@ -461,6 +551,7 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
         s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
         s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
         s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        s_dev->SetRenderState(D3DRS_ZWRITEENABLE, depth ? TRUE : FALSE);
     }
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(m.verts.size() / 15), m.verts.data(), 5 * sizeof(float));
     saved->Apply();
@@ -1007,6 +1098,8 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;
     if (!strcmp(name, "SteeringWheelAngle")) return &g_steeringWheelAngle;
     if (!strcmp(name, "HideArms")) return &g_cfg.hideArms;
+    if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
+    if (!strcmp(name, "MirrorContrast")) return &g_cfg.mirrorContrast;
     if (!strcmp(name, "SeatRight")) return &g_seatInput[0];
     if (!strcmp(name, "SeatUp")) return &g_seatInput[1];
     if (!strcmp(name, "SeatForward")) return &g_seatInput[2];

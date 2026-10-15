@@ -835,7 +835,7 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         std::vector<float> verts, frame;
         float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
         GlassVertices(d.glass, d.m, frame, 0.006f, 1.0f);
-        GlassVertices(d.glass, d.m, verts, 0.008f, inner);
+        GlassVertices(d.glass, d.m, verts, 0.010f, inner);
         float u0 = 0.0f, u1 = 1.0f;
         if (g_cfg.mirrorFlip) {
             float a = 1.0f - u1, b = 1.0f - u0;

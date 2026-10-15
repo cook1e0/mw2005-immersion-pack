@@ -140,6 +140,7 @@ void LoadConfig() {
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
     c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
     c.mirrorScale = ReadFloat(ini, "MirrorScale", c.mirrorScale);
+    c.mirrorContrast = ReadFloat(ini, "MirrorContrast", c.mirrorContrast);
     c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
     c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);

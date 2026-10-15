@@ -59,7 +59,8 @@ struct Config {
     bool  gameMirrors = true;        // the game's side mirror glass shows the rear view (VR)
     bool  mirrorFlip = false;        // flip the mirror image left-right
     float mirrorScale = 0.82f;       // the image's size on the glass; the rest is a dark rim (1 = no rim)
-    float mirrorBrightness = 0.85f;  // a mirror reflects a bit less than all of the light
+    float mirrorBrightness = 1.4f;   // mirror picture brightness (all mirrors; the car's lighting darkens the side mirrors)
+    float mirrorContrast = 1.25f;    // mirror picture contrast
     bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
