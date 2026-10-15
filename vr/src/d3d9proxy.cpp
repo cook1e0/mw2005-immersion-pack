@@ -270,7 +270,12 @@ static IDirect3DPixelShader9* MirrorMapShader() {
         "sampler s : register(s0); float4 c0 : register(c0); float4 c1 : register(c1);"
         "float4 main(float2 uv : TEXCOORD1) : COLOR {"
         "  float2 top = lerp(c0.xy, c0.zw, uv.x); float2 bottom = lerp(c1.xy, c1.zw, uv.x);"
-        "  return float4(tex2D(s, lerp(top, bottom, uv.y)).rgb, 1); }";
+        "  float3 c = tex2D(s, lerp(top, bottom, uv.y)).rgb;"
+        // A dark rim along the glass's edge, as a mirror set in its housing: the distance from the
+        // centre in a rounded rectangle (superellipse) shape, so it follows oval glass too.
+        "  float2 p = abs(uv * 2 - 1); float r = pow(pow(p.x, 3) + pow(p.y, 3), 1.0 / 3);"
+        "  float rim = saturate((1 - r) / 0.14);"
+        "  return float4(c * lerp(0.06, 1, rim * rim), 1); }";
     ID3DBlob *code = nullptr, *errors = nullptr;
     HRESULT hr = compile(src, strlen(src), "mirrormap", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
     if (SUCCEEDED(hr) && code)
