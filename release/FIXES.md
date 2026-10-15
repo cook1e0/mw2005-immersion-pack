@@ -58,14 +58,12 @@
   driver's head on the centre line (about 0.2 x 0.06 m, facing back; sun visors and roof strips
   around it are passed over) and shows the whole rear view. Found offline in every car's interior
   except the GTO's.
-- **The game's own side mirrors fixed:** their glass uses the global "MIRROR" material, which in
-  the game reflects nothing (environment map at 0.001) and has a full white highlight: a pale
-  glow. It is now a mirror: the car's environment map (rendered around the camera) at full
-  strength, constant over the glass, with only a faint highlight. Flat screen too. `[VR]
-  GameMirrors`, `MirrorReflection`. The mod's own picture on the side mirrors is gone again; the
-  rear view mirror inside keeps the real rear view. F4 > VR > Mirrors has live sliders for the
-  side mirrors' reflection, falloff, highlight and glass tint, and the rear view mirror's image
-  size and brightness.
+- **The game's own side mirrors show the rear view (VR):** the side mirror glass is its own draw
+  entry in each car's model, with the "MIRROR" material (in the game: black, a white glow and no
+  reflection). The game now draws that glass itself with the rear view as its texture: its
+  vertices get texture coordinates across the glass (the left mirror the left half of the rear
+  view, the right the right half) and the material is plain white while it does, so it is the
+  game's own glass, shaded like the rest of the car, not a picture laid over it. `[VR] GameMirrors`.
 - **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
   player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
   option). The mirror glass is found in each car's model (checked offline on every car, including

@@ -17,6 +17,12 @@ void D3D_ResetForNextEye();
 // The texture a surface belongs to (null if none), looked up once per surface.
 void* D3D_TextureOfSurface(void* surface);
 
+// A side mirror's glass: the draw entry (index buffer, first index, triangles) and how the glass
+// lies in model space: centre xyz, u axis xyz (to the right as the driver sees it), v axis xyz (up),
+// half width, half height, and the rear view's u range for it. Its vertices get texture coordinates
+// across the glass (once), and each draw of it samples the rear view instead of its texture.
+void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, const float basis[14]);
+
 // Draws sampling any of these textures are skipped (null: none). Used for the HUD's rear view mirror.
 void D3D_HideTextures(void* a, void* b, void* c);
 

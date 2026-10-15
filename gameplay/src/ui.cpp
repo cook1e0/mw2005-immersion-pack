@@ -253,16 +253,13 @@ const struct {
     {MOD_FFB, "CentreWeight", 0.3f}, {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.5f},
     {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
     {MOD_FFB, "Breakables", 0.6f},
-    {MOD_VR, "MirrorReflection", 1.0f}, {MOD_VR, "MirrorFalloff", 0.0f}, {MOD_VR, "MirrorHighlight", 0.05f},
-    {MOD_VR, "MirrorTint", 0.0f}, {MOD_VR, "MirrorScale", 0.82f}, {MOD_VR, "MirrorBrightness", 0.85f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
-    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES,
-    VR_MIRRORREFLECTION, VR_MIRRORFALLOFF, VR_MIRRORHIGHLIGHT, VR_MIRRORTINT, VR_MIRRORSCALE, VR_MIRRORBRIGHTNESS, EXT_COUNT
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -604,13 +601,6 @@ const Item kItems[] = {
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
-    HEADER_("MIRRORS"),
-    {NUMBER, "Side mirror reflection", "VR", "MirrorReflection", &s_ext[VR_MIRRORREFLECTION], 0.0f, 4.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Side mirror falloff", "VR", "MirrorFalloff", &s_ext[VR_MIRRORFALLOFF], 0.0f, 4.0f, 0.1f, 1, "%.1f", 0},
-    {NUMBER, "Side mirror highlight", "VR", "MirrorHighlight", &s_ext[VR_MIRRORHIGHLIGHT], 0.0f, 1.0f, 0.01f, 100, "%.0f%%", 0},
-    {NUMBER, "Side mirror glass tint", "VR", "MirrorTint", &s_ext[VR_MIRRORTINT], 0.0f, 1.0f, 0.02f, 100, "%.0f%%", 0},
-    {NUMBER, "Rear view mirror image size", "VR", "MirrorScale", &s_ext[VR_MIRRORSCALE], 0.5f, 1.0f, 0.02f, 100, "%.0f%%", 0},
-    {NUMBER, "Rear view mirror brightness", "VR", "MirrorBrightness", &s_ext[VR_MIRRORBRIGHTNESS], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
 
@@ -1320,12 +1310,6 @@ const struct {
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
-    {&s_ext[VR_MIRRORREFLECTION], "How strongly the game's side mirrors reflect the car's surroundings (its environment map). The game had this at 0.1%: no reflection."},
-    {&s_ext[VR_MIRRORFALLOFF], "0: the reflection is even across the glass. Higher: it fades toward glancing angles."},
-    {&s_ext[VR_MIRRORHIGHLIGHT], "The white sheen of light on the side mirror glass (the game had it at 100%: a pale glow)."},
-    {&s_ext[VR_MIRRORTINT], "The glass's own grey under the reflection. 0 = black, the most contrast."},
-    {&s_ext[VR_MIRRORSCALE], "Size of the rear view picture on the rear view mirror inside; the rest is a dark rim."},
-    {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view picture on the rear view mirror inside."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
     {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
     {&g_cfg.seat[0], "Moves the VR seat (cockpit camera) forward while held. Saved per car."},

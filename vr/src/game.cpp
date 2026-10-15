@@ -77,9 +77,10 @@ constexpr uintptr_t kCallWorldView = 0x6C8147;    // call D3DXMatrixMultiply(out
 constexpr uintptr_t kMatrixMultiply = 0x7E7D5E;
 // The game's own mirror glass (side mirrors) uses the global light material "MIRROR": black
 // diffuse, a full white specular highlight and an environment map reflection of 0.001, i.e. no
-// reflection, just a pale glow (the HUD had the rear view). It is turned into a mirror: the car's
-// environment map (rendered around the camera every frame) at full strength, constant over the
-// glass, and only a faint highlight. The shader reads the material's values at every draw.
+// reflection, just a pale glow (the HUD had the rear view). While the rear view is on the glass
+// (d3d9proxy swaps it in as the glass's texture), the material is plain white: the picture, lit
+// like the rest of the car, and no glow or environment map over it. The shader reads the
+// material's values at every draw.
 constexpr uintptr_t kGetLightMaterial = 0x502820;  // eLightMaterial* elGetLightMaterial(uint32 hash), cdecl
 constexpr uint32_t kMirrorMaterialHash = 0x6BFA56DA; // bStringHash("MIRROR")
 constexpr int kMatNameHash = 0x0C, kMatData = 0x30;  // eLightMaterial: NameHash, eLightMaterialData
@@ -352,8 +353,10 @@ void* __stdcall hkWorldViewMultiply(void* out, const void* local, const void* vi
     return ((MatrixMultiply_t)kMatrixMultiply)(out, local, view);
 }
 
-// Keeps the MIRROR material a mirror with the [VR] Mirror* values (live from F4 > VR; the
-// material is looked up again every second, as global data can be reloaded).
+// The MIRROR material plain white while the side mirrors show the rear view, the game's otherwise
+// (looked up again every second, as global data can be reloaded).
+bool s_mirrorPatched = false;
+
 void FixGameMirrors() {
     static DWORD last;
     static uint8_t* mat;
@@ -368,29 +371,21 @@ void FixGameMirrors() {
             haveOriginal = true;
         }
     }
-    if (!mat) return;
+    if (!mat || !haveOriginal) return;
     float* f = (float*)(mat + kMatData);
     float want[30];
-    memcpy(want, haveOriginal ? original : f, sizeof(want));
-    if (g_cfg.gameMirrors) {
-        float tint = std::min(std::max(g_cfg.mirrorTint, 0.0f), 1.0f);
-        for (int i = 0; i < 3; i++) want[kMatDiffMinR + i] = want[kMatDiffMaxR + i] = tint;
-        want[kMatSpecMinScale] = want[kMatSpecMaxScale] = std::max(g_cfg.mirrorHighlight, 0.0f);
-        want[kMatEnvPower] = std::max(g_cfg.mirrorFalloff, 0.0f);
-        want[kMatEnvMinScale] = want[kMatEnvMaxScale] = std::max(g_cfg.mirrorReflection, 0.0f);
+    memcpy(want, original, sizeof(want));
+    if (g_cfg.gameMirrors && s_mirrorPatched) {
+        for (int i = 0; i < 3; i++) want[kMatDiffMinR + i] = want[kMatDiffMaxR + i] = 1.0f;
+        want[kMatSpecMinScale] = want[kMatSpecMaxScale] = 0.0f;
+        want[kMatEnvMinScale] = want[kMatEnvMaxScale] = 0.0f;
     }
     if (!memcmp(want, f, sizeof(want))) return;
-    static bool logged;
-    if (!logged) {
-        logged = true;
-        Log("game: MIRROR material made a mirror (reflection %.3f -> %.2f, highlight %.2f -> %.2f)", f[kMatEnvMinScale],
-            want[kMatEnvMinScale], f[kMatSpecMinScale], want[kMatSpecMinScale]);
-    }
+    Log("game: MIRROR material %s", want[kMatDiffMinR] > 0.5f ? "white (the rear view on the glass)" : "as the game's");
     memcpy(f, want, sizeof(want));
 }
 
 bool s_mirrorPatchOk = false;
-bool s_mirrorPatched = false;
 
 void WriteCode(uintptr_t at, const uint8_t* bytes, int n) {
     DWORD old;

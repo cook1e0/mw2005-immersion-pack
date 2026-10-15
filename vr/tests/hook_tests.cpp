@@ -18,6 +18,7 @@ void Cockpit_EndFrame() {}
 void Cockpit_BeginEye() {}
 void D3D_BeginMirrorEye(const float*, const float*, float) {}
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
+void D3D_RegisterMirrorGlass(void*, int, int, const float*) {}
 void D3D_EndMirrorEye(void*) {}
 void D3D_HideTextures(void*, void*, void*) {}
 void* D3D_TextureOfSurface(void*) { return nullptr; }

@@ -231,6 +231,140 @@ void* D3D_TextureOfSurface(void* surface) {
     return lastTexture;
 }
 
+static void* s_curIndices;            // index buffer the game last set
+
+// --- the game's side mirror glass with the rear view ---------------------------------------------
+struct MirrorGlassJob {
+    void* ib;
+    UINT first, tris;
+    float basis[14];
+    std::vector<std::pair<void*, UINT>> mapped;   // vertex buffer, first vertex already given texture coordinates
+};
+static std::vector<MirrorGlassJob> s_glassJobs;
+
+void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, const float basis[14]) {
+    for (MirrorGlassJob& j : s_glassJobs)
+        if (j.ib == indexBuffer && j.first == (UINT)firstIndex) {
+            j.tris = triangles;
+            memcpy(j.basis, basis, sizeof(j.basis));
+            j.mapped.clear();
+            return;
+        }
+    MirrorGlassJob j;
+    j.ib = indexBuffer;
+    j.first = firstIndex;
+    j.tris = triangles;
+    memcpy(j.basis, basis, sizeof(j.basis));
+    s_glassJobs.push_back(j);
+}
+
+// Texture coordinates across the glass for the vertices this draw uses (in the game's own vertex
+// buffer, once per buffer range): u along the glass within the job's range, v top to bottom.
+static void MapGlassVertices(MirrorGlassJob& j, INT base, UINT minIndex, UINT count) {
+    IDirect3DVertexBuffer9* vb = nullptr;
+    UINT offset = 0, stride = 0;
+    if (FAILED(s_dev->GetStreamSource(0, &vb, &offset, &stride)) || !vb) return;
+    UINT firstVertex = (UINT)(base + (INT)minIndex);
+    for (auto& m : j.mapped)
+        if (m.first == vb && m.second == firstVertex) {
+            vb->Release();
+            return;
+        }
+    j.mapped.push_back({vb, firstVertex});
+    int posOfs = -1, uvOfs = -1;
+    IDirect3DVertexDeclaration9* decl = nullptr;
+    if (SUCCEEDED(s_dev->GetVertexDeclaration(&decl)) && decl) {
+        D3DVERTEXELEMENT9 el[MAXD3DDECLLENGTH + 1];
+        UINT n = MAXD3DDECLLENGTH + 1;
+        if (SUCCEEDED(decl->GetDeclaration(el, &n)))
+            for (UINT i = 0; i < n && el[i].Stream != 0xFF; i++) {
+                if (el[i].Stream != 0) continue;
+                if (el[i].Usage == D3DDECLUSAGE_POSITION && el[i].UsageIndex == 0 && el[i].Type == D3DDECLTYPE_FLOAT3) posOfs = el[i].Offset;
+                if (el[i].Usage == D3DDECLUSAGE_TEXCOORD && el[i].UsageIndex == 0 && el[i].Type == D3DDECLTYPE_FLOAT2) uvOfs = el[i].Offset;
+            }
+        decl->Release();
+    }
+    if (posOfs < 0 || uvOfs < 0 || stride < 20) {
+        Log("d3d9: side mirror glass: unexpected vertex layout (position %d, uv %d, stride %u)", posOfs, uvOfs, stride);
+        vb->Release();
+        return;
+    }
+    uint8_t* p = nullptr;
+    if (FAILED(vb->Lock(offset + firstVertex * stride, count * stride, (void**)&p, 0)) || !p) {
+        Log("d3d9: side mirror glass: vertex buffer lock failed");
+        vb->Release();
+        return;
+    }
+    const float* b = j.basis;
+    float cu = b[0] * b[3] + b[1] * b[4] + b[2] * b[5], cv = b[0] * b[6] + b[1] * b[7] + b[2] * b[8];
+    for (UINT i = 0; i < count; i++) {
+        const float* pos = (const float*)(p + i * stride + posOfs);
+        float* uv = (float*)(p + i * stride + uvOfs);
+        float pu = pos[0] * b[3] + pos[1] * b[4] + pos[2] * b[5], pv = pos[0] * b[6] + pos[1] * b[7] + pos[2] * b[8];
+        float s = b[9] > 0 ? (pu - (cu - b[9])) / (2 * b[9]) : 0.5f, t = b[10] > 0 ? ((cv + b[10]) - pv) / (2 * b[10]) : 0.5f;
+        s = s < 0 ? 0 : s > 1 ? 1 : s;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        uv[0] = b[11] + (b[12] - b[11]) * s;
+        uv[1] = t;
+    }
+    vb->Unlock();
+    vb->Release();
+    static int logged;
+    if (logged++ < 4) Log("d3d9: side mirror glass: %u vertices given the rear view's coordinates", count);
+}
+
+
+// The glass's draw: the stage that samples its texture (texture coordinate set 1, which its vertex
+// shader passes the model's coordinates on in) takes the rear view for this draw.
+static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts,
+                                  UINT start, UINT count, HRESULT* hr) {
+    if (s_glassJobs.empty() || !s_mirrorTex) return false;
+    for (MirrorGlassJob& j : s_glassJobs) {
+        if (j.ib != s_curIndices || j.first != start) continue;
+        MapGlassVertices(j, base, minIndex, verts);
+        int stage = -1;
+        for (DWORD st = 0; st < 8 && stage < 0; st++) {
+            DWORD tci = 0;
+            IDirect3DBaseTexture9* t = nullptr;
+            real->GetTextureStageState(st, D3DTSS_TEXCOORDINDEX, &tci);
+            real->GetTexture(st, &t);
+            if (t) {
+                if ((tci & 0xFFFF) == 1 && t->GetType() == D3DRTYPE_TEXTURE) stage = (int)st;
+                t->Release();
+            }
+        }
+        if (stage < 0) {
+            static bool logged;
+            if (!logged) {
+                logged = true;
+                for (DWORD st = 0; st < 4; st++) {
+                    DWORD tci = 0, op = 0;
+                    IDirect3DBaseTexture9* t = nullptr;
+                    real->GetTextureStageState(st, D3DTSS_TEXCOORDINDEX, &tci);
+                    real->GetTextureStageState(st, D3DTSS_COLOROP, &op);
+                    real->GetTexture(st, &t);
+                    Log("d3d9: side mirror glass: stage %lu texcoord %lu op %lu texture type %d", st, tci, op, t ? (int)t->GetType() : -1);
+                    if (t) t->Release();
+                }
+            }
+            return false;
+        }
+        IDirect3DBaseTexture9* orig = nullptr;
+        real->GetTexture(stage, &orig);
+        real->SetTexture(stage, s_mirrorTex);
+        *hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        real->SetTexture(stage, orig);
+        if (orig) orig->Release();
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("d3d9: side mirror glass drawn with the rear view (stage %d)", stage);
+        }
+        return true;
+    }
+    return false;
+}
+
 // --- mirrors with the models -------------------------------------------------------------------
 struct PendingMirror {
     void* ib;
@@ -241,7 +375,6 @@ static std::vector<PendingMirror> s_pendingMirrors;
 static D3DMATRIX s_mirrorView, s_mirrorProj;
 static float s_mirrorBrightness = 0.85f;
 static bool s_mirrorEye;
-static void* s_curIndices;
 
 void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness) {
     s_pendingMirrors.clear();
@@ -670,7 +803,9 @@ public:
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts, UINT start,
                                                    UINT count) override {
         if (s_skipPostPass || s_texHidden) return D3D_OK;
-        HRESULT hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        HRESULT hr;
+        if (!DrawMirrorGlassNative(real, type, base, minIndex, verts, start, count, &hr))
+            hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
         AfterModelDraw();
         return hr;
     }
@@ -867,12 +1002,6 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;
     if (!strcmp(name, "SteeringWheelAngle")) return &g_steeringWheelAngle;
     if (!strcmp(name, "HideArms")) return &g_cfg.hideArms;
-    if (!strcmp(name, "MirrorReflection")) return &g_cfg.mirrorReflection;
-    if (!strcmp(name, "MirrorFalloff")) return &g_cfg.mirrorFalloff;
-    if (!strcmp(name, "MirrorHighlight")) return &g_cfg.mirrorHighlight;
-    if (!strcmp(name, "MirrorTint")) return &g_cfg.mirrorTint;
-    if (!strcmp(name, "MirrorScale")) return &g_cfg.mirrorScale;
-    if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "SeatRight")) return &g_seatInput[0];
     if (!strcmp(name, "SeatUp")) return &g_seatInput[1];
     if (!strcmp(name, "SeatForward")) return &g_seatInput[2];

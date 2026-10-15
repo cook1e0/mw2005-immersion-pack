@@ -682,9 +682,73 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
     }
 }
 
+// Side mirrors: the game draws their glass as its own draw entry (the MIRROR material). That entry
+// is handed to the d3d9 side, which gives its vertices texture coordinates across the glass and
+// draws it with the rear view as its texture: the game's own glass, showing the rear view.
+std::unordered_map<std::string, bool> s_hasMirrorSolids;
+
+std::string CarOf(const char* name) {
+    const char* kit = strstr(name, "_KIT");
+    return std::string(name, kit ? kit - name : strlen(name));
+}
+
+void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
+    char name[65] = {};
+    memcpy(name, info.name, 64);
+    if (info.mirrorKind == 2 && s_hasMirrorSolids.count(CarOf(name))) return;
+    const MirrorGlass& g = info.glass[side];
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
+    if (n <= 0 || n > 64 || !entries || !indices || !ib) return;
+    uint8_t* verts = nullptr;
+    int stride = 0;
+    for (int i = 0; i < n && !verts; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        verts = At<uint8_t*>(e, kEntryVertices);
+        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
+        stride = fmt ? At<int>(fmt, 8) : 0;
+    }
+    if (!verts || stride < 12) return;
+    float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+    auto onGlass = [&](const float* p) {
+        V3 q = {p[0], p[1], p[2]};
+        return fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
+               fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f;
+    };
+    // The entry made (almost) only of the glass.
+    for (int i = 0; i < n; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
+        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        int on = 0;
+        for (int t = 0; t < tris; t++) {
+            const uint16_t* tri = indices + first + t * 3;
+            bool all = true;
+            for (int k = 0; k < 3 && all; k++) all = onGlass((const float*)(verts + tri[k] * stride));
+            on += all;
+        }
+        if (on * 10 < tris * 8) continue;
+        float u0 = side == 0 ? 0.0f : 0.5f, u1 = u0 + 0.5f;
+        if (g_cfg.mirrorFlip) {
+            float a = 1.0f - u1, b = 1.0f - u0;
+            u0 = b;
+            u1 = a;
+        }
+        const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
+                                 g.halfU, g.halfV, u0, u1, 0};
+        D3D_RegisterMirrorGlass(ib, first, tris, basis);
+        Log("mirrors: %s: %s glass is draw entry %d (%d triangles)", name, side ? "right" : "left", i, tris);
+        return;
+    }
+    Log("mirrors: %s: %s glass has no draw entry of its own", name, side ? "right" : "left");
+}
+
 // Finds the rear view mirror's glass in the player car's interior the first time it is drawn,
-// once its driver's head is known (as for the steering wheel). The side mirrors keep the game's
-// own glass (its MIRROR material is fixed in game.cpp).
+// once its driver's head is known (as for the steering wheel), and the side mirrors' glass.
 void FindMirrors(uint8_t* solid, SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
@@ -705,6 +769,31 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         return;
     }
     info.mirrorKind = 0;
+    bool left = strstr(name, "_LEFT_SIDE_MIRROR") != nullptr, right = strstr(name, "_RIGHT_SIDE_MIRROR") != nullptr;
+    if (left || right) {
+        std::vector<V3> tris;
+        SolidTriangles(solid, tris, [](const V3*) { return true; });
+        info.glass[left ? 0 : 1] = mirror::FindGlass(tris);
+        info.mirrorKind = 1;
+        if (info.glass[left ? 0 : 1].ok) s_hasMirrorSolids[CarOf(name)] = true;
+    } else if (strstr(name, "_KIT") && strstr(name, "_BODY_")) {
+        for (int side = 0; side < 2; side++) {
+            std::vector<V3> tris;
+            float s = side == 0 ? 1.0f : -1.0f;
+            SolidTriangles(solid, tris, [s](const V3* p) { return mirror::InBodyMirrorRegion(p, s); });
+            info.glass[side] = mirror::FindGlass(tris, false);
+        }
+        info.mirrorKind = 2;
+    }
+    for (int side = 0; side < 2; side++) {
+        const MirrorGlass& g = info.glass[side];
+        if (g.ok)
+            Log("mirrors: %s: %s glass at %.2f %.2f %.2f, %.3f x %.3f, facing %.2f %.2f %.2f", name, side ? "right" : "left",
+                g.centre.x, g.centre.y, g.centre.z, 2 * g.halfU, 2 * g.halfV, g.normal.x, g.normal.y, g.normal.z);
+    }
+    if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
+    for (int side = 0; side < 2; side++)
+        if (info.glass[side].ok) RegisterGlassEntry(solid, info, side);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
@@ -726,7 +815,7 @@ void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, f
 void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
-    for (int side = 0; side < 3; side++) {
+    for (int side = 2; side < 3; side++) {   // the side mirrors are drawn by the game (RegisterGlassEntry)
         if (!info.glass[side].ok) continue;
         bool seen = false;
         for (const MirrorDraw& d : s_mirrorDraws) seen = seen || (d.solid == solid && d.side == side);
