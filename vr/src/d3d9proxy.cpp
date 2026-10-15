@@ -867,6 +867,12 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;
     if (!strcmp(name, "SteeringWheelAngle")) return &g_steeringWheelAngle;
     if (!strcmp(name, "HideArms")) return &g_cfg.hideArms;
+    if (!strcmp(name, "MirrorReflection")) return &g_cfg.mirrorReflection;
+    if (!strcmp(name, "MirrorFalloff")) return &g_cfg.mirrorFalloff;
+    if (!strcmp(name, "MirrorHighlight")) return &g_cfg.mirrorHighlight;
+    if (!strcmp(name, "MirrorTint")) return &g_cfg.mirrorTint;
+    if (!strcmp(name, "MirrorScale")) return &g_cfg.mirrorScale;
+    if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "SeatRight")) return &g_seatInput[0];
     if (!strcmp(name, "SeatUp")) return &g_seatInput[1];
     if (!strcmp(name, "SeatForward")) return &g_seatInput[2];

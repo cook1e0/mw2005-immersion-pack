@@ -139,6 +139,9 @@ void LoadConfig() {
     c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
     c.mirrorReflection = ReadFloat(ini, "MirrorReflection", c.mirrorReflection);
+    c.mirrorFalloff = ReadFloat(ini, "MirrorFalloff", c.mirrorFalloff);
+    c.mirrorHighlight = ReadFloat(ini, "MirrorHighlight", c.mirrorHighlight);
+    c.mirrorTint = ReadFloat(ini, "MirrorTint", c.mirrorTint);
     c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
     c.mirrorScale = ReadFloat(ini, "MirrorScale", c.mirrorScale);
     c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);

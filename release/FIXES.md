@@ -63,7 +63,9 @@
   glow. It is now a mirror: the car's environment map (rendered around the camera) at full
   strength, constant over the glass, with only a faint highlight. Flat screen too. `[VR]
   GameMirrors`, `MirrorReflection`. The mod's own picture on the side mirrors is gone again; the
-  rear view mirror inside keeps the real rear view.
+  rear view mirror inside keeps the real rear view. F4 > VR > Mirrors has live sliders for the
+  side mirrors' reflection, falloff, highlight and glass tint, and the rear view mirror's image
+  size and brightness.
 - **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
   player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
   option). The mirror glass is found in each car's model (checked offline on every car, including

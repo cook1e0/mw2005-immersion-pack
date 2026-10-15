@@ -83,7 +83,10 @@ constexpr uintptr_t kMatrixMultiply = 0x7E7D5E;
 constexpr uintptr_t kGetLightMaterial = 0x502820;  // eLightMaterial* elGetLightMaterial(uint32 hash), cdecl
 constexpr uint32_t kMirrorMaterialHash = 0x6BFA56DA; // bStringHash("MIRROR")
 constexpr int kMatNameHash = 0x0C, kMatData = 0x30;  // eLightMaterial: NameHash, eLightMaterialData
-enum { kMatSpecMinScale = 11, kMatSpecMaxScale = 15, kMatEnvPower = 19, kMatEnvMinScale = 20, kMatEnvMaxScale = 24 };
+enum {
+    kMatDiffMinR = 1, kMatDiffMaxR = 5, kMatSpecMinScale = 11, kMatSpecMaxScale = 15, kMatEnvPower = 19,
+    kMatEnvMinScale = 20, kMatEnvMaxScale = 24,
+};
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -349,21 +352,41 @@ void* __stdcall hkWorldViewMultiply(void* out, const void* local, const void* vi
     return ((MatrixMultiply_t)kMatrixMultiply)(out, local, view);
 }
 
-// Keeps the MIRROR material a mirror (looked up again now and then: global data can be reloaded).
+// Keeps the MIRROR material a mirror with the [VR] Mirror* values (live from F4 > VR; the
+// material is looked up again every second, as global data can be reloaded).
 void FixGameMirrors() {
     static DWORD last;
-    if (!g_cfg.gameMirrors || GetTickCount() - last < 1000) return;
-    last = GetTickCount();
-    uint8_t* mat = ((uint8_t*(__cdecl*)(uint32_t))kGetLightMaterial)(kMirrorMaterialHash);
-    if (!mat || At<uint32_t>(mat, kMatNameHash) != kMirrorMaterialHash) return;
+    static uint8_t* mat;
+    static float original[30];
+    static bool haveOriginal;
+    if (GetTickCount() - last >= 1000 || !mat) {
+        last = GetTickCount();
+        uint8_t* m = ((uint8_t*(__cdecl*)(uint32_t))kGetLightMaterial)(kMirrorMaterialHash);
+        mat = m && At<uint32_t>(m, kMatNameHash) == kMirrorMaterialHash ? m : nullptr;
+        if (mat && !haveOriginal) {
+            memcpy(original, mat + kMatData, sizeof(original));
+            haveOriginal = true;
+        }
+    }
+    if (!mat) return;
     float* f = (float*)(mat + kMatData);
-    float env = g_cfg.mirrorReflection;
-    if (f[kMatEnvMinScale] == env && f[kMatEnvMaxScale] == env && f[kMatSpecMinScale] == 0.05f) return;
-    Log("game: MIRROR material made a mirror (reflection %.3f -> %.2f, highlight %.2f -> 0.05)", f[kMatEnvMinScale], env,
-        f[kMatSpecMinScale]);
-    f[kMatSpecMinScale] = f[kMatSpecMaxScale] = 0.05f;
-    f[kMatEnvPower] = 0.0f;
-    f[kMatEnvMinScale] = f[kMatEnvMaxScale] = env;
+    float want[30];
+    memcpy(want, haveOriginal ? original : f, sizeof(want));
+    if (g_cfg.gameMirrors) {
+        float tint = std::min(std::max(g_cfg.mirrorTint, 0.0f), 1.0f);
+        for (int i = 0; i < 3; i++) want[kMatDiffMinR + i] = want[kMatDiffMaxR + i] = tint;
+        want[kMatSpecMinScale] = want[kMatSpecMaxScale] = std::max(g_cfg.mirrorHighlight, 0.0f);
+        want[kMatEnvPower] = std::max(g_cfg.mirrorFalloff, 0.0f);
+        want[kMatEnvMinScale] = want[kMatEnvMaxScale] = std::max(g_cfg.mirrorReflection, 0.0f);
+    }
+    if (!memcmp(want, f, sizeof(want))) return;
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        Log("game: MIRROR material made a mirror (reflection %.3f -> %.2f, highlight %.2f -> %.2f)", f[kMatEnvMinScale],
+            want[kMatEnvMinScale], f[kMatSpecMinScale], want[kMatSpecMinScale]);
+    }
+    memcpy(f, want, sizeof(want));
 }
 
 bool s_mirrorPatchOk = false;
