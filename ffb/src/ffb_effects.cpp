@@ -104,13 +104,24 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         }
     }
 
-    // --- grass: the wheel on grass drags back, turning the car (and the wheel) toward it. Eased in
-    // and out over about a quarter second, so running a wheel over the edge pulls, not jolts. ---
+    // --- off-road: an uneven rumble while front wheels are on grass, dirt, mud, gravel: two rough
+    // tones and random bumps, half with one wheel off, growing with speed, eased in and out ---
     {
-        float side = (t.valid && t.grass[1] ? 1.0f : 0.0f) - (t.valid && t.grass[0] ? 1.0f : 0.0f);
-        float target = p.grass * 0.5f * side * Ramp(2.0f, 15.0f, speed);
-        grassPull_ += (target - grassPull_) * Clampf(dt / 0.25f, 0.0f, 1.0f);
-        e.grass = grassPull_ * drive;
+        float share = t.valid ? ((t.offroad[0] ? 0.5f : 0.0f) + (t.offroad[1] ? 0.5f : 0.0f)) : 0.0f;
+        float target = p.offroad * share * Ramp(1.0f, 12.0f, speed) * (0.7f + 0.3f * Ramp(12.0f, 40.0f, speed));
+        offroadLevel_ += (target - offroadLevel_) * Clampf(dt / 0.1f, 0.0f, 1.0f);
+        roughPhase_[0] = Advance(roughPhase_[0], 17.0f, dt);
+        roughPhase_[1] = Advance(roughPhase_[1], 29.0f, dt);
+        bumpWait_ -= dt;
+        if (bumpWait_ <= 0.0f) {
+            rand_ = rand_ * 1664525u + 1013904223u;
+            float r = (rand_ >> 8) / 16777216.0f;                  // 0..1
+            bump_ = (r < 0.5f ? -1.0f : 1.0f) * (0.5f + r);
+            bumpWait_ = 0.05f + 0.15f * (1.0f - Ramp(5.0f, 30.0f, speed)) + 0.08f * r;
+        }
+        bump_ *= expf(-dt / 0.035f);
+        float rough = 0.45f * (float)sin(roughPhase_[0]) + 0.25f * (float)sin(roughPhase_[1]) + 0.45f * bump_;
+        e.offroad = offroadLevel_ * 0.5f * rough * drive;
     }
 
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---

@@ -1299,6 +1299,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "SteeringWheelAngle")) return &g_steeringWheelAngle;
     if (!strcmp(name, "HideArms")) return &g_cfg.hideArms;
     if (!strcmp(name, "WheelOverHud")) return &g_cfg.wheelOverHud;
+    if (!strcmp(name, "HudPerCar")) return &g_cfg.hudPerCar;
     if (!strcmp(name, "MenuOpen")) return &s_uiMenuOpen;
     if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "MirrorContrast")) return &g_cfg.mirrorContrast;

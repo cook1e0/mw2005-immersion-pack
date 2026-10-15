@@ -287,6 +287,16 @@ void Sample(void* player) {
         }
     }
 
+    // Off-road surface names (simsurface CollectionName, lower or mixed case).
+    auto offroadName = [](const char* name) {
+        static const char* const kWords[] = {"grass", "dirt", "mud", "gravel", "sand", "soil", "earth", "field",
+                                             "offroad", "off_road", "forest", "bush", "shrub", "snow", "rock"};
+        char low[48] = {};
+        for (int k = 0; k < 47 && name[k]; k++) low[k] = (char)tolower((unsigned char)name[k]);
+        for (const char* w : kWords)
+            if (strstr(low, w)) return true;
+        return false;
+    };
     // The road surface lives on the concrete SuspensionRacer's tyres: only read it for that class.
     if (*(uintptr_t*)susp == addr::VT_SuspensionRacer_ISuspension) {
         for (int i = 0; i < 2; ++i) {
@@ -297,7 +307,7 @@ void Sample(void* player) {
             // The surface's name (simsurface CollectionName): asphalt, grass, grass_shoulder, dirt...
             const char* name = *(const char**)(layout + kSurfName);
             if (Plausible((uintptr_t)name) && !IsBadStringPtrA(name, 32)) {
-                t.grass[i == rightWheel ? 1 : 0] = _strnicmp(name, "grass", 5) == 0;
+                t.offroad[i == rightWheel ? 1 : 0] = offroadName(name);
                 static char lastName[2][32];
                 if (g_cfg.logTelemetry && strncmp(lastName[i], name, sizeof(lastName[i]) - 1) != 0) {
                     strncpy(lastName[i], name, sizeof(lastName[i]) - 1);

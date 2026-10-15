@@ -332,22 +332,37 @@ static void TestEffects() {
         assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, p).breakable));
         p = EffectParams();
     }
-    // Grass: the right front wheel on grass pulls right, eased in; both or neither: no pull.
+    // Off-road: a vibration both ways while front wheels are off the road, stronger with both, none
+    // on the road, standing still or turned off.
     {
-        Effects fx;
+        auto rms = [&](Telemetry t, EffectParams q, float* lo, float* hi) {
+            Effects fx;
+            double sum = 0;
+            *lo = *hi = 0;
+            for (int i = 0; i < 1000; i++) {
+                float v = fx.Step(t, 1.0f, now + i * dt, dt, q).offroad;
+                if (i < 200) continue;
+                sum += v * v;
+                *lo = std::min(*lo, v);
+                *hi = std::max(*hi, v);
+            }
+            return (float)sqrt(sum / 800);
+        };
+        float lo, hi;
         Telemetry t = Car(20);
-        t.grass[1] = true;
-        float first = fx.Step(t, 1.0f, now, dt, p).grass, later = 0;
-        for (int i = 0; i < 400; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
-        assert(first > 0 && first < later * 0.2f && later > 0.15f);
-        t.grass[0] = true;
-        for (int i = 0; i < 800; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
-        assert(fabsf(later) < 0.01f);
-        t.grass[0] = false;
-        t.grass[1] = false;
-        t.grass[0] = true;
-        for (int i = 0; i < 800; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
-        assert(later < -0.15f);
+        assert(rms(t, p, &lo, &hi) < 1e-4f);
+        t.offroad[1] = true;
+        float one = rms(t, p, &lo, &hi);
+        assert(one > 0.02f && lo < -0.02f && hi > 0.02f);
+        t.offroad[0] = true;
+        float both = rms(t, p, &lo, &hi);
+        assert(both > one * 1.5f && hi < 0.5f);
+        Telemetry still = Car(0);
+        still.offroad[0] = still.offroad[1] = true;
+        assert(rms(still, p, &lo, &hi) < 1e-4f);
+        EffectParams off = p;
+        off.offroad = 0;
+        assert(rms(t, off, &lo, &hi) < 1e-4f);
     }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {

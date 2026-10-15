@@ -50,9 +50,13 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
-- **Force feedback: grass pull:** the game's own surface name under each front tyre tells grass
-  apart (grass, grass_shoulder): a pull toward the side whose wheel is on grass, eased in, harder
-  with speed. F4 > Force feedback > Grass pull, `[FFB] GrassPull`.
+- **Force feedback: off-road vibration:** the game's own surface name under each front tyre tells
+  grass, dirt, mud, gravel and sand apart from the road: the wheel rumbles unevenly (two rough
+  tones and random bumps), half with one wheel off, growing with speed. F4 > Force feedback >
+  Offroad vibration, `[FFB] OffroadVibration`.
+- **VR: each car remembers its HUD:** F4 > VR > "Each car remembers HUD positioning"
+  (`[VR] HudPerCar`): like the seat, the HUD size, distance and height are saved per car
+  (`[Hud]`); a car without its own yet keeps the last HUD you used.
 - **VR: steering wheel in front of the HUD:** F4 > VR > "Steering wheel rendered in front of HUD"
   (`[VR] WheelOverHud`). While driving, the HUD panel is drawn into the picture behind the car's
   steering wheel; in the pause menu, other menus and while the F4 menu is open it is the usual

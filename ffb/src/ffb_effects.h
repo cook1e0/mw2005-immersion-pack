@@ -8,7 +8,7 @@
 //   crashes   a jolt when the car hits something: other cars, walls, and props such as benches,
 //             sign posts and fences; sideways from the side that was hit, then a short shake
 //   scrapes   grinding while the car slides along a wall, and a pull toward it
-//   grass     a pull toward the side whose front wheel is on grass (it drags that wheel back)
+//   offroad   a rough, uneven vibration while front wheels are on grass, dirt, mud, gravel...
 //   breakables a sharp knock when the car smashes a breakable prop (bench, sign post, fence, bin),
 //             toward the side it was on: the game's own Smackable objects, not any light contact
 //
@@ -25,12 +25,12 @@ struct EffectParams {
     float crashes = 0.6f;
     float scrapes = 0.4f;
     float breakables = 0.6f;
-    float grass = 0.4f;
+    float offroad = 0.4f;
 };
 
 struct EffectParts {
-    float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, grass = 0;
-    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + grass; }
+    float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0;
+    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad; }
 };
 
 class Effects {
@@ -38,11 +38,12 @@ public:
     // `drive` 0 (menus) .. 1 (driving), as for the model.
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
-    double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0;
+    double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0, roughPhase_[2] = {0, 0};
     uint32_t lastSeq_ = 0, lastHitSeq_ = 0, lastBreakSeq_ = 0;
     bool haveHitSeq_ = false;
     double breakStart_ = -1;
-    float grassPull_ = 0;
+    float offroadLevel_ = 0, bump_ = 0, bumpWait_ = 0;
+    uint32_t rand_ = 12345;
     float breakAmp_ = 0, breakDir_ = 0;
     float kerbKick_ = 0, kerbShake_ = 0;
     double hitStart_ = -1;

@@ -193,6 +193,69 @@ void SaveOffset() {
     Log("cockpit: seat for %s saved: %s", s_offsetCar.c_str(), buf);
 }
 
+// The HUD panel per car, like the seat: entering a car loads its own HUD if it has one (else the
+// last used stays); changes made in a car are saved for it once they have settled for a second.
+struct HudCar {
+    std::string car;
+    float seen[3] = {};
+    bool dirty = false;
+    double changed = 0;
+} s_hudCar;
+
+void HudValues(float* v[3]) {
+    v[0] = &g_cfg.hudWidth;
+    v[1] = &g_cfg.hudDistance;
+    v[2] = &g_cfg.hudHeight;
+}
+
+void SaveHudCar() {
+    float* v[3];
+    HudValues(v);
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f", *v[0], *v[1], *v[2]);
+    WritePrivateProfileStringA("Hud", s_hudCar.car.c_str(), buf, IniPath());
+    s_hudCar.dirty = false;
+    Log("cockpit: HUD for %s saved: %s", s_hudCar.car.c_str(), buf);
+}
+
+void UpdateHudCar(const std::string& car) {
+    float* v[3];
+    HudValues(v);
+    if (g_cfg.hudPerCar < 0.5f || car.empty()) {
+        if (s_hudCar.dirty && !s_hudCar.car.empty()) SaveHudCar();
+        s_hudCar.car.clear();
+        return;
+    }
+    if (car != s_hudCar.car) {
+        if (s_hudCar.dirty && !s_hudCar.car.empty()) SaveHudCar();
+        s_hudCar.car = car;
+        char buf[96];
+        GetPrivateProfileStringA("Hud", car.c_str(), "", buf, sizeof(buf), IniPath());
+        float w, d, h;
+        if (sscanf(buf, "%f,%f,%f", &w, &d, &h) == 3 && w > 0.1f && w < 10 && d > 0.1f && d < 10 && fabsf(h) < 5) {
+            *v[0] = w;
+            *v[1] = d;
+            *v[2] = h;
+            Log("cockpit: HUD for %s: size %.2f distance %.2f height %.2f", car.c_str(), w, d, h);
+        } else {
+            Log("cockpit: HUD for %s: none saved yet, the last used stays", car.c_str());
+        }
+        for (int i = 0; i < 3; i++) s_hudCar.seen[i] = *v[i];
+        return;
+    }
+    bool moved = false;
+    for (int i = 0; i < 3; i++) {
+        if (fabsf(*v[i] - s_hudCar.seen[i]) > 1e-4f) moved = true;
+        s_hudCar.seen[i] = *v[i];
+    }
+    if (moved) {
+        s_hudCar.dirty = true;
+        s_hudCar.changed = Now();
+    } else if (s_hudCar.dirty && Now() - s_hudCar.changed > 1.0) {
+        SaveHudCar();
+    }
+}
+
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
 // middle). Checked against every car's driver model offline.
 constexpr float kArmsForward = 0.10f, kArmsBelowHead = 0.42f, kArmsSideways = 0.06f;
@@ -1091,6 +1154,7 @@ void Cockpit_EndFrame() {
         if (newCar) memcpy(s_head.body, s_frame.body, sizeof(s_head.body));
         s_head.time = Now();
     }
+    UpdateHudCar(s_head.valid ? s_head.car : std::string());
     s_frame.dist = 1e9f;
     s_frame.worldId = 0;
     s_seatedConn = nullptr;
