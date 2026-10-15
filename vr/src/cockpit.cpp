@@ -833,6 +833,80 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
     if (info.glassFirsts[side].empty()) Log("mirrors: %s: %s glass has no draw entry of its own", name, side ? "right" : "left");
 }
 
+// Both side mirrors' glass in one draw entry of their own (one material, as on the BMW M3 GTR's
+// body): that entry gets both, each glass's vertices that side's slice of the rear view
+// (SideMirrorWidth) baked in. Without one, every entry touching the glass is logged.
+void RegisterSharedGlass(uint8_t* solid, SolidInfo& info) {
+    char name[65] = {};
+    memcpy(name, info.name, 64);
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
+    if (n <= 0 || n > 64 || !entries || !indices || !ib) return;
+    uint8_t* verts = nullptr;
+    int stride = 0;
+    for (int i = 0; i < n && !verts; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        verts = At<uint8_t*>(e, kEntryVertices);
+        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
+        stride = fmt ? At<int>(fmt, 8) : 0;
+    }
+    if (!verts || stride < 12) return;
+    auto onGlass = [&](int side, const uint16_t* tri) {
+        const MirrorGlass& g = info.glass[side];
+        float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+        for (int k = 0; k < 3; k++) {
+            const float* p = (const float*)(verts + tri[k] * stride);
+            V3 q = {p[0], p[1], p[2]};
+            if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
+                  fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
+                return false;
+        }
+        return true;
+    };
+    bool found = false;
+    for (int i = 0; i < n && !found; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
+        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        std::vector<uint16_t> used[2];
+        int on[2] = {0, 0};
+        for (int t = 0; t < tris; t++) {
+            const uint16_t* tri = indices + first + t * 3;
+            for (int side = 0; side < 2; side++)
+                if (onGlass(side, tri)) {
+                    on[side]++;
+                    used[side].insert(used[side].end(), tri, tri + 3);
+                    break;
+                }
+        }
+        if (on[0] + on[1] > 0)
+            Log("mirrors: %s: draw entry %d (%d triangles) has %d left and %d right glass triangles", name, i, tris, on[0], on[1]);
+        if (!on[0] || !on[1] || (on[0] + on[1]) * 10 < tris * 8) continue;
+        float w = g_cfg.sideMirrorWidth;
+        for (int side = 0; side < 2; side++) {
+            const MirrorGlass& g = info.glass[side];
+            float u0 = side == 0 ? 0.0f : 1.0f - w, u1 = u0 + w;
+            if (g_cfg.mirrorFlip) {
+                float a = 1.0f - u0, c = 1.0f - u1;
+                u0 = a;
+                u1 = c;
+            }
+            const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
+                                     g.halfU, g.halfV, u0, u1, 0};
+            std::sort(used[side].begin(), used[side].end());
+            used[side].erase(std::unique(used[side].begin(), used[side].end()), used[side].end());
+            if (side == 0) D3D_RegisterMirrorGlass(ib, first, tris, basis, used[side].data(), (int)used[side].size());
+            else D3D_AddMirrorGlassPart(ib, first, basis, used[side].data(), (int)used[side].size());
+        }
+        Log("mirrors: %s: both side mirrors' glass is draw entry %d (%d triangles)", name, i, tris);
+        found = true;
+    }
+}
+
 // Finds the rear view mirror's glass in the player car's interior the first time it is drawn,
 // once its driver's head is known (as for the steering wheel), and the side mirrors' glass.
 void FindMirrors(uint8_t* solid, SolidInfo& info) {
@@ -880,6 +954,9 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
     for (int side = 0; side < 2; side++)
         if (info.glass[side].ok && g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name))) RegisterGlassEntry(solid, info, side);
+    if (g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name)) && info.glass[0].ok && info.glass[1].ok &&
+        info.glassFirsts[0].empty() && info.glassFirsts[1].empty())
+        RegisterSharedGlass(solid, info);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`

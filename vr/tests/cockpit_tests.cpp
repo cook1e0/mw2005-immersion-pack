@@ -11,6 +11,7 @@ void ConfigFile(const char*, char* out, bool) { strcpy(out, "missing-cockpit-tes
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}
 void D3D_SetGlassCorners(void*, int, const float*) {}
+void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];

@@ -417,11 +417,14 @@ void* D3D_TextureOfSurface(void* surface) {
 static void* s_curIndices;            // index buffer the game last set
 
 // --- the game's side mirror glass with the rear view ---------------------------------------------
+struct MirrorGlassPart {
+    float basis[14];
+    std::vector<uint16_t> vertices;               // the glass's own vertices (index values)
+};
 struct MirrorGlassJob {
     void* ib;
     UINT first, tris;
-    float basis[14];
-    std::vector<uint16_t> vertices;               // the glass's own vertices (index values)
+    std::vector<MirrorGlassPart> parts;           // one glass, or both sides' in one entry
     std::vector<std::pair<void*, INT>> mapped;    // vertex buffer, base vertex already given texture coordinates
     float corners[8];                             // the rear view's u, v at the glass's corners, this eye
     bool haveCorners = false;
@@ -440,9 +443,23 @@ void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, c
     job->ib = indexBuffer;
     job->first = firstIndex;
     job->tris = triangles;
-    memcpy(job->basis, basis, sizeof(job->basis));
-    job->vertices.assign(vertices, vertices + vertexCount);
+    job->parts.assign(1, MirrorGlassPart());
+    memcpy(job->parts[0].basis, basis, sizeof(job->parts[0].basis));
+    job->parts[0].vertices.assign(vertices, vertices + vertexCount);
     job->mapped.clear();
+    job->haveCorners = false;
+}
+
+void D3D_AddMirrorGlassPart(void* indexBuffer, int firstIndex, const float basis[14], const uint16_t* vertices,
+                            int vertexCount) {
+    for (MirrorGlassJob& j : s_glassJobs)
+        if (j.ib == indexBuffer && j.first == (UINT)firstIndex) {
+            MirrorGlassPart p;
+            memcpy(p.basis, basis, sizeof(p.basis));
+            p.vertices.assign(vertices, vertices + vertexCount);
+            j.parts.push_back(p);
+            j.mapped.clear();
+        }
 }
 
 void D3D_SetGlassCorners(void* indexBuffer, int firstIndex, const float uv[8]) {
@@ -456,7 +473,7 @@ void D3D_SetGlassCorners(void* indexBuffer, int firstIndex, const float uv[8]) {
 // Texture coordinates across the glass for the glass's own vertices (in the game's own vertex
 // buffer, once per buffer and base): u along the glass within the job's range, v top to bottom.
 static void MapGlassVertices(MirrorGlassJob& j, INT base) {
-    if (j.vertices.empty()) return;
+    if (j.parts.empty()) return;
     IDirect3DVertexBuffer9* vb = nullptr;
     UINT offset = 0, stride = 0;
     if (FAILED(s_dev->GetStreamSource(0, &vb, &offset, &stride)) || !vb) return;
@@ -484,35 +501,40 @@ static void MapGlassVertices(MirrorGlassJob& j, INT base) {
         vb->Release();
         return;
     }
-    uint16_t lo = 0xFFFF, hi = 0;
-    for (uint16_t v : j.vertices) {
-        lo = v < lo ? v : lo;
-        hi = v > hi ? v : hi;
+    size_t mappedVerts = 0;
+    for (MirrorGlassPart& part : j.parts) {
+        if (part.vertices.empty()) continue;
+        mappedVerts += part.vertices.size();
+        uint16_t lo = 0xFFFF, hi = 0;
+        for (uint16_t v : part.vertices) {
+            lo = v < lo ? v : lo;
+            hi = v > hi ? v : hi;
+        }
+        UINT firstVertex = (UINT)(base + lo), count = (UINT)(hi - lo + 1);
+        uint8_t* p = nullptr;
+        if (FAILED(vb->Lock(offset + firstVertex * stride, count * stride, (void**)&p, 0)) || !p) {
+            Log("d3d9: side mirror glass: vertex buffer lock failed");
+            vb->Release();
+            return;
+        }
+        const float* b = part.basis;
+        float cu = b[0] * b[3] + b[1] * b[4] + b[2] * b[5], cv = b[0] * b[6] + b[1] * b[7] + b[2] * b[8];
+        for (uint16_t v : part.vertices) {
+            UINT i = v - lo;
+            const float* pos = (const float*)(p + i * stride + posOfs);
+            float* uv = (float*)(p + i * stride + uvOfs);
+            float pu = pos[0] * b[3] + pos[1] * b[4] + pos[2] * b[5], pv = pos[0] * b[6] + pos[1] * b[7] + pos[2] * b[8];
+            float s = b[9] > 0 ? (pu - (cu - b[9])) / (2 * b[9]) : 0.5f, t = b[10] > 0 ? ((cv + b[10]) - pv) / (2 * b[10]) : 0.5f;
+            s = s < 0 ? 0 : s > 1 ? 1 : s;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            uv[0] = b[11] + (b[12] - b[11]) * s;
+            uv[1] = t;
+        }
+        vb->Unlock();
     }
-    UINT firstVertex = (UINT)(base + lo), count = (UINT)(hi - lo + 1);
-    uint8_t* p = nullptr;
-    if (FAILED(vb->Lock(offset + firstVertex * stride, count * stride, (void**)&p, 0)) || !p) {
-        Log("d3d9: side mirror glass: vertex buffer lock failed");
-        vb->Release();
-        return;
-    }
-    const float* b = j.basis;
-    float cu = b[0] * b[3] + b[1] * b[4] + b[2] * b[5], cv = b[0] * b[6] + b[1] * b[7] + b[2] * b[8];
-    for (uint16_t v : j.vertices) {
-        UINT i = v - lo;
-        const float* pos = (const float*)(p + i * stride + posOfs);
-        float* uv = (float*)(p + i * stride + uvOfs);
-        float pu = pos[0] * b[3] + pos[1] * b[4] + pos[2] * b[5], pv = pos[0] * b[6] + pos[1] * b[7] + pos[2] * b[8];
-        float s = b[9] > 0 ? (pu - (cu - b[9])) / (2 * b[9]) : 0.5f, t = b[10] > 0 ? ((cv + b[10]) - pv) / (2 * b[10]) : 0.5f;
-        s = s < 0 ? 0 : s > 1 ? 1 : s;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        uv[0] = b[11] + (b[12] - b[11]) * s;
-        uv[1] = t;
-    }
-    vb->Unlock();
     vb->Release();
     static int logged;
-    if (logged++ < 4) Log("d3d9: side mirror glass: %u vertices given the rear view's coordinates", (unsigned)j.vertices.size());
+    if (logged++ < 4) Log("d3d9: side mirror glass: %u vertices given the rear view's coordinates", (unsigned)mappedVerts);
 }
 
 

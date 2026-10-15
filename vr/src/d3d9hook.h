@@ -41,6 +41,11 @@ void D3D_RegisterWheelDraw(void* indexBuffer, int firstIndex);
 void D3D_BeginWheelEye(bool on, const float seat[12], const float* view, const float* proj);
 void D3D_EndWheelEye();
 
+// One more glass in an entry already registered (both side mirrors' glass in one entry, as on
+// the BMW M3 GTR's body): its own basis and vertices.
+void D3D_AddMirrorGlassPart(void* indexBuffer, int firstIndex, const float basis[14], const uint16_t* vertices,
+                            int vertexCount);
+
 // Where the side mirror glass (index buffer, first index, as registered) looks for this eye: the
 // rear view's texture coordinates seen at its four corners (top left, top right, bottom left,
 // bottom right: u, v each), from the eye's view reflected off the glass.
