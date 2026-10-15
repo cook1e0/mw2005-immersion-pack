@@ -740,7 +740,10 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
         }
         const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
                                  g.halfU, g.halfV, u0, u1, 0};
-        D3D_RegisterMirrorGlass(ib, first, tris, basis);
+        std::vector<uint16_t> used(indices + first, indices + first + tris * 3);
+        std::sort(used.begin(), used.end());
+        used.erase(std::unique(used.begin(), used.end()), used.end());
+        D3D_RegisterMirrorGlass(ib, first, tris, basis, used.data(), (int)used.size());
         Log("mirrors: %s: %s glass is draw entry %d (%d triangles)", name, side ? "right" : "left", i, tris);
         return;
     }

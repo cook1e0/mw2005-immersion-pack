@@ -21,7 +21,10 @@ void* D3D_TextureOfSurface(void* surface);
 // lies in model space: centre xyz, u axis xyz (to the right as the driver sees it), v axis xyz (up),
 // half width, half height, and the rear view's u range for it. Its vertices get texture coordinates
 // across the glass (once), and each draw of it samples the rear view instead of its texture.
-void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, const float basis[14]);
+// `vertices`: the vertex indices the glass's triangles use (as in the index buffer); only these get
+// the new coordinates (the rest of the model shares the range).
+void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, const float basis[14], const uint16_t* vertices,
+                             int vertexCount);
 
 // Draws sampling any of these textures are skipped (null: none). Used for the HUD's rear view mirror.
 void D3D_HideTextures(void* a, void* b, void* c);
