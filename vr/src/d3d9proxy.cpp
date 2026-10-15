@@ -162,6 +162,79 @@ void D3D_ResetForNextEye() {
     if (ds) ds->Release();
 }
 
+void D3D_DrawMirrors(const float* verts, int quads, const float* view, const float* proj, void* texture, float brightness) {
+    if (!s_dev || quads <= 0 || !texture) return;
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    IDirect3DSurface9 *rt = nullptr, *ds = nullptr, *bb = nullptr;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->GetDepthStencilSurface(&ds);
+    if (SUCCEEDED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb))) {
+        D3DSURFACE_DESC bd = {}, dd = {};
+        bb->GetDesc(&bd);
+        // The scene's depth, if it matches the back buffer (the car's pillars hide the mirror).
+        bool depth = s_frameDS && SUCCEEDED(s_frameDS->GetDesc(&dd)) && dd.Width == bd.Width && dd.Height == bd.Height &&
+                     dd.MultiSampleType == bd.MultiSampleType;
+        s_dev->SetRenderTarget(0, bb);
+        s_dev->SetDepthStencilSurface(depth ? s_frameDS : nullptr);
+        D3DVIEWPORT9 vp = {0, 0, bd.Width, bd.Height, 0.0f, 1.0f};
+        s_dev->SetViewport(&vp);
+        s_dev->SetVertexShader(nullptr);
+        s_dev->SetPixelShader(nullptr);
+        s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
+        D3DMATRIX identity = {};
+        identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+        s_dev->SetTransform(D3DTS_WORLD, &identity);
+        s_dev->SetTransform(D3DTS_VIEW, (const D3DMATRIX*)view);
+        s_dev->SetTransform(D3DTS_PROJECTION, (const D3DMATRIX*)proj);
+        s_dev->SetRenderState(D3DRS_ZENABLE, depth ? D3DZB_TRUE : D3DZB_FALSE);
+        s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+        s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+        s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+        s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+        s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
+        s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+        BYTE k = (BYTE)(brightness < 0 ? 0 : brightness > 1 ? 255 : brightness * 255.0f);
+        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
+        s_dev->SetTexture(0, (IDirect3DBaseTexture9*)texture);
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+        s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
+        s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+        s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+        s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+        s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+        s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+        s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+        s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+        s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+        s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+        for (int q = 0; q < quads; q++) s_dev->DrawPrimitiveUP(D3DPT_TRIANGLEFAN, 2, verts + q * 20, 5 * sizeof(float));
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("d3d9: side mirrors drawn (%d, depth %s, %ux%u)", quads, depth ? "tested" : "off", bd.Width, bd.Height);
+        }
+        bb->Release();
+    }
+    saved->Apply();
+    saved->Release();
+    s_dev->SetRenderTarget(0, rt);
+    s_dev->SetDepthStencilSurface(ds);
+    if (rt) rt->Release();
+    if (ds) ds->Release();
+}
+
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
 static bool FromGame(void* addr) {
     static uintptr_t end;

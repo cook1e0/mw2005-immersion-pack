@@ -273,7 +273,53 @@ static void TestSteeringWheel() {
     g_cfg.steeringWheel = false;
 }
 
+// Side mirror glass: the big rear-facing flat patch of a mirror model, its size and which way it
+// faces; a rear-facing panel that isn't a mirror (behind the cabin, too small) is not taken.
+static void AddQuad(std::vector<V3>& t, V3 c, V3 u, V3 v, float hu, float hv, bool flipWinding) {
+    V3 p[4] = {{c.x - u.x * hu + v.x * hv, c.y - u.y * hu + v.y * hv, c.z - u.z * hu + v.z * hv},
+               {c.x + u.x * hu + v.x * hv, c.y + u.y * hu + v.y * hv, c.z + u.z * hu + v.z * hv},
+               {c.x + u.x * hu - v.x * hv, c.y + u.y * hu - v.y * hv, c.z + u.z * hu - v.z * hv},
+               {c.x - u.x * hu - v.x * hv, c.y - u.y * hu - v.y * hv, c.z - u.z * hu - v.z * hv}};
+    int order[2][6] = {{0, 1, 2, 0, 2, 3}, {0, 2, 1, 0, 3, 2}};
+    for (int k : order[flipWinding]) t.push_back(p[k]);
+}
+
+static void TestMirrorGlass() {
+    // A left mirror: glass facing back and a little out (as in the game's models), a housing
+    // around it facing forward and sideways.
+    V3 n = mirror::Norm({-0.95f, 0.31f, 0.04f});
+    V3 u = mirror::Norm(mirror::Cross({0, 0, 1}, n)), v = mirror::Cross(n, u);
+    std::vector<V3> tris;
+    AddQuad(tris, {0.5f, 0.9f, 0.8f}, u, v, 0.1f, 0.06f, true);
+    AddQuad(tris, {0.55f, 0.9f, 0.8f}, {0, -1, 0}, {0, 0, 1}, 0.11f, 0.07f, false);   // housing front (+x)
+    AddQuad(tris, {0.52f, 1.0f, 0.8f}, {1, 0, 0}, {0, 0, 1}, 0.03f, 0.07f, false);    // housing side
+    MirrorGlass g = mirror::FindGlass(tris);
+    Check(g.ok, "mirror glass 1");
+    Check(fabsf(g.centre.x - 0.5f) < 0.01f && fabsf(g.centre.y - 0.9f) < 0.01f && fabsf(g.centre.z - 0.8f) < 0.01f, "mirror glass 2");
+    Check(fabsf(g.halfU - 0.1f) < 0.005f && fabsf(g.halfV - 0.06f) < 0.005f, "mirror glass 3");
+    Check(g.normal.x < -0.9f, "mirror glass 4");                          // facing the driver, whichever winding
+    Check(g.u.y < -0.2f && g.v.z > 0.9f, "mirror glass 5");               // u: to the driver's right (the car's -y), v: up
+    // Not a mirror: a rear-facing panel behind the cabin, and a tiny one.
+    std::vector<V3> junk;
+    AddQuad(junk, {-1.8f, 0.72f, 0.55f}, u, v, 0.05f, 0.05f, false);
+    Check(!mirror::FindGlass(junk).ok, "mirror glass 6");
+    std::vector<V3> tiny;
+    AddQuad(tiny, {0.5f, 0.9f, 0.8f}, u, v, 0.01f, 0.01f, false);
+    Check(!mirror::FindGlass(tiny).ok, "mirror glass 7");
+    // The body search region: out at the side, at mirror height.
+    V3 in[3] = {{0.5f, 0.9f, 0.8f}, {0.6f, 0.9f, 0.8f}, {0.5f, 0.95f, 0.85f}};
+    V3 low[3] = {{0.5f, 0.9f, 0.3f}, {0.6f, 0.9f, 0.3f}, {0.5f, 0.95f, 0.35f}};
+    // The body search (either winding) on a door-top strip with the glass sticking out of it.
+    std::vector<V3> body;
+    AddQuad(body, {0.0f, 0.85f, 0.85f}, {1, 0, 0}, {0, 0, 1}, 0.5f, 0.1f, false);      // door top, facing out
+    AddQuad(body, {0.5f, 0.9f, 0.8f}, u, v, 0.1f, 0.06f, false);
+    MirrorGlass b = mirror::FindGlass(body, false);
+    Check(b.ok && fabsf(b.centre.x - 0.5f) < 0.01f && b.normal.x < -0.9f, "mirror glass in the body");
+    Check(mirror::InBodyMirrorRegion(in, 1.0f) && !mirror::InBodyMirrorRegion(in, -1.0f) && !mirror::InBodyMirrorRegion(low, 1.0f), "mirror glass 8");
+}
+
 int main() {
+    TestMirrorGlass();
     testTime = Now();
     static_assert(sizeof(void*) == 4, "test the game's 32-bit layout");
     Check((uintptr_t)gameAddressPadding < kFindConn &&

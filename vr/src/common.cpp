@@ -135,6 +135,10 @@ void LoadConfig() {
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
+    c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
+    c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
+    c.mirrorSplit = ReadInt(ini, "MirrorSplit", c.mirrorSplit) != 0;
+    c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
     c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);
     c.keySeatLeft = ReadInt(ini, "KeySeatLeft", c.keySeatLeft);

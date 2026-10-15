@@ -46,6 +46,12 @@
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
+- **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
+  player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
+  option). The mirror glass is found in each car's model (checked offline on every car, including
+  the few that have their mirrors in the body); the left mirror shows the left half of the rear
+  view, the right one the right half. `[VR] Mirrors`, `MirrorSplit`, `MirrorFlip` (if the image
+  is the wrong way round), `MirrorBrightness`.
 - **Drivetrain multiplication:** F4 > Physics > Drivetrain multiplication (`[Physics] Drivetrain`,
   also per car) exaggerates how the driven wheels lose side grip under power: at 2x a rear drive
   car's power oversteer and a front drive car's understeer are doubled, all-wheel drive cars get

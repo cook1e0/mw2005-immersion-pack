@@ -46,6 +46,17 @@ constexpr uintptr_t kSetupLightContext = 0x502520;  // (ctx, rig, local_world, w
 constexpr uintptr_t kCallsCloneLightContext[] = {0x74E474, 0x74F62E, 0x74F7D6, 0x74F968, 0x74FBC4,
                                                  0x74FFAB, 0x750158, 0x75031A, 0x7504F8};
 constexpr uintptr_t kCallsSetupLightContext[] = {0x502AAF, 0x73BB67, 0x73BB89};
+// Side mirrors. The game renders its rear view (eViews[3], EVIEW_PLAYER1_RVM, from a
+// RearViewMirrorCameraMover the driving camera always creates) into the "RVM" texture, shown at
+// the top of the HUD when the rear view mirror option is on. In the headset that HUD mirror is
+// clutter, so the image goes onto the player car's side mirrors instead (cockpit.cpp finds the
+// glass): the mirror camera's option check reads "on" and the HUD's reads "off" while VR runs.
+constexpr uintptr_t kMirrorCamOption = 0x4766A7;  // RearViewMirrorCameraMover::Update: mov al, [ecx+0x39]
+constexpr uintptr_t kHudMirrorOption = 0x595DCC;  // HUD mirror shown: mov cl, [eax+0x39]
+constexpr uint8_t kMirrorCamGame[3] = {0x8A, 0x41, 0x39}, kMirrorCamOn[3] = {0xB0, 0x01, 0x90};     // mov al, 1
+constexpr uint8_t kHudMirrorGame[3] = {0x8A, 0x48, 0x39}, kHudMirrorOff[3] = {0xB1, 0x00, 0x90};    // mov cl, 0
+constexpr uintptr_t kRvmTexture = 0x982B48;       // TextureInfo* "RVM": +0 platform info, its +0x18 the D3D texture
+constexpr int kPlatView = 0x00;                   // eViewPlatInfo: view matrix (the camera's), projection at +0x40
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -300,6 +311,69 @@ template <class Fn> void ForEachCompanion(void* cam, Fn fn) {
     }
 }
 
+bool s_mirrorPatchOk = false;
+bool s_mirrorPatched = false;
+
+void WriteCode(uintptr_t at, const uint8_t* bytes, int n) {
+    DWORD old;
+    VirtualProtect((void*)at, n, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)at, bytes, n);
+    VirtualProtect((void*)at, n, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)at, n);
+}
+
+// The mirror camera on and the HUD mirror off while VR runs with Mirrors=1, the game's otherwise.
+void UpdateMirrorPatch() {
+    bool want = s_mirrorPatchOk && g_cfg.mirrors && Xr_Available();
+    if (want == s_mirrorPatched) return;
+    WriteCode(kMirrorCamOption, want ? kMirrorCamOn : kMirrorCamGame, 3);
+    WriteCode(kHudMirrorOption, want ? kHudMirrorOff : kHudMirrorGame, 3);
+    s_mirrorPatched = want;
+    Log("game: rear view %s", want ? "on the side mirrors (HUD mirror hidden)" : "as the game's option");
+}
+
+void* RvmTexture() {
+    uint8_t* info = *(uint8_t**)kRvmTexture;
+    uint8_t* plat = info ? *(uint8_t**)info : nullptr;
+    return plat ? *(void**)(plat + 0x18) : nullptr;
+}
+
+// After an eye's scene: the rear view on the side mirror glass drawn in it.
+void DrawMirrors(void* view) {
+    if (!s_mirrorPatched) return;
+    void* tex = RvmTexture();
+    MirrorQuad quads[4];
+    int n = tex ? Cockpit_Mirrors(quads, 4) : 0;
+    if (n <= 0) return;
+    float verts[4 * 20];
+    for (int q = 0; q < n; q++) {
+        // The HUD shows the image as a mirror does; each side mirror takes its half of it.
+        float u0 = 0.0f, u1 = 1.0f;
+        if (g_cfg.mirrorSplit) {
+            u0 = quads[q].side == 0 ? 0.0f : 0.5f;
+            u1 = u0 + 0.5f;
+        }
+        // Flipped (for a plain rear camera image): each mirror the other half, mirrored.
+        if (g_cfg.mirrorFlip) {
+            float a = 1.0f - u1, b = 1.0f - u0;
+            u0 = b;
+            u1 = a;
+        }
+        const float uv[4][2] = {{u0, 0}, {u1, 0}, {u1, 1}, {u0, 1}};
+        for (int c = 0; c < 4; c++) {
+            float* v = verts + q * 20 + c * 5;
+            v[0] = quads[q].corner[c][0];
+            v[1] = quads[q].corner[c][1];
+            v[2] = quads[q].corner[c][2];
+            v[3] = uv[c][0];
+            v[4] = uv[c][1];
+        }
+    }
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_DrawMirrors(verts, n, (const float*)((char*)plat + kPlatView), (const float*)((char*)plat + kPlatProjection), tex,
+                    g_cfg.mirrorBrightness);
+}
+
 void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
     SetupViewFov(view, 1, cam, tanX, tanY, s_setupArgs);
     ForEachCompanion(cam, [&](void* v, int index, const uint32_t* args) { SetupViewFov(v, index, cam, tanX, tanY, args); });
@@ -315,6 +389,7 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
 
 void __cdecl hkRenderScene() {
     s_stereoFrame = false;
+    UpdateMirrorPatch();
     void* view = (void*)kPlayerView;
     void* cam = At<void*>(view, kViewCamera);
     bool active = At<int8_t>(view, kViewActive) != 0;
@@ -390,7 +465,9 @@ void __cdecl hkRenderScene() {
         if (eye > 0) D3D_ResetForNextEye();
         ApplyEyeToCamera(cam, base, Xr_Eye(eye));
         SetupPlayerView(view, cam, tanX, tanY);
+        Cockpit_BeginEye();
         oRenderScene();
+        DrawMirrors(view);
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
@@ -572,6 +649,8 @@ bool Game_ValidateHooks() {
 }
 
 bool Game_InstallHooks() {
+    s_mirrorPatchOk = !memcmp((void*)kMirrorCamOption, kMirrorCamGame, 3) && !memcmp((void*)kHudMirrorOption, kHudMirrorGame, 3);
+    if (!s_mirrorPatchOk) Log("game: unexpected rear view code, side mirrors off");
     if (!Game_ValidateHooks()) return false;
     EnlargeFrameMemory();
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);

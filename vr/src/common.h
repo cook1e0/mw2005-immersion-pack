@@ -54,6 +54,10 @@ struct Config {
     float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
+    bool  mirrors = true;            // the game's rear view on the player car's side mirrors (VR), no HUD mirror
+    bool  mirrorFlip = false;        // flip the mirror image left-right
+    bool  mirrorSplit = true;        // left mirror shows the left half of the rear view, right the right half
+    float mirrorBrightness = 0.85f;  // a mirror reflects a bit less than all of the light
     bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;

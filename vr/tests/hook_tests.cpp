@@ -15,6 +15,9 @@ void Xr_RecommendedSize(int* w, int* h) { *w = *h = 0; }
 const EyeView& Xr_Eye(int) { static EyeView e; return e; }
 bool Cockpit_ApplySeat(M4&) { return false; }
 void Cockpit_EndFrame() {}
+void Cockpit_BeginEye() {}
+int Cockpit_Mirrors(MirrorQuad*, int) { return 0; }
+void D3D_DrawMirrors(const float*, int, const float*, const float*, void*, float) {}
 static void __stdcall Resolution(int* w, int* h) { *w = 1920; *h = 1080; }
 static void Call(uintptr_t site, uintptr_t target) {
     *(uint8_t*)site = 0xE8;

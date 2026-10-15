@@ -17,3 +17,12 @@ extern float g_steeringWheelAngle;
 // Seat movement from the gameplay mod's bindings while held: right, up, forward (-1, 0, 1) and
 // reset (1), through NfsmwVr_Setting("SeatRight" / "SeatUp" / "SeatForward" / "SeatReset").
 extern float g_seatInput[4];
+
+// Side mirrors: the player car's mirror glass drawn in the current eye, in world space.
+struct MirrorQuad {
+    float corner[4][3];     // top left, top right, bottom right, bottom left, as the driver sees it
+    int side;               // 0 left, 1 right
+};
+// Before each eye's scene: forget the mirrors noted for the previous one.
+void Cockpit_BeginEye();
+int Cockpit_Mirrors(MirrorQuad* out, int max);
