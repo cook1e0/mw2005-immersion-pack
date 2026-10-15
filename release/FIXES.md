@@ -75,8 +75,6 @@
 - **Physics: slide oversteer you can catch:** the rear's lost side grip now follows the throttle
   (lifting off in front drive cars) and comes back as the slide passes 20-45 degrees, so lifting
   or countersteering recovers it instead of the car spinning.
-- **VR: shadow maps rendered once a frame:** both eyes use the first eye's shadow maps (views 15
-  and 16), like the rear view and the reflections, for less CPU time per frame.
 - **Engine heat: nitrous on the limiter:** with engine wear on, the nitrous at maximum revs heats the
   engine twice as fast; on a car over 75% damaged (whose engine already heats a third faster) it
   adds only a third more, so the two don't pile up.

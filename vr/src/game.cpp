@@ -95,8 +95,7 @@ enum {
 // The views that don't depend on the eye are rendered once a frame, for the first eye: the rear
 // view (3) and the environment map's six cube faces (18..23, rendered in ___eDisplayFrame's loop while
 // active). For the second eye they are switched off and back; it uses the first eye's images.
-// 15 and 16: the shadow maps (rendered around the car from the light: the same for both eyes).
-constexpr int kSharedViews[] = {3, 15, 16, 18, 19, 20, 21, 22, 23};
+constexpr int kSharedViews[] = {3, 18, 19, 20, 21, 22, 23};
 constexpr uintptr_t kCallPreDisplay = 0x6DE3D1;   // call ePreDisplay in ___eDisplayFrame
 constexpr uintptr_t kPreDisplay = 0x504C50;       // cdecl, no args
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
