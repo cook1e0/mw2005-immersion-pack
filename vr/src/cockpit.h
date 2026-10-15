@@ -21,7 +21,7 @@ extern float g_seatInput[4];
 // Side mirrors: the player car's mirror glass drawn in the current eye, in world space.
 struct MirrorQuad {
     float corner[4][3];     // top left, top right, bottom right, bottom left, as the driver sees it
-    int side;               // 0 left, 1 right
+    int side;               // 0 left, 1 right, 2 rear view (inside, on the windscreen)
 };
 // Before each eye's scene: forget the mirrors noted for the previous one.
 void Cockpit_BeginEye();

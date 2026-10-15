@@ -306,6 +306,22 @@ static void TestMirrorGlass() {
     std::vector<V3> tiny;
     AddQuad(tiny, {0.5f, 0.9f, 0.8f}, u, v, 0.01f, 0.01f, false);
     Check(!mirror::FindGlass(tiny).ok, "mirror glass 7");
+    // Rear view mirror: a wide thin sun visor strip (bigger, but not mirror-shaped) is passed over
+    // for the mirror itself; it must sit in the region ahead of the head.
+    {
+        std::vector<V3> inside;
+        V3 back = {-1, 0, 0}, ru = mirror::Norm(mirror::Cross({0, 0, 1}, back)), rv = mirror::Cross(back, ru);
+        AddQuad(inside, {0.3f, 0.0f, 1.05f}, ru, rv, 0.21f, 0.02f, false);           // visor strip, 0.42 x 0.04
+        AddQuad(inside, {0.25f, 0.0f, 1.0f}, ru, rv, 0.1f, 0.032f, true);            // mirror, 0.2 x 0.064
+        MirrorGlass r = mirror::FindGlass(inside, false, mirror::GlassKind::RearView);
+        Check(r.ok && fabsf(r.centre.x - 0.25f) < 0.01f && fabsf(2 * r.halfU - 0.2f) < 0.01f && r.normal.x < -0.9f,
+              "rear view mirror found, visor passed over");
+        Check(!mirror::FindGlass(inside, false, mirror::GlassKind::Side).ok, "rear view mirror is not a side mirror");
+        const float head[3] = {-0.2f, 0.37f, 0.97f};
+        V3 at[3] = {{0.25f, 0.05f, 1.0f}, {0.3f, -0.05f, 1.0f}, {0.25f, 0.0f, 1.05f}};
+        V3 ahead[3] = {{1.2f, 0.0f, 1.0f}, {1.3f, 0.0f, 1.0f}, {1.2f, 0.0f, 1.05f}};
+        Check(mirror::InRearViewRegion(at, head) && !mirror::InRearViewRegion(ahead, head), "rear view region");
+    }
     // The body search region: out at the side, at mirror height.
     V3 in[3] = {{0.5f, 0.9f, 0.8f}, {0.6f, 0.9f, 0.8f}, {0.5f, 0.95f, 0.85f}};
     V3 low[3] = {{0.5f, 0.9f, 0.3f}, {0.6f, 0.9f, 0.3f}, {0.5f, 0.95f, 0.35f}};

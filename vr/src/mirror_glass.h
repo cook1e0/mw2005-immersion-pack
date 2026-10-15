@@ -8,6 +8,7 @@
 #pragma once
 #include "vrmath.h"
 #include <math.h>
+#include <algorithm>
 #include <vector>
 
 struct MirrorGlass {
@@ -27,14 +28,29 @@ inline V3 Norm(V3 a) {
     return l > 1e-9f ? V3{a.x / l, a.y / l, a.z / l} : V3{0, 0, 0};
 }
 
+enum class GlassKind { Side, RearView };
+
+// Whether a flat patch looks like that kind of mirror's glass.
+inline bool LooksLike(GlassKind kind, const MirrorGlass& g, float fill) {
+    if (kind == GlassKind::Side)
+        // A side mirror's size, out at the side and not behind the cabin, and mostly filled.
+        return g.halfU > 0.03f && g.halfU < 0.18f && g.halfV > 0.025f && g.halfV < 0.13f && fill > 0.3f &&
+               fabsf(g.centre.y) > 0.6f && g.centre.x > -0.6f;
+    // The rear view mirror: about 0.2 x 0.06 m on the car's centre line, facing straight back
+    // (sun visors and roof strips nearby are wider, thinner or tilted).
+    return g.halfU > 0.075f && g.halfU < 0.15f && g.halfV > 0.02f && g.halfV < 0.05f && fill > 0.6f &&
+           g.normal.x < -0.9f && fabsf(g.centre.y) < 0.12f;
+}
+
 // `tris`: three points per triangle. Windings vary. With `outward` (a mirror's own model) each
 // normal is turned away from the middle of the points, so a housing's flat front is never taken
-// for glass facing back. Without (the body, searched only at mirror height on one side, whose
-// middle is nowhere near the mirror) a triangle facing either way counts.
-inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true) {
+// for glass facing back. Without (a region of a bigger model, whose middle is nowhere near the
+// mirror) a triangle facing either way counts. Flat patches facing back are tried largest first;
+// the first that looks like `kind`'s glass is it.
+inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true, GlassKind kind = GlassKind::Side) {
     struct Tri { const V3* p; V3 n; float area; };
-    MirrorGlass g;
-    if (tris.size() < 3) return g;
+    MirrorGlass none;
+    if (tris.size() < 3) return none;
     V3 mid{0, 0, 0};
     for (const V3& p : tris) mid = {mid.x + p.x, mid.y + p.y, mid.z + p.z};
     float inv = 1.0f / tris.size();
@@ -50,55 +66,65 @@ inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true) {
         if (outward ? Dot(n, at) < 0 : n.x > 0) n = {-n.x, -n.y, -n.z};
         if (n.x < -0.5f) rear.push_back({&tris[i], n, a});
     }
-    // The largest group of triangles in one plane.
-    float bestArea = 0;
-    std::vector<const Tri*> best;
+    // Groups of triangles in one plane.
+    struct Group { std::vector<const Tri*> tris; float area = 0; };
+    std::vector<Group> groups;
     std::vector<bool> used(rear.size(), false);
     for (size_t i = 0; i < rear.size(); i++) {
         if (used[i]) continue;
         V3 n = rear[i].n;
         float d = Dot(n, rear[i].p[0]);
-        std::vector<const Tri*> group;
-        float area = 0;
+        Group gr;
         for (size_t j = 0; j < rear.size(); j++) {
             if (used[j] || Dot(n, rear[j].n) <= 0.97f || fabsf(Dot(n, rear[j].p[0]) - d) >= 0.01f) continue;
             used[j] = true;
-            group.push_back(&rear[j]);
-            area += rear[j].area;
+            gr.tris.push_back(&rear[j]);
+            gr.area += rear[j].area;
         }
-        if (area > bestArea) {
-            bestArea = area;
-            best.swap(group);
+        groups.push_back(gr);
+    }
+    std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.area > b.area; });
+    for (const Group& gr : groups) {
+        V3 n{0, 0, 0};
+        for (const Tri* t : gr.tris) n = {n.x + t->n.x * t->area, n.y + t->n.y * t->area, n.z + t->n.z * t->area};
+        n = Norm(n);
+        V3 u = Norm(Cross({0, 0, 1}, n));
+        V3 v = Cross(n, u);
+        float minU = 1e9f, maxU = -1e9f, minV = 1e9f, maxV = -1e9f, sumD = 0;
+        int count = 0;
+        for (const Tri* t : gr.tris)
+            for (int k = 0; k < 3; k++) {
+                float pu = Dot(t->p[k], u), pv = Dot(t->p[k], v);
+                minU = fminf(minU, pu); maxU = fmaxf(maxU, pu);
+                minV = fminf(minV, pv); maxV = fmaxf(maxV, pv);
+                sumD += Dot(t->p[k], n);
+                count++;
+            }
+        float cu = 0.5f * (minU + maxU), cv = 0.5f * (minV + maxV), cd = sumD / count;
+        MirrorGlass g;
+        g.centre = {u.x * cu + v.x * cv + n.x * cd, u.y * cu + v.y * cv + n.y * cd, u.z * cu + v.z * cv + n.z * cd};
+        g.normal = n;
+        g.u = u;
+        g.v = v;
+        g.halfU = 0.5f * (maxU - minU);
+        g.halfV = 0.5f * (maxV - minV);
+        float fill = gr.area / fmaxf(4.0f * g.halfU * g.halfV, 1e-9f);
+        if (LooksLike(kind, g, fill)) {
+            g.ok = true;
+            return g;
         }
     }
-    if (best.empty()) return g;
-    V3 n{0, 0, 0};
-    for (const Tri* t : best) n = {n.x + t->n.x * t->area, n.y + t->n.y * t->area, n.z + t->n.z * t->area};
-    n = Norm(n);
-    V3 u = Norm(Cross({0, 0, 1}, n));
-    V3 v = Cross(n, u);
-    float minU = 1e9f, maxU = -1e9f, minV = 1e9f, maxV = -1e9f, sumD = 0;
-    int count = 0;
-    for (const Tri* t : best)
-        for (int k = 0; k < 3; k++) {
-            float pu = Dot(t->p[k], u), pv = Dot(t->p[k], v);
-            minU = fminf(minU, pu); maxU = fmaxf(maxU, pu);
-            minV = fminf(minV, pv); maxV = fmaxf(maxV, pv);
-            sumD += Dot(t->p[k], n);
-            count++;
-        }
-    float cu = 0.5f * (minU + maxU), cv = 0.5f * (minV + maxV), cd = sumD / count;
-    g.centre = {u.x * cu + v.x * cv + n.x * cd, u.y * cu + v.y * cv + n.y * cd, u.z * cu + v.z * cv + n.z * cd};
-    g.normal = n;
-    g.u = u;
-    g.v = v;
-    g.halfU = 0.5f * (maxU - minU);
-    g.halfV = 0.5f * (maxV - minV);
-    float fill = bestArea / fmaxf(4.0f * g.halfU * g.halfV, 1e-9f);
-    // A mirror's size, out at the side and not behind the cabin, and mostly filled.
-    g.ok = g.halfU > 0.03f && g.halfU < 0.18f && g.halfV > 0.025f && g.halfV < 0.13f && fill > 0.3f &&
-           fabsf(g.centre.y) > 0.6f && g.centre.x > -0.6f;
-    return g;
+    return none;
+}
+
+// Triangles of an interior model in front of the driver's head (model space), up by the roof
+// on the centre line: where a rear view mirror hangs.
+inline bool InRearViewRegion(const V3* p, const float head[3]) {
+    for (int k = 0; k < 3; k++)
+        if (p[k].x <= head[0] + 0.25f || p[k].x >= head[0] + 0.95f || fabsf(p[k].y) >= 0.25f || p[k].z <= head[2] - 0.2f ||
+            p[k].z >= head[2] + 0.3f)
+            return false;
+    return true;
 }
 
 // Triangles of a body mesh that lie on one side (side = 1 left, -1 right) at mirror height.

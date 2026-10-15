@@ -54,6 +54,10 @@
   their reflections with the view's rotation (WorldView), which in the headset is your head's. While
   the eyes render, that one matrix now comes from the seat (the game camera without your head),
   so reflections stay put as you look around; positions are untouched. `[VR] StableReflections`.
+- **VR: rear view mirror inside the car:** the interior's rear view mirror is found in front of the
+  driver's head on the centre line (about 0.2 x 0.06 m, facing back; sun visors and roof strips
+  around it are passed over) and shows the whole rear view. Found offline in every car's interior
+  except the GTO's.
 - **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
   player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
   option). The mirror glass is found in each car's model (checked offline on every car, including

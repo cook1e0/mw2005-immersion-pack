@@ -112,8 +112,8 @@ struct SolidInfo {
     Driver* driver = nullptr;                       // nullptr = not a driver
     Wheel* wheel = nullptr;                         // interiors, once the car's driver head is known
     bool interior = false;
-    int mirrorKind = -1;                            // -1 not looked at, 0 none, 1 side mirror solid, 2 body
-    MirrorGlass glass[2];                           // left, right (model space)
+    int mirrorKind = -1;                            // -1 not looked at, 0 none, 1 side mirror solid, 2 body, 3 interior
+    MirrorGlass glass[3];                           // left, right, rear view (model space)
     char name[64] = {};
     uint8_t* plat = nullptr;
     uint8_t* entries = nullptr;
@@ -639,7 +639,7 @@ bool DrawingPlayerCar();
 // the mirror image (game.cpp) to be laid over it.
 struct MirrorDraw {
     uint8_t* solid;
-    int side;                                       // 0 left, 1 right
+    int side;                                       // 0 left, 1 right, 2 rear view (interior)
     bool body;                                      // found in the body (cars without mirror solids)
     MirrorGlass glass;
     M4 m;
@@ -681,10 +681,27 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
     }
 }
 
-// Finds a solid's mirror glass the first time the player car draws it.
+// Finds a solid's mirror glass the first time the player car draws it (an interior: once its
+// driver's head is known, as for the steering wheel).
 void FindMirrors(uint8_t* solid, SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
+    if (info.interior) {
+        const HeadPos* head = CarHead(name);
+        if (!head) return;
+        std::vector<V3> tris;
+        const float* h = head->v;
+        SolidTriangles(solid, tris, [h](const V3* p) { return mirror::InRearViewRegion(p, h); });
+        info.glass[2] = mirror::FindGlass(tris, false, mirror::GlassKind::RearView);
+        info.mirrorKind = 3;
+        const MirrorGlass& g = info.glass[2];
+        if (g.ok)
+            Log("mirrors: %s: rear view mirror at %.2f %.2f %.2f, %.3f x %.3f, facing %.2f %.2f %.2f", name, g.centre.x,
+                g.centre.y, g.centre.z, 2 * g.halfU, 2 * g.halfV, g.normal.x, g.normal.y, g.normal.z);
+        else
+            Log("mirrors: %s: no rear view mirror found", name);
+        return;
+    }
     info.mirrorKind = 0;
     bool left = strstr(name, "_LEFT_SIDE_MIRROR") != nullptr, right = strstr(name, "_RIGHT_SIDE_MIRROR") != nullptr;
     if (left || right) {
@@ -713,7 +730,7 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
 void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
-    for (int side = 0; side < 2; side++) {
+    for (int side = 0; side < 3; side++) {
         if (!info.glass[side].ok) continue;
         bool seen = false;
         for (const MirrorDraw& d : s_mirrorDraws) seen = seen || (d.solid == solid && d.side == side);
@@ -1000,12 +1017,12 @@ void Cockpit_Keys() {
 void Cockpit_BeginEye() { s_mirrorDraws.clear(); }
 
 int Cockpit_Mirrors(MirrorQuad* out, int max) {
-    // Cars with mirror solids: those only (their body is searched too and finds other things).
+    // Cars with side mirror solids: those only (their body is searched too and finds other things).
     bool solids = false;
-    for (const MirrorDraw& d : s_mirrorDraws) solids = solids || !d.body;
+    for (const MirrorDraw& d : s_mirrorDraws) solids = solids || (!d.body && d.side < 2);
     int n = 0;
     for (const MirrorDraw& d : s_mirrorDraws) {
-        if (n >= max || d.body == solids) continue;
+        if (n >= max || (d.side < 2 && d.body == solids)) continue;
         const MirrorGlass& g = d.glass;
         // Corners as the driver sees the glass: top left, top right, bottom right, bottom left,
         // a few millimetres in front of it.

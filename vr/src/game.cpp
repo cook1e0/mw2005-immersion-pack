@@ -372,13 +372,13 @@ void DrawMirrors(void* view) {
     if (!s_mirrorPatched) return;
     void* tex = RvmSurface();
     MirrorQuad quads[4];
-    int n = tex ? Cockpit_Mirrors(quads, 4) : 0;
+    int n = tex ? Cockpit_Mirrors(quads, 3) : 0;
     if (n <= 0) return;
     float verts[4 * 20];
     for (int q = 0; q < n; q++) {
         // The HUD shows the image as a mirror does; each side mirror takes its half of it.
         float u0 = 0.0f, u1 = 1.0f;
-        if (g_cfg.mirrorSplit) {
+        if (g_cfg.mirrorSplit && quads[q].side < 2) {
             u0 = quads[q].side == 0 ? 0.0f : 0.5f;
             u1 = u0 + 0.5f;
         }
