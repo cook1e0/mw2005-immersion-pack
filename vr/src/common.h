@@ -70,6 +70,13 @@ struct Config {
 extern Config g_cfg;
 void LoadConfig();
 
+#include "hud_layout.h"
+extern HudLayout g_hud;
+// [VR] Hud* keys in nfsmw_vr.ini (LoadConfig loads them too).
+void HudLoad();
+// A live HUD value by its [VR] key, null if none.
+float* HudSetting(const char* name);
+
 // Directory containing speed.exe (with trailing backslash).
 const char* GameDir();
 // Folder of this DLL and the mods' .ini files (see common.cpp).

@@ -254,16 +254,40 @@ const struct {
     {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
     {MOD_FFB, "Breakables", 0.6f},
     {MOD_VR, "MirrorBrightness", 1.4f}, {MOD_VR, "MirrorContrast", 1.25f},
+    {MOD_VR, "HudEnabled", 0.0f}, {MOD_VR, "HudBoxOpacity", 0.65f}, {MOD_VR, "HudMenuOpen", 0.0f}, {MOD_VR, "HudSelected", -1.0f},
+    {MOD_VR, "HudBoxX", 0.0f}, {MOD_VR, "HudBoxY", 0.1f}, {MOD_VR, "HudBoxDistance", 0.85f}, {MOD_VR, "HudBoxSize", 0.32f}, {MOD_VR, "HudBoxBehindWheel", 0.0f},
+    {MOD_VR, "HudSpeedometerX", 0.22f}, {MOD_VR, "HudSpeedometerY", -0.28f}, {MOD_VR, "HudSpeedometerDistance", 0.6f}, {MOD_VR, "HudSpeedometerSize", 0.16f}, {MOD_VR, "HudSpeedometerBehindWheel", 0.0f},
+    {MOD_VR, "HudRadarX", 0.0f}, {MOD_VR, "HudRadarY", -0.2f}, {MOD_VR, "HudRadarDistance", 0.65f}, {MOD_VR, "HudRadarSize", 0.14f}, {MOD_VR, "HudRadarBehindWheel", 0.0f},
+    {MOD_VR, "HudMinimapX", -0.22f}, {MOD_VR, "HudMinimapY", -0.28f}, {MOD_VR, "HudMinimapDistance", 0.6f}, {MOD_VR, "HudMinimapSize", 0.16f}, {MOD_VR, "HudMinimapBehindWheel", 0.0f},
+    {MOD_FFB, "GrassPull", 0.4f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
-    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST, EXT_COUNT
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
+    VR_HUDENABLED, VR_HUDBOXOPACITY, VR_HUDMENUOPEN, VR_HUDSELECTED, VR_HUDBOXX, VR_HUDBOXY, VR_HUDBOXDIST, VR_HUDBOXSIZE, VR_HUDBOXBEHIND, VR_HUDSPEEDOMETERX, VR_HUDSPEEDOMETERY, VR_HUDSPEEDOMETERDIST, VR_HUDSPEEDOMETERSIZE, VR_HUDSPEEDOMETERBEHIND, VR_HUDRADARX, VR_HUDRADARY, VR_HUDRADARDIST, VR_HUDRADARSIZE, VR_HUDRADARBEHIND, VR_HUDMINIMAPX, VR_HUDMINIMAPY, VR_HUDMINIMAPDIST, VR_HUDMINIMAPSIZE, VR_HUDMINIMAPBEHIND, FFB_GRASS, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
+
+// Mod settings that are switches (0/1), shown as On / Off.
+bool ExtIsSwitch(const void* value) {
+    static const int ids[] = {FFB_INVERT, VR_HIDEARMS, VR_HUDENABLED, VR_HUDBOXBEHIND, VR_HUDSPEEDOMETERBEHIND,
+                              VR_HUDRADARBEHIND, VR_HUDMINIMAPBEHIND};
+    for (int id : ids)
+        if (value == &s_ext[id]) return true;
+    return false;
+}
+
+// The HUD element an F4 row places (its [VR] Hud<element>... key), -1 for none.
+int HudElementOfKey(const char* key) {
+    static const char* names[] = {"HudBox", "HudSpeedometer", "HudRadar", "HudMinimap"};
+    for (int e = 0; e < 4; e++)
+        if (key && strncmp(key, names[e], strlen(names[e])) == 0) return e;
+    return -1;
+}
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
 // (proxy and .asi), only the running one answers for its first key.
@@ -499,6 +523,7 @@ const Item kItems[] = {
     {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Breakable objects", "FFB", "Breakables", &s_ext[FFB_BREAKABLES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Grass pull", "FFB", "GrassPull", &s_ext[FFB_GRASS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -602,6 +627,29 @@ const Item kItems[] = {
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("HUD IN THE COCKPIT"),
+    {NUMBER, "HUD as cockpit elements", "VR", "HudEnabled", &s_ext[VR_HUDENABLED], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Black box: right / left", "VR", "HudBoxX", &s_ext[VR_HUDBOXX], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Black box: up / down", "VR", "HudBoxY", &s_ext[VR_HUDBOXY], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Black box: distance", "VR", "HudBoxDistance", &s_ext[VR_HUDBOXDIST], 0.2f, 2.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Black box: size", "VR", "HudBoxSize", &s_ext[VR_HUDBOXSIZE], 0.04f, 1.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Black box: behind steering wheel", "VR", "HudBoxBehindWheel", &s_ext[VR_HUDBOXBEHIND], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Black box: background", "VR", "HudBoxOpacity", &s_ext[VR_HUDBOXOPACITY], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speedometer: right / left", "VR", "HudSpeedometerX", &s_ext[VR_HUDSPEEDOMETERX], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Speedometer: up / down", "VR", "HudSpeedometerY", &s_ext[VR_HUDSPEEDOMETERY], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Speedometer: distance", "VR", "HudSpeedometerDistance", &s_ext[VR_HUDSPEEDOMETERDIST], 0.2f, 2.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Speedometer: size", "VR", "HudSpeedometerSize", &s_ext[VR_HUDSPEEDOMETERSIZE], 0.04f, 1.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Speedometer: behind steering wheel", "VR", "HudSpeedometerBehindWheel", &s_ext[VR_HUDSPEEDOMETERBEHIND], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Radar: right / left", "VR", "HudRadarX", &s_ext[VR_HUDRADARX], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Radar: up / down", "VR", "HudRadarY", &s_ext[VR_HUDRADARY], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Radar: distance", "VR", "HudRadarDistance", &s_ext[VR_HUDRADARDIST], 0.2f, 2.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Radar: size", "VR", "HudRadarSize", &s_ext[VR_HUDRADARSIZE], 0.04f, 1.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Radar: behind steering wheel", "VR", "HudRadarBehindWheel", &s_ext[VR_HUDRADARBEHIND], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Minimap: right / left", "VR", "HudMinimapX", &s_ext[VR_HUDMINIMAPX], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Minimap: up / down", "VR", "HudMinimapY", &s_ext[VR_HUDMINIMAPY], -0.8f, 0.8f, 0.01f, 100, "%+.0f cm", 0},
+    {NUMBER, "Minimap: distance", "VR", "HudMinimapDistance", &s_ext[VR_HUDMINIMAPDIST], 0.2f, 2.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Minimap: size", "VR", "HudMinimapSize", &s_ext[VR_HUDMINIMAPSIZE], 0.04f, 1.0f, 0.01f, 100, "%.0f cm", 0},
+    {NUMBER, "Minimap: behind steering wheel", "VR", "HudMinimapBehindWheel", &s_ext[VR_HUDMINIMAPBEHIND], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Mirror brightness", "VR", "MirrorBrightness", &s_ext[VR_MIRRORBRIGHTNESS], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Mirror contrast", "VR", "MirrorContrast", &s_ext[VR_MIRRORCONTRAST], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
@@ -784,7 +832,7 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
-    if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS]) return v > 0.5f ? "On" : "Off";
+    if (ExtIsSwitch(it.value)) return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
         std::string name;
         FfbDeviceName((int)lrintf(v), &name);
@@ -1313,6 +1361,12 @@ const struct {
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
+    {&s_ext[FFB_GRASS], "A pull toward the side whose front wheel is on grass (the grass drags that wheel back)."},
+    {&s_ext[VR_HUDENABLED], "On: the HUD is cut into elements placed in the cockpit (black box, speedometer, radar, minimap). Off: the whole HUD on one panel."},
+    {&s_ext[VR_HUDBOXBEHIND], "On: the steering wheel and dashboard hide the black box where they are in front of it, as if it sat behind the wheel."},
+    {&s_ext[VR_HUDSPEEDOMETERBEHIND], "On: the steering wheel and dashboard hide the speedometer where they are in front of it, as if it sat behind the wheel."},
+    {&s_ext[VR_HUDRADARBEHIND], "On: the steering wheel and dashboard hide the radar where they are in front of it, as if it sat behind the wheel."},
+    {&s_ext[VR_HUDMINIMAPBEHIND], "On: the steering wheel and dashboard hide the minimap where they are in front of it, as if it sat behind the wheel."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
@@ -1706,7 +1760,7 @@ void ValueWidget(int i, float w, float k) {
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
-            if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE] || it.value == &s_ext[VR_HIDEARMS]) {
+            if (ExtIsSwitch(it.value) || it.value == &s_ext[FFB_DEVICE]) {
                 fmt.clear();   // the text from ValueText, as a format without conversions
                 for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             }
@@ -2034,6 +2088,11 @@ void Ui_Frame() {
         Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
     }
     UpdateMenu(in, st.driving);
+    // The VR mod shows the HUD panel while the menu is open, and outlines the HUD element whose row
+    // is selected.
+    if (float* open = ExtSetting(VR_HUDMENUOPEN)) *open = s_menu.open ? 1.0f : 0.0f;
+    if (float* sel = ExtSetting(VR_HUDSELECTED))
+        *sel = s_menu.open && kItems[s_menu.sel].key ? (float)HudElementOfKey(kItems[s_menu.sel].key) : -1.0f;
     if (!st.driving) return;
     if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
 

@@ -37,6 +37,8 @@ struct Telemetry {
     // strips) and its frequency in Hz.
     float surfaceRumble;
     float surfaceHz;
+    // Front wheels on grass ([0] left, [1] right): the surface's own name (grass, grass_shoulder).
+    bool  grass[2];
 
     // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
     // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.

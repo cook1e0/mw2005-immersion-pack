@@ -83,6 +83,7 @@ public:
         ep.crashes = c.crashes;
         ep.scrapes = c.scrapes;
         ep.breakables = c.breakables;
+        ep.grass = c.grassPull;
         s.effects = effects_.Step(t, drive_, now, dt, ep);
         float fx = s.effects.Sum();
 

@@ -104,6 +104,15 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         }
     }
 
+    // --- grass: the wheel on grass drags back, turning the car (and the wheel) toward it. Eased in
+    // and out over about a quarter second, so running a wheel over the edge pulls, not jolts. ---
+    {
+        float side = (t.valid && t.grass[1] ? 1.0f : 0.0f) - (t.valid && t.grass[0] ? 1.0f : 0.0f);
+        float target = p.grass * 0.5f * side * Ramp(2.0f, 15.0f, speed);
+        grassPull_ += (target - grassPull_) * Clampf(dt / 0.25f, 0.0f, 1.0f);
+        e.grass = grassPull_ * drive;
+    }
+
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
     float since = (float)(now - t.scrapeTime);
     if (t.scrapeTime > 0 && since >= 0 && since < 0.12f && p.scrapes > 0.0f && speed > 1.0f) {

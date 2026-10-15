@@ -88,6 +88,59 @@ static int ReadInt(const char* ini, const char* key, int def) {
     return (int)GetPrivateProfileIntA("VR", key, def, ini);
 }
 
+HudLayout g_hud = HudDefaults();
+
+// [VR] Hud* keys (the F4 menu's VR page saves them like the other VR settings).
+void HudLoad() {
+    char ini[MAX_PATH], buf[128];
+    ConfigFile("nfsmw_vr.ini", ini, false);
+    HudLayout l = HudDefaults();
+    auto f = [&](const char* key, float def) {
+        char defs[32];
+        snprintf(defs, sizeof(defs), "%g", def);
+        GetPrivateProfileStringA("VR", key, defs, buf, sizeof(buf), ini);
+        return (float)atof(buf);
+    };
+    l.enabled = f("HudEnabled", l.enabled) > 0.5f ? 1.0f : 0.0f;
+    l.boxOpacity = f("HudBoxOpacity", l.boxOpacity);
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        char key[64];
+        HudPlace& p = l.place[e];
+        snprintf(key, sizeof(key), "Hud%sX", HudElementKey(e)); p.x = f(key, p.x);
+        snprintf(key, sizeof(key), "Hud%sY", HudElementKey(e)); p.y = f(key, p.y);
+        snprintf(key, sizeof(key), "Hud%sDistance", HudElementKey(e)); p.z = f(key, p.z);
+        snprintf(key, sizeof(key), "Hud%sSize", HudElementKey(e)); p.width = f(key, p.width);
+        snprintf(key, sizeof(key), "Hud%sBehindWheel", HudElementKey(e)); p.occlude = f(key, p.occlude) > 0.5f ? 1.0f : 0.0f;
+    }
+    for (int c = 0; c < HUD_NUM_CROPS; c++) {
+        char key[64];
+        snprintf(key, sizeof(key), "Hud%sCrop", HudCropKey(c));
+        GetPrivateProfileStringA("VR", key, "", buf, sizeof(buf), ini);
+        HudCrop v = l.crop[c];
+        if (buf[0] && sscanf(buf, "%f,%f,%f,%f", &v.x, &v.y, &v.w, &v.h) == 4) l.crop[c] = v;
+    }
+    g_hud = l;
+}
+
+// Live HUD values by [VR] key name, for the gameplay mod's F4 menu (NfsmwVr_Setting).
+float* HudSetting(const char* name) {
+    if (!strcmp(name, "HudEnabled")) return &g_hud.enabled;
+    if (!strcmp(name, "HudBoxOpacity")) return &g_hud.boxOpacity;
+    if (!strcmp(name, "HudMenuOpen")) return &g_hud.menuOpen;
+    if (!strcmp(name, "HudSelected")) return &g_hud.selected;
+    for (int e = 0; e < HUD_NUM_ELEMENTS; e++) {
+        char key[64];
+        HudPlace& p = g_hud.place[e];
+        const char* k = HudElementKey(e);
+        snprintf(key, sizeof(key), "Hud%sX", k); if (!strcmp(name, key)) return &p.x;
+        snprintf(key, sizeof(key), "Hud%sY", k); if (!strcmp(name, key)) return &p.y;
+        snprintf(key, sizeof(key), "Hud%sDistance", k); if (!strcmp(name, key)) return &p.z;
+        snprintf(key, sizeof(key), "Hud%sSize", k); if (!strcmp(name, key)) return &p.width;
+        snprintf(key, sizeof(key), "Hud%sBehindWheel", k); if (!strcmp(name, key)) return &p.occlude;
+    }
+    return nullptr;
+}
+
 void LoadConfig() {
     char ini[MAX_PATH];
     ConfigFile("nfsmw_vr.ini", ini, true);
@@ -136,6 +189,7 @@ void LoadConfig() {
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
     c.sharedViewsOnce = ReadInt(ini, "SharedViewsOnce", c.sharedViewsOnce) != 0;
+    HudLoad();
     c.stableReflections = ReadInt(ini, "StableReflections", c.stableReflections) != 0;
     c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
     c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;

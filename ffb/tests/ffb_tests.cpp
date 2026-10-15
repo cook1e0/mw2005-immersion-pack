@@ -332,6 +332,23 @@ static void TestEffects() {
         assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, p).breakable));
         p = EffectParams();
     }
+    // Grass: the right front wheel on grass pulls right, eased in; both or neither: no pull.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        t.grass[1] = true;
+        float first = fx.Step(t, 1.0f, now, dt, p).grass, later = 0;
+        for (int i = 0; i < 400; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
+        assert(first > 0 && first < later * 0.2f && later > 0.15f);
+        t.grass[0] = true;
+        for (int i = 0; i < 800; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
+        assert(fabsf(later) < 0.01f);
+        t.grass[0] = false;
+        t.grass[1] = false;
+        t.grass[0] = true;
+        for (int i = 0; i < 800; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).grass;
+        assert(later < -0.15f);
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;

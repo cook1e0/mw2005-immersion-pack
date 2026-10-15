@@ -51,6 +51,7 @@ struct Config {
     float crashes = 0.6f;           // jolts from hitting cars, walls and props
     float scrapes = 0.4f;           // grinding along walls
     float breakables = 0.6f;        // knocks from smashing breakable props (benches, sign posts...)
+    float grassPull = 0.4f;         // pull toward a front wheel on grass
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens

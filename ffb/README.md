@@ -35,6 +35,7 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Road surface | the game's own rumble for the surface under the front tyres (`SurfaceRumble`) |
 | Crashes | the game's collision reports for the player car: cars, walls and props (benches, sign posts); a jolt sideways from the side hit, then a short shake (`Crashes`) |
 | Wall scrapes | contact sliding along a wall: grinding and a pull toward it (`Scrapes`) |
+| Grass | the surface's own name under each front tyre (grass, grass_shoulder): a pull toward the side on grass, eased in (`GrassPull`) |
 | Breakable objects | the game's own breakable props (Smackables: benches, sign posts, fences, bins), recognised by their class in the collision report or when one is knocked loose where the car is: a sharp knock toward that side (`Breakables`) |
 
 The tyres' slip angle uses the game's actual front wheel lock (with speed-sensitive steering only

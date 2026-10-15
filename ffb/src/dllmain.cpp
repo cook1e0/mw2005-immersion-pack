@@ -42,6 +42,7 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"MenuAxes", &g_cfg.menuAxes}, {"CentreWeight", &g_cfg.centreWeight}, {"EngineRumble", &g_cfg.engineRumble},
         {"Kerbs", &g_cfg.kerbs}, {"SurfaceRumble", &g_cfg.surfaceRumble}, {"Crashes", &g_cfg.crashes},
         {"Scrapes", &g_cfg.scrapes}, {"Breakables", &g_cfg.breakables},
+        {"GrassPull", &g_cfg.grassPull},
     };
     for (auto& s : kSettings)
         if (!strcmp(name, s.key)) return s.value;

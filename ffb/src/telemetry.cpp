@@ -40,7 +40,10 @@ enum {
 enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10 };
 // SuspensionRacer: its front Tire objects; the Tire's road surface, an Attrib::Instance of class
 // simsurface (layout pointer at +8) with the game's own per-surface rumble.
-enum { kRacerTires = 0x168, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfEffectFrequency = 0xF8, kSurfEffectIntensity = 0xFA };
+enum {
+    kRacerTires = 0x168, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC, kSurfEffectFrequency = 0xF8,
+    kSurfEffectIntensity = 0xFA,
+};
 // Sim::Collision::Info
 enum {
     kCiPosition = 0x00, kCiNormal = 0x10, kCiFlags = 0x1C, kCiClosingVel = 0x20, kCiObjA = 0x3C, kCiObjB = 0x4C,
@@ -291,6 +294,16 @@ void Sample(void* player) {
             if (!onGround[i] || !Plausible(tire)) continue;
             uintptr_t layout = *(uintptr_t*)(tire + kTireSurface + kInstLayout);
             if (!Plausible(layout)) continue;
+            // The surface's name (simsurface CollectionName): asphalt, grass, grass_shoulder, dirt...
+            const char* name = *(const char**)(layout + kSurfName);
+            if (Plausible((uintptr_t)name) && !IsBadStringPtrA(name, 32)) {
+                t.grass[i == rightWheel ? 1 : 0] = _strnicmp(name, "grass", 5) == 0;
+                static char lastName[2][32];
+                if (g_cfg.logTelemetry && strncmp(lastName[i], name, sizeof(lastName[i]) - 1) != 0) {
+                    strncpy(lastName[i], name, sizeof(lastName[i]) - 1);
+                    Log("surface: front %s wheel on %s", i == rightWheel ? "right" : "left", lastName[i]);
+                }
+            }
             float rumbleNow = *(uint8_t*)(layout + kSurfEffectIntensity) / 255.0f;
             if (rumbleNow > t.surfaceRumble) {
                 t.surfaceRumble = rumbleNow;
