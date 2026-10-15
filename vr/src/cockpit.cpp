@@ -345,6 +345,12 @@ Driver* Prepare(uint8_t* solid, const char* name) {
                 to = &arms;
             to->insert(to->end(), tri, tri + 3);
         }
+        // Some drivers split the hands into a draw entry of their own (a second DRIVER_PLAYER
+        // material): an entry that is mostly arms is all arms, so no stray hand pieces stay.
+        if (!arms.empty() && arms.size() * 4 >= (body.size() + arms.size()) * 3) {
+            arms.insert(arms.begin(), body.begin(), body.end());
+            body.clear();
+        }
         d->body[i] = (int)body.size() / 3;
         d->arms[i] = (int)arms.size() / 3;
         d->heads[i] = (int)head.size() / 3;

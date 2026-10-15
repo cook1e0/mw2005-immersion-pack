@@ -80,6 +80,8 @@
   (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
   type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
   hits, `[FFB] CarHits`).
+- **VR: no stray hand pieces with Hide arms on:** some drivers have their hands in a second draw entry
+  (a second DRIVER_PLAYER material); an entry that is mostly arms is now hidden whole.
 - **Vehicle hit and breakable jolts scale with speed:** full slider strength from 150 km/h, less
   below it (a tenth at least).
 - **Challenge races no longer end with a blown engine at the start:** a rolling start put the car at
