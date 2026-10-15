@@ -75,6 +75,15 @@ constexpr int kPlatView = 0x00;                   // eViewPlatInfo: view matrix 
 // so reflections sit still as the head moves, as they do with the flat screen's camera.
 constexpr uintptr_t kCallWorldView = 0x6C8147;    // call D3DXMatrixMultiply(out, local, view) (stdcall thunk)
 constexpr uintptr_t kMatrixMultiply = 0x7E7D5E;
+// The game's own mirror glass (side mirrors) uses the global light material "MIRROR": black
+// diffuse, a full white specular highlight and an environment map reflection of 0.001, i.e. no
+// reflection, just a pale glow (the HUD had the rear view). It is turned into a mirror: the car's
+// environment map (rendered around the camera every frame) at full strength, constant over the
+// glass, and only a faint highlight. The shader reads the material's values at every draw.
+constexpr uintptr_t kGetLightMaterial = 0x502820;  // eLightMaterial* elGetLightMaterial(uint32 hash), cdecl
+constexpr uint32_t kMirrorMaterialHash = 0x6BFA56DA; // bStringHash("MIRROR")
+constexpr int kMatNameHash = 0x0C, kMatData = 0x30;  // eLightMaterial: NameHash, eLightMaterialData
+enum { kMatSpecMinScale = 11, kMatSpecMaxScale = 15, kMatEnvPower = 19, kMatEnvMinScale = 20, kMatEnvMaxScale = 24 };
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 constexpr int kViewStride = 0x70, kNumViews = 22;
 // Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
@@ -340,6 +349,23 @@ void* __stdcall hkWorldViewMultiply(void* out, const void* local, const void* vi
     return ((MatrixMultiply_t)kMatrixMultiply)(out, local, view);
 }
 
+// Keeps the MIRROR material a mirror (looked up again now and then: global data can be reloaded).
+void FixGameMirrors() {
+    static DWORD last;
+    if (!g_cfg.gameMirrors || GetTickCount() - last < 1000) return;
+    last = GetTickCount();
+    uint8_t* mat = ((uint8_t*(__cdecl*)(uint32_t))kGetLightMaterial)(kMirrorMaterialHash);
+    if (!mat || At<uint32_t>(mat, kMatNameHash) != kMirrorMaterialHash) return;
+    float* f = (float*)(mat + kMatData);
+    float env = g_cfg.mirrorReflection;
+    if (f[kMatEnvMinScale] == env && f[kMatEnvMaxScale] == env && f[kMatSpecMinScale] == 0.05f) return;
+    Log("game: MIRROR material made a mirror (reflection %.3f -> %.2f, highlight %.2f -> 0.05)", f[kMatEnvMinScale], env,
+        f[kMatSpecMinScale]);
+    f[kMatSpecMinScale] = f[kMatSpecMaxScale] = 0.05f;
+    f[kMatEnvPower] = 0.0f;
+    f[kMatEnvMinScale] = f[kMatEnvMaxScale] = env;
+}
+
 bool s_mirrorPatchOk = false;
 bool s_mirrorPatched = false;
 
@@ -415,6 +441,7 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
 
 void __cdecl hkRenderScene() {
     s_stereoFrame = false;
+    FixGameMirrors();
     UpdateMirrorPatch();
     UpdateHiddenTextures();
     void* view = (void*)kPlayerView;

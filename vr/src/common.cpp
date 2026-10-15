@@ -137,8 +137,9 @@ void LoadConfig() {
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
     c.stableReflections = ReadInt(ini, "StableReflections", c.stableReflections) != 0;
     c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
+    c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
+    c.mirrorReflection = ReadFloat(ini, "MirrorReflection", c.mirrorReflection);
     c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
-    c.mirrorSplit = ReadInt(ini, "MirrorSplit", c.mirrorSplit) != 0;
     c.mirrorScale = ReadFloat(ini, "MirrorScale", c.mirrorScale);
     c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);

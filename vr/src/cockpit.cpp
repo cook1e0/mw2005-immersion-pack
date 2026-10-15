@@ -646,13 +646,6 @@ struct MirrorDraw {
     M4 m;
 };
 std::vector<MirrorDraw> s_mirrorDraws;
-// Cars with side mirror solids: their body is searched too and finds other things there.
-std::unordered_map<std::string, bool> s_hasMirrorSolids;
-
-std::string CarOf(const char* name) {
-    const char* kit = strstr(name, "_KIT");
-    return std::string(name, kit ? kit - name : strlen(name));
-}
 
 // All of a solid's triangles (three points each), for which `keep` is true.
 template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, Keep keep) {
@@ -689,8 +682,9 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
     }
 }
 
-// Finds a solid's mirror glass the first time the player car draws it (an interior: once its
-// driver's head is known, as for the steering wheel).
+// Finds the rear view mirror's glass in the player car's interior the first time it is drawn,
+// once its driver's head is known (as for the steering wheel). The side mirrors keep the game's
+// own glass (its MIRROR material is fixed in game.cpp).
 void FindMirrors(uint8_t* solid, SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
@@ -711,29 +705,6 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         return;
     }
     info.mirrorKind = 0;
-    bool left = strstr(name, "_LEFT_SIDE_MIRROR") != nullptr, right = strstr(name, "_RIGHT_SIDE_MIRROR") != nullptr;
-    if (left || right) {
-        std::vector<V3> tris;
-        SolidTriangles(solid, tris, [](const V3*) { return true; });
-        info.glass[left ? 0 : 1] = mirror::FindGlass(tris);
-        info.mirrorKind = 1;
-        if (info.glass[left ? 0 : 1].ok) s_hasMirrorSolids[CarOf(name)] = true;
-    } else if (strstr(name, "_KIT") && strstr(name, "_BODY_")) {
-        for (int side = 0; side < 2; side++) {
-            std::vector<V3> tris;
-            float s = side == 0 ? 1.0f : -1.0f;
-            SolidTriangles(solid, tris, [s](const V3* p) { return mirror::InBodyMirrorRegion(p, s); });
-            info.glass[side] = mirror::FindGlass(tris, false);
-        }
-        info.mirrorKind = 2;
-    }
-    for (int side = 0; side < 2; side++) {
-        const MirrorGlass& g = info.glass[side];
-        if (g.ok)
-            Log("mirrors: %s: %s glass at %.2f %.2f %.2f, %.3f x %.3f, facing %.2f %.2f %.2f", name, side ? "right" : "left",
-                g.centre.x, g.centre.y, g.centre.z, 2 * g.halfU, 2 * g.halfV, g.normal.x, g.normal.y, g.normal.z);
-    }
-    if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
@@ -763,23 +734,17 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         MirrorDraw d;
         d.solid = solid;
         d.side = side;
-        d.body = info.mirrorKind == 2;
-        if (d.body && s_hasMirrorSolids.count(CarOf(info.name))) continue;
+        d.body = false;
         d.glass = info.glass[side];
         memcpy(&d.m, m, sizeof(d.m));
         s_mirrorDraws.push_back(d);
         // To be drawn with the model: a dark rim the shape of the glass, and the rear view on the
-        // glass shrunk inside it, as if set into the housing. The side mirrors each show their
-        // half of the rear view.
+        // glass shrunk inside it, as if set into the housing.
         std::vector<float> verts, frame;
         float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
         GlassVertices(d.glass, d.m, frame, 0.006f, 1.0f);
         GlassVertices(d.glass, d.m, verts, 0.008f, inner);
         float u0 = 0.0f, u1 = 1.0f;
-        if (g_cfg.mirrorSplit && side < 2) {
-            u0 = side == 0 ? 0.0f : 0.5f;
-            u1 = u0 + 0.5f;
-        }
         if (g_cfg.mirrorFlip) {
             float a = 1.0f - u1, b = 1.0f - u0;
             u0 = b;
