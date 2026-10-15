@@ -76,6 +76,10 @@
   interior rear view mirror stays.
 - **Force feedback: landing:** a hard kick and a short shake in the wheel when the car lands after a
   jump, stronger the longer it flew (F4 > Force feedback > Landing, `[FFB] Landing`).
+- **Force feedback: vehicle hits:** the landing's kick and shake when you hit another vehicle
+  (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
+  type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
+  hits, `[FFB] CarHits`).
 - **No smoke left behind by a missed shift:** the drag race "missed shift" event isn't sent any more
   (its exhaust smoke stayed where the shift was missed); the grind sound stays.
 - **Physics: slide oversteer you can catch:** the rear's lost side grip now follows the throttle
