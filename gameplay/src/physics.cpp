@@ -57,7 +57,10 @@
 // surface's LATERAL_GRIP and its drive force by DRIVE_GRIP (0x69E098); grass takes more side grip
 // than drive grip, which is why a car on grass keeps driving and slides sideways. For the player's
 // rear tyres that side grip also takes [Physics] SlideOversteer, so the rear slides under power
-// on the road too, while the front steers and the drive grip is untouched.
+// on the road too, while the front steers and the drive grip is untouched. To stay drivable it is
+// power oversteer, not a loose rear: the side grip goes with the throttle (lifting off in a front
+// drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
+// degrees, so lifting or countersteering catches the slide instead of the car spinning.
 //
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
@@ -71,6 +74,7 @@
 #include "common.h"
 #include "physics.h"
 #include "game.h"
+#include "input.h"
 #include <math.h>
 
 namespace {
@@ -111,6 +115,7 @@ constexpr int kTire_Traction = 0xEC;                // ... traction scale for th
 constexpr int kTire_Surface = 0x9C;                 // ... road surface: Attrib::Instance (layout at +8)
 constexpr int kSurf_Name = 0xDC;                    // simsurface layout: CollectionName (char*)
 constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
+constexpr int kTire_SlipAngle = 0x118;              // Tire: slip angle of the last step, in turns (UMath::Atan2a)
 constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
@@ -249,10 +254,21 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     s_slideGrip = g_cfg.slideGrip;
     if (g_cfg.slideOversteer != 1.0f) {
         uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
-        for (int i = 0; i < 4; i++) {
-            s_latTires[i] = iface ? *(uint8_t**)(iface + kSuspIface_Tires + i * 4) : nullptr;
-            s_latMul[i] = i >= 2 ? g_cfg.slideOversteer : 1.0f;
-        }
+        for (int i = 0; i < 4; i++) s_latTires[i] = iface ? *(uint8_t**)(iface + kSuspIface_Tires + i * 4) : nullptr;
+        // How much of it now: with the throttle (rear or all-wheel drive) or lifting off (front
+        // drive), less as the rear's slip angle grows past 20 degrees, none from 45.
+        InputSnapshot in = Input_Get();
+        float gas = in.pedalBound[0] ? Clamp(in.pedal[0], 0.0f, 1.0f) : 1.0f;
+        uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+        bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
+        float power = frontDrive ? 1.0f - gas : gas;
+        float angle = 0.0f;
+        for (int i = 2; i < 4; i++)
+            if (s_latTires[i]) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
+        float t = Clamp((angle - 20.0f) / 25.0f, 0.0f, 1.0f);
+        float fade = 1.0f - t * t * (3.0f - 2.0f * t);
+        float rear = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
+        for (int i = 0; i < 4; i++) s_latMul[i] = i >= 2 ? rear : 1.0f;
     }
     s_origSusp(susp, dT);
     for (uint8_t*& t : s_latTires) t = nullptr;
