@@ -1316,6 +1316,23 @@ bool PatchCall(uintptr_t site, uintptr_t target, void* hook) {
     return true;
 }
 
+// A car drawn from inside it: CarRenderInfo::Render first asks eView::GetPixelSize how big the car
+// is on screen (from its centre and radius) and drops it when that is too small. Looking down from
+// the seat, the car's centre is behind the eye's plane and its size comes out as nothing: the whole
+// car vanished. With the camera inside (or within a metre of) the car's sphere it is always big.
+constexpr uintptr_t kCallsPixelSize[] = {0x74E1BB, 0x74E1E0};   // CarRenderInfo::Render
+constexpr uintptr_t kPixelSize = 0x4FCAC0;          // int eView::GetPixelSize(const bVector3*, float radius), thiscall
+
+int __fastcall hkCarPixelSize(uint8_t* view, void*, const float* pos, float radius) {
+    int size = ((int(__thiscall*)(void*, const float*, float))kPixelSize)(view, pos, radius);
+    void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
+    if (!cam || !pos) return size;
+    const float* eye = &At<float>(cam, kCamPosition);
+    float dx = pos[0] - eye[0], dy = pos[1] - eye[1], dz = pos[2] - eye[2];
+    float reach = radius + 1.0f;
+    return dx * dx + dy * dy + dz * dz < reach * reach ? std::max(size, 4096) : size;
+}
+
 bool GameFocused() {
     DWORD pid = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
@@ -1328,6 +1345,7 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 
 void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
+    for (uintptr_t site : kCallsPixelSize) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;
