@@ -378,6 +378,24 @@ static void TestEffects() {
         assert(peak > 0.4f);
         assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).landing) < 1e-6f);
     }
+    // Vehicle hits: a jolt toward the side the car was pushed, once per hit.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        double at = now;
+        fx.Step(t, 1.0f, at += dt, dt, p);
+        t.carHitSeq = 1;
+        t.carHitSpeed = 15.0f;
+        t.carHitLat = 1.0f;
+        float first = 0, peak = 0;
+        for (int i = 0; i < 10; i++) {
+            float v = fx.Step(t, 1.0f, at += dt, dt, p).carHit;
+            if (i == 2) first = v;
+            peak = std::max(peak, fabsf(v));
+        }
+        assert(first > 0.3f && peak > 0.4f);
+        assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).carHit) < 1e-6f);
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;

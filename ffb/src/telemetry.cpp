@@ -50,6 +50,7 @@ enum {
     kCiImpulseA = 0x5C, kCiImpulseB = 0x6C, kCiSlidingVel = 0x70,
 };
 enum { kCollisionObject = 1, kCollisionWorld = 2 };
+enum { kSimableVehicle = 1 };   // SimableType SIMABLE_VEHICLE
 
 namespace {
 
@@ -99,6 +100,10 @@ struct {
     void* breakObject;
     uint32_t hitSeq;
     float hitSpeed, hitImpulse, hitLat;
+    uint32_t carHitSeq;
+    float carHitSpeed, carHitLat;
+    double carHitTime;
+    void* carHitObject;
     double hitTime, scrapeTime, scrapeLogTime;
     float scrapeSpeed, scrapeLat;
 } s_car;
@@ -164,6 +169,8 @@ void OnPlayerCollision(const uint8_t* info) {
 
     double now = Now();
     bool slidingFlag = (flags >> 7 & 1) != 0;
+    // Another vehicle, by its own type (ISimable::GetSimableType, slot 1: 1 = SIMABLE_VEHICLE).
+    bool vehicle = type == kCollisionObject && other && VCall0<int>(other, 4) == kSimableVehicle;
     if ((slidingFlag || slideSpeed > 2.0f) && closingSpeed < 4.0f) {
         s_car.scrapeTime = now;
         s_car.scrapeSpeed = slideSpeed;
@@ -172,6 +179,18 @@ void OnPlayerCollision(const uint8_t* info) {
             s_car.scrapeLogTime = now;
             Log("contact: scrape %.1f m/s, side %.2f (%s)", slideSpeed, lat, type == kCollisionWorld ? "world" : "object");
         }
+    }
+    if (vehicle) {
+        // One jolt per hit: the reports keep coming while the cars stay in contact.
+        if (closingSpeed > 2.0f && (now - s_car.carHitTime > 0.3 || (other != s_car.carHitObject && now - s_car.carHitTime > 0.1))) {
+            s_car.carHitSeq++;
+            s_car.carHitTime = now;
+            s_car.carHitObject = other;
+            s_car.carHitSpeed = closingSpeed;
+            s_car.carHitLat = Clamp(lat * noseShare, -1.0f, 1.0f);
+            if (g_cfg.logTelemetry) Log("contact: vehicle hit %.1f m/s, side %.2f", closingSpeed, s_car.carHitLat);
+        }
+        return;
     }
     if (closingSpeed > 1.5f && (now - s_car.hitTime > 0.15 || closingSpeed > s_car.hitSpeed * 1.5f)) {
         s_car.hitSeq++;
@@ -211,6 +230,9 @@ void Sample(void* player) {
     t.hitSpeed = s_car.hitSpeed;
     t.hitImpulse = s_car.hitImpulse;
     t.hitLat = s_car.hitLat;
+    t.carHitSeq = s_car.carHitSeq;
+    t.carHitSpeed = s_car.carHitSpeed;
+    t.carHitLat = s_car.carHitLat;
     t.breakSeq = s_car.breakSeq;
     t.breakSpeed = s_car.breakSpeed;
     t.breakLat = s_car.breakLat;

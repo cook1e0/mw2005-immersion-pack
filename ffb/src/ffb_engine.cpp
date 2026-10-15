@@ -84,6 +84,7 @@ public:
         ep.scrapes = c.scrapes;
         ep.breakables = c.breakables;
         ep.landing = c.landing;
+        ep.carHits = c.carHits;
         ep.offroad = c.offroadVibration;
         s.effects = effects_.Step(t, drive_, now, dt, ep);
         float fx = s.effects.Sum();

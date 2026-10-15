@@ -58,6 +58,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         haveHitSeq_ = true;
         lastHitSeq_ = t.hitSeq;
         lastBreakSeq_ = t.breakSeq;
+        lastCarHitSeq_ = t.carHitSeq;
     }
 
     // --- breakable props: a short, sharp knock, harder the faster the car hits ---
@@ -144,6 +145,26 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
             float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
             float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
             e.landing = landAmp_ * (landDir_ * kick + shake) * drive;
+        }
+    }
+
+    // --- another vehicle hit: the landing's kick and shake, toward the side the car was pushed ---
+    if (t.carHitSeq != lastCarHitSeq_) {
+        lastCarHitSeq_ = t.carHitSeq;
+        if (p.carHits > 0.0f) {
+            carStart_ = now;
+            carAmp_ = p.carHits * Clampf(0.55f + t.carHitSpeed / 20.0f, 0.55f, 1.2f);
+            carDir_ = t.carHitLat >= 0.0f ? 1.0f : -1.0f;
+        }
+    }
+    if (carStart_ >= 0) {
+        float tau = (float)(now - carStart_);
+        if (tau > 0.35f) {
+            carStart_ = -1;
+        } else {
+            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
+            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
+            e.carHit = carAmp_ * (carDir_ * kick + shake) * drive;
         }
     }
 
