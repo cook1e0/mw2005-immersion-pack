@@ -252,6 +252,34 @@ static IDirect3DPixelShader9* GlassShader() {
     return s_glassShader;
 }
 
+// The glass as a mirror: its own coordinates (0..1 across and down) turned into the rear view's
+// by the corners' coordinates (c0: top left, top right; c1: bottom left, bottom right).
+static IDirect3DPixelShader9* s_mirrorMapShader;
+static IDirect3DPixelShader9* MirrorMapShader() {
+    static bool tried;
+    if (s_mirrorMapShader || tried) return s_mirrorMapShader;
+    tried = true;
+    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+    typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
+                                         ID3DBlob**);
+    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
+    if (!compile) return nullptr;
+    const char* src =
+        "sampler s : register(s0); float4 c0 : register(c0); float4 c1 : register(c1);"
+        "float4 main(float2 uv : TEXCOORD0) : COLOR {"
+        "  float2 top = lerp(c0.xy, c0.zw, uv.x); float2 bottom = lerp(c1.xy, c1.zw, uv.x);"
+        "  return float4(tex2D(s, lerp(top, bottom, uv.y)).rgb, 1); }";
+    ID3DBlob *code = nullptr, *errors = nullptr;
+    HRESULT hr = compile(src, strlen(src), "mirrormap", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
+    if (SUCCEEDED(hr) && code)
+        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_mirrorMapShader);
+    else
+        Log("d3d9: mirror map shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
+    if (code) code->Release();
+    if (errors) errors->Release();
+    return s_mirrorMapShader;
+}
+
 // Once: what the game's vertex shader for the glass outputs (the glass shader reads TEXCOORD0).
 static void LogGlassVertexShader(IDirect3DDevice9Ex* real) {
     static bool done;
@@ -393,6 +421,8 @@ struct MirrorGlassJob {
     float basis[14];
     std::vector<uint16_t> vertices;               // the glass's own vertices (index values)
     std::vector<std::pair<void*, INT>> mapped;    // vertex buffer, base vertex already given texture coordinates
+    float corners[8];                             // the rear view's u, v at the glass's corners, this eye
+    bool haveCorners = false;
 };
 static std::vector<MirrorGlassJob> s_glassJobs;
 
@@ -411,6 +441,14 @@ void D3D_RegisterMirrorGlass(void* indexBuffer, int firstIndex, int triangles, c
     memcpy(job->basis, basis, sizeof(job->basis));
     job->vertices.assign(vertices, vertices + vertexCount);
     job->mapped.clear();
+}
+
+void D3D_SetGlassCorners(void* indexBuffer, int firstIndex, const float uv[8]) {
+    for (MirrorGlassJob& j : s_glassJobs)
+        if (j.ib == indexBuffer && j.first == (UINT)firstIndex) {
+            memcpy(j.corners, uv, sizeof(j.corners));
+            j.haveCorners = true;
+        }
 }
 
 // Texture coordinates across the glass for the glass's own vertices (in the game's own vertex
@@ -511,13 +549,30 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
         real->GetTexture(stage, &orig);
         real->SetTexture(stage, s_mirrorTex);
         LogGlassVertexShader(real);
-        IDirect3DPixelShader9* glass = stage == 0 && DrawingPlayerView() ? GlassShader() : nullptr;
+        bool player = stage == 0 && DrawingPlayerView();
+        IDirect3DPixelShader9* map = player && j.haveCorners ? MirrorMapShader() : nullptr;
+        IDirect3DPixelShader9* glass = map ? map : player ? GlassShader() : nullptr;
         IDirect3DPixelShader9* oldPs = nullptr;
+        float oldC[8];
+        DWORD oldAddr[2];
         if (glass) {
             real->GetPixelShader(&oldPs);
             real->SetPixelShader(glass);
         }
+        if (map) {
+            real->GetPixelShaderConstantF(0, oldC, 2);
+            real->SetPixelShaderConstantF(0, j.corners, 2);
+            real->GetSamplerState(0, D3DSAMP_ADDRESSU, &oldAddr[0]);
+            real->GetSamplerState(0, D3DSAMP_ADDRESSV, &oldAddr[1]);
+            real->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+            real->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+        }
         *hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        if (map) {
+            real->SetPixelShaderConstantF(0, oldC, 2);
+            real->SetSamplerState(0, D3DSAMP_ADDRESSU, oldAddr[0]);
+            real->SetSamplerState(0, D3DSAMP_ADDRESSV, oldAddr[1]);
+        }
         if (glass) {
             real->SetPixelShader(oldPs);
             if (oldPs) oldPs->Release();

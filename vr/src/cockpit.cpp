@@ -40,6 +40,7 @@ constexpr uintptr_t kSubmitEntry = 0x6E0AB0;        // cdecl, queues one draw en
 constexpr uintptr_t kPlayerView = 0x919650;         // &eViews[EVIEW_PLAYER1]
 constexpr int kViewCamera = 0x40;
 constexpr int kCamPosition = 0x40;
+constexpr uintptr_t kRvmViewPlat = 0x919730;         // eViews[EVIEW_PLAYER1_RVM]: its eViewPlatInfo*
 
 // CarRenderConn (the car's render connection) and how OnRender (0x750E20) places the body.
 constexpr uintptr_t kCarRenderConnVtbl = 0x8B5254;
@@ -115,6 +116,8 @@ struct SolidInfo {
     bool interior = false;
     int mirrorKind = -1;                            // -1 not looked at, 0 none, 1 side mirror solid, 2 body, 3 interior
     MirrorGlass glass[3];                           // left, right, rear view (model space)
+    void* glassIb[2] = {};                          // the side glass's registered draw entry (else first -1)
+    int glassFirst[2] = {-1, -1};
     char name[64] = {};
     uint8_t* plat = nullptr;
     uint8_t* entries = nullptr;
@@ -814,14 +817,12 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
             on += all;
         }
         if (on * 10 < tris * 8) continue;
-        float u0 = side == 0 ? 0.0f : 0.5f, u1 = u0 + 0.5f;
-        if (g_cfg.mirrorFlip) {
-            float a = 1.0f - u1, b = 1.0f - u0;
-            u0 = b;
-            u1 = a;
-        }
+        // The glass's own coordinates, 0..1 across and down: what part of the rear view it shows
+        // is worked out each eye (NoteMirrors), as a mirror would show it.
         const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
-                                 g.halfU, g.halfV, u0, u1, 0};
+                                 g.halfU, g.halfV, 0.0f, 1.0f, 0};
+        info.glassIb[side] = ib;
+        info.glassFirst[side] = first;
         std::vector<uint16_t> used(indices + first, indices + first + tris * 3);
         std::sort(used.begin(), used.end());
         used.erase(std::unique(used.begin(), used.end()), used.end());
@@ -897,9 +898,55 @@ void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, f
     }
 }
 
+// A side mirror for this eye: the eye's lines to the glass's corners, reflected off the glass,
+// looked up in the rear view's image (its view-projection matrix, eViews[3]'s plat info + 0x80).
+// Leaning in or out, the angle and the distance all change what the glass shows.
+void SideMirrorView(const SolidInfo& info, int side, const float* m) {
+    void* cam = At<void*>((void*)kPlayerView, kViewCamera);
+    uint8_t* rvm = *(uint8_t**)kRvmViewPlat;
+    if (!cam || !rvm) return;
+    const float* eye = &At<float>(cam, kCamPosition);
+    const float* vp = (const float*)(rvm + 0x80);
+    const MirrorGlass& g = info.glass[side];
+    auto world = [&](V3 p) {
+        return V3{p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12], p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13],
+                  p.x * m[2] + p.y * m[6] + p.z * m[10] + m[14]};
+    };
+    auto dir = [&](V3 d) {
+        return V3{d.x * m[0] + d.y * m[4] + d.z * m[8], d.x * m[1] + d.y * m[5] + d.z * m[9], d.x * m[2] + d.y * m[6] + d.z * m[10]};
+    };
+    V3 n = dir(g.normal);
+    float nl = sqrtf(mirror::Dot(n, n));
+    if (nl < 1e-6f) return;
+    n = n * (1.0f / nl);
+    const float su[4] = {-1, 1, -1, 1}, sv[4] = {1, 1, -1, -1};   // top left, top right, bottom left, bottom right
+    float uv[8];
+    for (int k = 0; k < 4; k++) {
+        V3 c = world(V3{g.centre.x + g.u.x * g.halfU * su[k] + g.v.x * g.halfV * sv[k],
+                        g.centre.y + g.u.y * g.halfU * su[k] + g.v.y * g.halfV * sv[k],
+                        g.centre.z + g.u.z * g.halfU * su[k] + g.v.z * g.halfV * sv[k]});
+        V3 r = {c.x - eye[0], c.y - eye[1], c.z - eye[2]};
+        float rn = mirror::Dot(r, n);
+        V3 rr = {r.x - 2 * rn * n.x, r.y - 2 * rn * n.y, r.z - 2 * rn * n.z};
+        float len = sqrtf(mirror::Dot(rr, rr));
+        if (len < 1e-6f) return;
+        V3 p = c + rr * (200.0f / len);
+        float x = p.x * vp[0] + p.y * vp[4] + p.z * vp[8] + vp[12];
+        float y = p.x * vp[1] + p.y * vp[5] + p.z * vp[9] + vp[13];
+        float w = p.x * vp[3] + p.y * vp[7] + p.z * vp[11] + vp[15];
+        if (w < 0.01f) w = 0.01f;   // behind the rear view camera: pinned to its edge
+        float u = 0.5f + 0.5f * x / w, v = 0.5f - 0.5f * y / w;
+        uv[k * 2] = g_cfg.mirrorFlip ? 1.0f - u : u;
+        uv[k * 2 + 1] = v;
+    }
+    D3D_SetGlassCorners(info.glassIb[side], info.glassFirst[side], uv);
+}
+
 void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
+    for (int side = 0; side < 2; side++)
+        if (info.glassFirst[side] >= 0 && info.glass[side].ok) SideMirrorView(info, side, m);
     for (int side = 2; side < 3; side++) {   // the side mirrors are drawn by the game (RegisterGlassEntry)
         if (!info.glass[side].ok) continue;
         bool seen = false;

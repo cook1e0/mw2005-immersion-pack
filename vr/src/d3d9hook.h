@@ -41,6 +41,11 @@ void D3D_RegisterWheelDraw(void* indexBuffer, int firstIndex);
 void D3D_BeginWheelEye(bool on, const float seat[12], const float* view, const float* proj);
 void D3D_EndWheelEye();
 
+// Where the side mirror glass (index buffer, first index, as registered) looks for this eye: the
+// rear view's texture coordinates seen at its four corners (top left, top right, bottom left,
+// bottom right: u, v each), from the eye's view reflected off the glass.
+void D3D_SetGlassCorners(void* indexBuffer, int firstIndex, const float uv[8]);
+
 // Draws sampling any of these textures are skipped (null: none). Used for the HUD's rear view mirror.
 void D3D_HideTextures(void* a, void* b, void* c);
 

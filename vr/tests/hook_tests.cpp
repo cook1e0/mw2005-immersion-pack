@@ -19,6 +19,7 @@ void Cockpit_BeginEye() {}
 void D3D_BeginMirrorEye(const float*, const float*, float) {}
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}
+void D3D_SetGlassCorners(void*, int, const float*) {}
 void D3D_EndMirrorEye(void*) {}
 void D3D_BeginWheelEye(bool, const float*, const float*, const float*) {}
 void D3D_EndWheelEye() {}
