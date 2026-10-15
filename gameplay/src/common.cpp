@@ -227,7 +227,6 @@ void LoadConfig() {
     c.drivetrain = Clamp(ReadFloat("Physics", "Drivetrain", c.drivetrain), 0.7f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
-    c.landingSettle = Clamp(ReadFloat("Physics", "LandingSettle", c.landingSettle), 0.0f, 3.0f);
 
     c.gauge = ReadInt("UI", "Gauge", 0) != 0;
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);

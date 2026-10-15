@@ -21,15 +21,6 @@
 // player's car the slider values are swapped in for the duration of the call and the game's own
 // values put back after it, so AI and traffic keep the stock physics.
 //
-// Landings: the first steps after touchdown are violent in the game's tyre model. A tyre in the
-// air keeps its last road speed and slip state (Tire::UpdateFree doesn't update them), so on
-// touchdown UpdateLoaded sees a jump in road speed as a huge acceleration and swings the wheel's
-// spin and force back and forth; a hard landing can also exceed SHOCK_BLOWOUT, which drops the
-// damper force to zero. The aids (drift stabiliser yaw damping, yaw control's rear grip,
-// traction control) soak that up; with them turned down the car jerks after landing. So for
-// [Physics] LandingSettle seconds after a landing (all four wheels off the ground for 0.15 s or
-// more) the aids are brought back to the game's values and faded out to the sliders' again.
-//
 // Gravity is rigidbodyspecs.GRAVITY, added to a body's force in RigidBody::OnBeginFrame; that
 // is wrapped the same way, for the player's car or for every car.
 //
@@ -80,14 +71,6 @@ typedef void(__thiscall* Simulate_t)(void* obj, float dT);
 Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
 
-// Landing settle: time all four wheels have been off the ground, and how much of the game's aids
-// is back (1 just after touchdown, fading to 0).
-struct {
-    float air = 0.0f;
-    float settle = 0.0f;
-} s_land;
-constexpr float kMinAirTime = 0.15f;
-
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
 // UpdateLoaded's ellipse ratio and its inverse, ours (the game's while not the player's car).
@@ -130,12 +113,7 @@ struct Saved {
 };
 
 void Apply(uint8_t* susp, Saved& sv) {
-    Config c = g_cfg;
-    // After a landing, the aids part of the way back to the game's (1).
-    float L = s_land.settle;
-    c.tractionControl += (1.0f - c.tractionControl) * L;
-    c.stability += (1.0f - c.stability) * L;
-    c.driftAssist += (1.0f - c.driftAssist) * L;
+    const Config& c = g_cfg;
     sv.grip = *(float*)kGlobalGripScale;
     sv.slip = *(float*)kTractionFwdSlip;
     sv.yaw = *(float*)kMaxYawBonus;
@@ -191,28 +169,10 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
         Log("physics: player suspension %p (torque split %.2f front)", susp, tranny ? Field<float>(tranny, kTR_TorqueSplit) : -1.0f);
     }
-    // Wheels on the ground (ISuspension::GetNumWheelsOnGround, from the step before this one).
-    void* iface = Game_PlayerInterface((void*)kISuspensionHandle);
-    unsigned onGround = ((unsigned(__thiscall*)(void*))(*(void***)iface)[0x4C / 4])(iface);
-    if (onGround == 0) {
-        s_land.air += dT;
-    } else {
-        if (s_land.air >= kMinAirTime && g_cfg.landingSettle > 0.0f) {
-            static double lastLog = -1e9;
-            if (Now() - lastLog > 2.0) {
-                lastLog = Now();
-                Log("physics: landed after %.2f s in the air, aids eased back in over %.1f s", s_land.air, g_cfg.landingSettle);
-            }
-            s_land.settle = 1.0f;
-        }
-        s_land.air = 0.0f;
-    }
     Saved sv;
     Apply(susp, sv);
     s_origSusp(susp, dT);
     Restore(sv);
-    if (onGround > 0 && s_land.settle > 0.0f)
-        s_land.settle = g_cfg.landingSettle > 0.0f ? std::max(s_land.settle - dT / g_cfg.landingSettle, 0.0f) : 0.0f;
     s_playerSusp = false;
 }
 
