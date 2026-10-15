@@ -50,6 +50,15 @@
   knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
   recognised as the game's own breakable props (Smackables), by their class in the collision
   report or when one is knocked loose where your car is, not guessed from light contacts.
+- **Sequential shifting has neutral and reverse:** with manual shifting (sequential mode or the
+  game's manual gearbox), shifting down from first goes to neutral, then reverse, and up again the
+  same way; in reverse the gas pedal drives backwards. Holding the brake no longer reverses.
+- **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
+  view as it is, without the car paint's gloss and reflections that washed it out (the brightness
+  and contrast sliders may want lowering now).
+- **VR: BMW M3 GTR side mirrors:** glass that is part of a larger body draw is split out into a
+  draw of its own, so it shows the rear view too.
+- **VR: HUD left / right:** F4 > VR > HUD left / right (`[VR] HudRight`), also kept per car.
 - **Force feedback: off-road vibration:** the game's own surface name under each front tyre tells
   grass, dirt, mud, gravel and sand apart from the road: the wheel rumbles unevenly (two rough
   tones and random bumps), half with one wheel off, growing with speed. F4 > Force feedback >

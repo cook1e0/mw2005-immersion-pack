@@ -4,7 +4,8 @@
 // DoAutoReverse(gas, brake) (shifts into reverse when braking at a standstill and swaps the
 // pedals while reversing). With the H-shifter active both calls are replaced: the gear comes
 // from the stick through ITransmission::Shift, neutral and reverse included, and the pedals keep
-// their meaning in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
+// their meaning in reverse. Manual sequential shifting works the same way: down from first is
+// neutral, then reverse (up from reverse back through neutral), and gas drives in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
 // automatic gearbox (which also skips neutral) stays out of the way.
 //
 // Clutch: EngineRacer models a friction clutch. In its ENGAGING state the torque passed between
@@ -380,6 +381,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
     // Sequential (ours or the game's manual gearbox): our ShiftUp / ShiftDown bindings, or the
     // game's own shift controls.
     if (delta == 0 && presses != 0) delta = presses > 0 ? 1 : -1;
+    bool manual = !s.autoShift;
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
     bool needClutch = g_cfg.requireClutch && s.clutchActive && (g_cfg.sequential || g_cfg.sequentialNeedsClutch);
     if (delta != 0 && needClutch && !clutchIn) {
@@ -393,13 +395,35 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         lastRefused = Now();
         delta = 0;
     }
-    bool shifted = s_origDoShifting(ip, delta);
-    if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+    if (!manual) {
+        bool shifted = s_origDoShifting(ip, delta);
+        if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+        return shifted;
+    }
+    // Manual: one gear per press through the whole box, R N 1 2 ... like the gates of an H.
+    if (delta == 0) return s_origDoShifting(ip, 0);
+    void* trans = eng + kER_Transmission;
+    int cur = TransGear(trans);
+    int want = cur + (delta > 0 ? 1 : -1);
+    if (want < G_REVERSE || want > TransTopGear(trans)) return false;
+    if (want == G_REVERSE && g_cfg.blockWrongDirection && WrongDirection(eng, want)) {
+        static double lastRefused = -1e9;
+        if (Now() - lastRefused > 1.0) Log("shift: R refused (car rolling the other way)");
+        lastRefused = Now();
+        return false;
+    }
+    bool shifted = TransShift(trans, want);
+    if (shifted) {
+        if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+        if (want <= G_FIRST) Log("shift: %s -> %s (sequential)", GearName(cur), GearName(want));
+    }
     return shifted;
 }
 
 void __fastcall Hook_DoAutoReverse(void* ip, void*, float gas, float brake) {
-    if (s.hActive && Fresh()) return;   // reverse is a gate on the shifter, pedals keep their roles
+    // Reverse is a gear of its own (the shifter's gate, or below neutral in sequential): the
+    // pedals keep their roles.
+    if ((s.hActive || !s.autoShift) && Fresh()) return;
     s_origDoAutoReverse(ip, gas, brake);
 }
 

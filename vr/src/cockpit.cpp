@@ -102,6 +102,14 @@ struct Wheel {
     std::vector<int> kept, turned;                  // per entry: triangles before the wheel, wheel triangles
     std::vector<uint8_t> parts;                     // per entry: the entry without the wheel, the wheel alone
 };
+// Side mirror glass that shares a draw entry with the rest of the body (BMW M3 GTR): in each such
+// entry its triangles are moved to the end, the other triangles first, then the left glass, then
+// the right, and the entry is submitted as up to three parts so the glass has draws of its own.
+struct GlassSplit {
+    struct Entry { int index; int count[3]; };   // other, left glass, right glass triangles
+    std::vector<Entry> entries;
+    std::vector<uint8_t> parts;                  // 3 entries per split entry
+};
 struct HeadPos { float v[3]; };
 std::unordered_map<std::string, HeadPos> s_carHead; // driver's head per car (model space)
 
@@ -112,6 +120,7 @@ std::unordered_map<std::string, HeadPos> s_carHead; // driver's head per car (mo
 struct SolidInfo {
     Driver* driver = nullptr;                       // nullptr = not a driver
     Wheel* wheel = nullptr;                         // interiors, once the car's driver head is known
+    GlassSplit* split = nullptr;                    // bodies whose mirror glass shares a draw entry
     bool interior = false;
     int mirrorKind = -1;                            // -1 not looked at, 0 none, 1 side mirror solid, 2 body, 3 interior
     MirrorGlass glass[3];                           // left, right, rear view (model space)
@@ -125,6 +134,7 @@ struct SolidInfo {
 std::unordered_map<uint8_t*, SolidInfo> s_solids;
 std::vector<Driver*> s_retired;                     // replaced this frame; queued draws may still use them
 std::vector<Wheel*> s_retiredWheels;
+std::vector<GlassSplit*> s_retiredSplits;
 
 // The game camera (before the seat and the eyes) this frame, as camera -> world.
 M4 s_base;
@@ -197,29 +207,30 @@ void SaveOffset() {
 // last used stays); changes made in a car are saved for it once they have settled for a second.
 struct HudCar {
     std::string car;
-    float seen[3] = {};
+    float seen[4] = {};
     bool dirty = false;
     double changed = 0;
 } s_hudCar;
 
-void HudValues(float* v[3]) {
+void HudValues(float* v[4]) {
     v[0] = &g_cfg.hudWidth;
     v[1] = &g_cfg.hudDistance;
     v[2] = &g_cfg.hudHeight;
+    v[3] = &g_cfg.hudRight;
 }
 
 void SaveHudCar() {
-    float* v[3];
+    float* v[4];
     HudValues(v);
     char buf[96];
-    snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f", *v[0], *v[1], *v[2]);
+    snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.3f", *v[0], *v[1], *v[2], *v[3]);
     WritePrivateProfileStringA("Hud", s_hudCar.car.c_str(), buf, IniPath());
     s_hudCar.dirty = false;
     Log("cockpit: HUD for %s saved: %s", s_hudCar.car.c_str(), buf);
 }
 
 void UpdateHudCar(const std::string& car) {
-    float* v[3];
+    float* v[4];
     HudValues(v);
     if (g_cfg.hudPerCar < 0.5f || car.empty()) {
         if (s_hudCar.dirty && !s_hudCar.car.empty()) SaveHudCar();
@@ -231,20 +242,22 @@ void UpdateHudCar(const std::string& car) {
         s_hudCar.car = car;
         char buf[96];
         GetPrivateProfileStringA("Hud", car.c_str(), "", buf, sizeof(buf), IniPath());
-        float w, d, h;
-        if (sscanf(buf, "%f,%f,%f", &w, &d, &h) == 3 && w > 0.1f && w < 10 && d > 0.1f && d < 10 && fabsf(h) < 5) {
+        float w, d, h, r = 0;
+        if (sscanf(buf, "%f,%f,%f,%f", &w, &d, &h, &r) >= 3 && w > 0.1f && w < 10 && d > 0.1f && d < 10 && fabsf(h) < 5 &&
+            fabsf(r) < 5) {
             *v[0] = w;
             *v[1] = d;
             *v[2] = h;
-            Log("cockpit: HUD for %s: size %.2f distance %.2f height %.2f", car.c_str(), w, d, h);
+            *v[3] = r;
+            Log("cockpit: HUD for %s: size %.2f distance %.2f height %.2f right %.2f", car.c_str(), w, d, h, r);
         } else {
             Log("cockpit: HUD for %s: none saved yet, the last used stays", car.c_str());
         }
-        for (int i = 0; i < 3; i++) s_hudCar.seen[i] = *v[i];
+        for (int i = 0; i < 4; i++) s_hudCar.seen[i] = *v[i];
         return;
     }
     bool moved = false;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         if (fabsf(*v[i] - s_hudCar.seen[i]) > 1e-4f) moved = true;
         s_hudCar.seen[i] = *v[i];
     }
@@ -609,7 +622,7 @@ SolidInfo* GetSolid(uint8_t* solid) {
         bool same = !memcmp(was.name, now.name, sizeof(now.name)) && was.plat == now.plat &&
                     was.entries == now.entries && was.ib == now.ib && was.indices == now.indices;
         // A model reloaded in place has its original triangle order back.
-        if (same && ((was.driver && was.driver->ok) || (was.wheel && was.wheel->ok)))
+        if (same && ((was.driver && was.driver->ok) || (was.wheel && was.wheel->ok) || was.split))
             same = CurrentHash(now) == was.indexHash;
         if (same) {
             // An interior seen before its car's driver: look for the wheel once the head is known.
@@ -624,6 +637,7 @@ SolidInfo* GetSolid(uint8_t* solid) {
         if (was.driver || was.wheel) Log("cockpit: %.64s changed or reloaded, preparing it again", was.name);
         if (was.driver) s_retired.push_back(was.driver);
         if (was.wheel) s_retiredWheels.push_back(was.wheel);
+        if (was.split) s_retiredSplits.push_back(was.split);
     }
     now.driver = strstr(name, "_DRIVER") ? Prepare(solid, name) : nullptr;
     now.interior = strstr(name, "_INTERIOR") != nullptr;
@@ -755,10 +769,25 @@ std::string CarOf(const char* name) {
     return std::string(name, kit ? kit - name : strlen(name));
 }
 
-void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
+// The rear view's u range for a side (left half, right half; swapped with MirrorFlip) and the
+// glass's basis for D3D_RegisterMirrorGlass.
+void GlassBasis(const MirrorGlass& g, int side, float basis[14]) {
+    float u0 = side == 0 ? 0.0f : 0.5f, u1 = u0 + 0.5f;
+    if (g_cfg.mirrorFlip) {
+        float a = 1.0f - u1, b = 1.0f - u0;
+        u0 = b;
+        u1 = a;
+    }
+    const float b[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
+                         g.halfU, g.halfV, u0, u1, 0};
+    memcpy(basis, b, sizeof(b));
+}
+
+// True when the glass is a draw entry of its own (registered), or isn't to be registered.
+bool RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
     char name[65] = {};
     memcpy(name, info.name, 64);
-    if (info.mirrorKind == 2 && s_hasMirrorSolids.count(CarOf(name))) return;
+    if (info.mirrorKind == 2 && s_hasMirrorSolids.count(CarOf(name))) return true;
     const MirrorGlass& g = info.glass[side];
     uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
     int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
@@ -766,7 +795,7 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
     uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
     int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
     void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
-    if (n <= 0 || n > 64 || !entries || !indices || !ib) return;
+    if (n <= 0 || n > 64 || !entries || !indices || !ib) return true;
     uint8_t* verts = nullptr;
     int stride = 0;
     for (int i = 0; i < n && !verts; i++) {
@@ -775,7 +804,7 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
         uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
         stride = fmt ? At<int>(fmt, 8) : 0;
     }
-    if (!verts || stride < 12) return;
+    if (!verts || stride < 12) return true;
     float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
     auto onGlass = [&](const float* p) {
         V3 q = {p[0], p[1], p[2]};
@@ -795,22 +824,113 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
             on += all;
         }
         if (on * 10 < tris * 8) continue;
-        float u0 = side == 0 ? 0.0f : 0.5f, u1 = u0 + 0.5f;
-        if (g_cfg.mirrorFlip) {
-            float a = 1.0f - u1, b = 1.0f - u0;
-            u0 = b;
-            u1 = a;
-        }
-        const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
-                                 g.halfU, g.halfV, u0, u1, 0};
+        float basis[14];
+        GlassBasis(g, side, basis);
         std::vector<uint16_t> used(indices + first, indices + first + tris * 3);
         std::sort(used.begin(), used.end());
         used.erase(std::unique(used.begin(), used.end()), used.end());
         D3D_RegisterMirrorGlass(ib, first, tris, basis, used.data(), (int)used.size());
         Log("mirrors: %s: %s glass is draw entry %d (%d triangles)", name, side ? "right" : "left", i, tris);
-        return;
+        return true;
     }
     Log("mirrors: %s: %s glass has no draw entry of its own", name, side ? "right" : "left");
+    return false;
+}
+
+// Glass without an entry of its own: split out of the entries it shares (GlassSplit).
+void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2]) {
+    char name[65] = {};
+    memcpy(name, info.name, 64);
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    auto* ib = plat ? At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) : nullptr;
+    if (n <= 0 || n > 64 || !entries || !indices || !ib || info.split) return;
+    uint8_t* verts = nullptr;
+    int stride = 0;
+    for (int i = 0; i < n && !verts; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        verts = At<uint8_t*>(e, kEntryVertices);
+        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
+        stride = fmt ? At<int>(fmt, 8) : 0;
+    }
+    D3DINDEXBUFFER_DESC desc;
+    if (!verts || stride < 12 || FAILED(ib->GetDesc(&desc)) || desc.Format != D3DFMT_INDEX16) return;
+    auto onGlass = [&](int side, const uint16_t* tri) {
+        const MirrorGlass& g = info.glass[side];
+        float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+        for (int k = 0; k < 3; k++) {
+            const float* p = (const float*)(verts + tri[k] * stride);
+            V3 q = {p[0], p[1], p[2]};
+            if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
+                  fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
+                return false;
+        }
+        return true;
+    };
+    GlassSplit* split = new GlassSplit;
+    for (int i = 0; i < n; i++) {
+        uint8_t* e = entries + i * kEntrySize;
+        int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
+        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        std::vector<uint16_t> part[3];
+        const uint16_t* idx = indices + first;
+        for (int t = 0; t < tris; t++) {
+            const uint16_t* tri = idx + t * 3;
+            int cls = 0;
+            for (int side = 0; side < 2 && !cls; side++)
+                if (need[side] && info.glass[side].ok && onGlass(side, tri)) cls = side + 1;
+            part[cls].insert(part[cls].end(), tri, tri + 3);
+        }
+        // A few stray triangles are not a mirror's glass.
+        for (int side = 1; side < 3; side++)
+            if (part[side].size() < 6) {
+                part[0].insert(part[0].end(), part[side].begin(), part[side].end());
+                part[side].clear();
+            }
+        if (part[1].empty() && part[2].empty()) continue;
+        std::vector<uint16_t> order = part[0];
+        order.insert(order.end(), part[1].begin(), part[1].end());
+        order.insert(order.end(), part[2].begin(), part[2].end());
+        void* p = nullptr;
+        if (FAILED(ib->Lock(first * 2, tris * 6, &p, 0)) || !p) {
+            Log("mirrors: %s: index buffer lock failed", name);
+            continue;
+        }
+        memcpy(p, order.data(), tris * 6);
+        ib->Unlock();
+        memcpy(indices + first, order.data(), tris * 6);
+        GlassSplit::Entry se = {i, {(int)part[0].size() / 3, (int)part[1].size() / 3, (int)part[2].size() / 3}};
+        split->entries.push_back(se);
+        // Vertices the glass shares with the rest get the glass's coordinates too (noted).
+        std::vector<uint16_t> rest(part[0]);
+        std::sort(rest.begin(), rest.end());
+        int offset = se.count[0];
+        for (int side = 0; side < 2; side++) {
+            const std::vector<uint16_t>& tri = part[side + 1];
+            if (tri.empty()) continue;
+            std::vector<uint16_t> used(tri);
+            std::sort(used.begin(), used.end());
+            used.erase(std::unique(used.begin(), used.end()), used.end());
+            int shared = 0;
+            for (uint16_t v : used) shared += std::binary_search(rest.begin(), rest.end(), v);
+            float basis[14];
+            GlassBasis(info.glass[side], side, basis);
+            D3D_RegisterMirrorGlass(ib, first + offset * 3, (int)tri.size() / 3, basis, used.data(), (int)used.size());
+            Log("mirrors: %s: %s glass split out of draw entry %d (%d of %d triangles, %d vertices shared)", name,
+                side ? "right" : "left", i, (int)tri.size() / 3, tris, shared);
+            offset += (int)tri.size() / 3;
+        }
+    }
+    if (split->entries.empty()) {
+        delete split;
+        return;
+    }
+    split->parts.assign(split->entries.size() * 3 * kEntrySize, 0);
+    info.split = split;
+    info.indexHash = CurrentHash(info);
 }
 
 // Finds the rear view mirror's glass in the player car's interior the first time it is drawn,
@@ -858,8 +978,10 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
                 g.centre.x, g.centre.y, g.centre.z, 2 * g.halfU, 2 * g.halfV, g.normal.x, g.normal.y, g.normal.z);
     }
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
+    bool need[2] = {false, false};
     for (int side = 0; side < 2; side++)
-        if (info.glass[side].ok) RegisterGlassEntry(solid, info, side);
+        if (info.glass[side].ok) need[side] = !RegisterGlassEntry(solid, info, side);
+    if (need[0] || need[1]) SplitSharedGlass(solid, info, need);
 }
 
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
@@ -1037,6 +1159,28 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
             return;
         }
     }
+    GlassSplit* split = it != s_solids.end() ? it->second.split : nullptr;
+    if (split) {
+        uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
+        int i = (int)(entry - entries) / kEntrySize;
+        for (size_t k = 0; k < split->entries.size(); k++) {
+            const GlassSplit::Entry& se = split->entries[k];
+            if (se.index != i) continue;
+            int first = At<int>(entry, kEntryFirstIndex), offset = 0;
+            for (int part = 0; part < 3; part++) {
+                int count = se.count[part];
+                if (!count) continue;
+                uint8_t* pe = &split->parts[(k * 3 + part) * kEntrySize];
+                memcpy(pe, entry, kEntrySize);
+                At<int>(pe, kEntryFirstIndex) = first + offset * 3;
+                At<int>(pe, kEntryTris) = count;
+                At<int>(pe, kEntryNumIndices) = count * 3;
+                submit(pe, a2, a3, a4, a5, matrix, a7, a8, a9);
+                offset += count;
+            }
+            return;
+        }
+    }
     submit(e, a2, a3, a4, a5, matrix, a7, a8, a9);
 }
 
@@ -1136,6 +1280,8 @@ void Cockpit_EndFrame() {
     s_retired.clear();
     for (Wheel* w : s_retiredWheels) delete w;
     s_retiredWheels.clear();
+    for (GlassSplit* g : s_retiredSplits) delete g;
+    s_retiredSplits.clear();
     static double lastReport;
     if (s_bodyDraws && Now() - lastReport > 5.0) {
         lastReport = Now();

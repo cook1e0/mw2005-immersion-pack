@@ -258,6 +258,7 @@ const struct {
     {MOD_VR, "MenuOpen", 0.0f},             // live, not a setting: this menu is open
     {MOD_FFB, "OffroadVibration", 0.4f},
     {MOD_VR, "HudPerCar", 0.0f},
+    {MOD_VR, "HudRight", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -265,7 +266,7 @@ enum {
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
     FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
-    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, EXT_COUNT
+    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -606,6 +607,7 @@ const Item kItems[] = {
     {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
+    {NUMBER, "HUD left / right", "VR", "HudRight", &s_ext[VR_HUDRIGHT], -0.8f, 0.8f, 0.05f, 1, "%+.2f m", 0},
     {NUMBER, "Each car remembers HUD positioning", "VR", "HudPerCar", &s_ext[VR_HUDPERCAR], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
@@ -1322,10 +1324,11 @@ const struct {
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
+    {&s_ext[VR_HUDRIGHT], "Moves the HUD panel to the left (-) or right (+)."},
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
     {&s_ext[VR_WHEELOVERHUD], "On: the car's steering wheel is drawn in front of the HUD while driving. In the pause menu, other menus and this menu the HUD is on top again."},
     {&s_ext[FFB_OFFROAD], "The wheel vibrates while the front wheels are off the road: grass, dirt, mud, gravel, sand. Stronger with both wheels off and with speed."},
-    {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance and height, like the seat. A car you haven't set yet starts with the last HUD you used."},
+    {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance, height and left / right position, like the seat. A car you haven't set yet starts with the last HUD you used."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},

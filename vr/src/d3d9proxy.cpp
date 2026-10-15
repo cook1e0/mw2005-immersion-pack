@@ -225,6 +225,69 @@ static IDirect3DPixelShader9* GradeShader() {
     return s_gradeShader;
 }
 
+// The side mirror glass's own pixel shader: the rear view as it is (already graded), without the
+// car shader's lighting, gloss and environment reflection, which washed it out.
+static bool DrawingPlayerView();
+static IDirect3DPixelShader9* s_glassShader;
+static IDirect3DPixelShader9* GlassShader() {
+    static bool tried;
+    if (s_glassShader || tried) return s_glassShader;
+    tried = true;
+    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+    typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
+                                         ID3DBlob**);
+    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
+    if (!compile) return nullptr;
+    const char* src =
+        "sampler s : register(s0);"
+        "float4 main(float2 uv : TEXCOORD0) : COLOR { return float4(tex2D(s, uv).rgb, 1); }";
+    ID3DBlob *code = nullptr, *errors = nullptr;
+    HRESULT hr = compile(src, strlen(src), "glass", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
+    if (SUCCEEDED(hr) && code)
+        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_glassShader);
+    else
+        Log("d3d9: mirror glass shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
+    if (code) code->Release();
+    if (errors) errors->Release();
+    return s_glassShader;
+}
+
+// Once: what the game's vertex shader for the glass outputs (the glass shader reads TEXCOORD0).
+static void LogGlassVertexShader(IDirect3DDevice9Ex* real) {
+    static bool done;
+    if (done) return;
+    done = true;
+    IDirect3DVertexShader9* vs = nullptr;
+    if (FAILED(real->GetVertexShader(&vs)) || !vs) {
+        Log("d3d9: side mirror glass: fixed-function vertex processing");
+        return;
+    }
+    UINT size = 0;
+    std::vector<uint8_t> fn;
+    if (SUCCEEDED(vs->GetFunction(nullptr, &size)) && size) {
+        fn.resize(size);
+        vs->GetFunction(fn.data(), &size);
+    }
+    vs->Release();
+    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+    typedef HRESULT(WINAPI * Disasm_t)(LPCVOID, SIZE_T, UINT, LPCSTR, ID3DBlob**);
+    auto disasm = dc ? (Disasm_t)GetProcAddress(dc, "D3DDisassemble") : nullptr;
+    ID3DBlob* text = nullptr;
+    if (fn.empty() || !disasm || FAILED(disasm(fn.data(), fn.size(), 0, nullptr, &text)) || !text) return;
+    std::string all((const char*)text->GetBufferPointer(), text->GetBufferSize());
+    text->Release();
+    size_t pos = 0;
+    while (pos < all.size()) {
+        size_t end = all.find('\n', pos);
+        if (end == std::string::npos) end = all.size();
+        std::string line = all.substr(pos, end - pos);
+        if (line.find("vs_") != std::string::npos || line.find("dcl") != std::string::npos || line.find("oT") != std::string::npos ||
+            line.find("oD") != std::string::npos)
+            Log("d3d9: glass vs: %s", line.c_str());
+        pos = end + 1;
+    }
+}
+
 // The rear view render target copied into a texture of our own (it may be multisampled, or a
 // plain surface no texture owns), then graded into the texture the mirrors show.
 static IDirect3DTexture9* MirrorTexture(IDirect3DSurface9* source) {
@@ -447,7 +510,18 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
         IDirect3DBaseTexture9* orig = nullptr;
         real->GetTexture(stage, &orig);
         real->SetTexture(stage, s_mirrorTex);
+        LogGlassVertexShader(real);
+        IDirect3DPixelShader9* glass = stage == 0 && DrawingPlayerView() ? GlassShader() : nullptr;
+        IDirect3DPixelShader9* oldPs = nullptr;
+        if (glass) {
+            real->GetPixelShader(&oldPs);
+            real->SetPixelShader(glass);
+        }
         *hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        if (glass) {
+            real->SetPixelShader(oldPs);
+            if (oldPs) oldPs->Release();
+        }
         real->SetTexture(stage, orig);
         if (orig) orig->Release();
         static bool logged;
@@ -676,7 +750,7 @@ void D3D_EndWheelEye() {
 
     // The panel: as the headset's HUD layer places it (xr.cpp), 4:3.
     const float* s = s_wheelEye.seat;   // origin, right, up, forward
-    float w = g_cfg.hudWidth, h = g_cfg.hudWidth * 0.75f, cy = g_cfg.hudHeight, cz = g_cfg.hudDistance;
+    float w = g_cfg.hudWidth, h = g_cfg.hudWidth * 0.75f, cx = g_cfg.hudRight, cy = g_cfg.hudHeight, cz = g_cfg.hudDistance;
     auto at = [&](float x, float y, float u, float v) {
         PanelVertex p;
         p.x = s[0] + s[3] * x + s[6] * y + s[9] * cz;
@@ -686,8 +760,8 @@ void D3D_EndWheelEye() {
         p.v = v;
         return p;
     };
-    PanelVertex a = at(-w / 2, cy + h / 2, 0, 0), c = at(w / 2, cy + h / 2, 1, 0), e = at(w / 2, cy - h / 2, 1, 1),
-                f = at(-w / 2, cy - h / 2, 0, 1);
+    PanelVertex a = at(cx - w / 2, cy + h / 2, 0, 0), c = at(cx + w / 2, cy + h / 2, 1, 0), e = at(cx + w / 2, cy - h / 2, 1, 1),
+                f = at(cx - w / 2, cy - h / 2, 0, 1);
     PanelVertex quad[6] = {a, c, e, a, e, f};
 
     s_dev->SetVertexShader(nullptr);
@@ -1293,6 +1367,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "HudWidth")) return &g_cfg.hudWidth;
     if (!strcmp(name, "HudDistance")) return &g_cfg.hudDistance;
     if (!strcmp(name, "HudHeight")) return &g_cfg.hudHeight;
+    if (!strcmp(name, "HudRight")) return &g_cfg.hudRight;
     if (!strcmp(name, "ScreenWidth")) return &g_cfg.screenWidth;
     if (!strcmp(name, "ScreenDistance")) return &g_cfg.screenDistance;
     if (!strcmp(name, "NearZ")) return &g_cfg.nearZ;

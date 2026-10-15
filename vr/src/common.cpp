@@ -109,6 +109,7 @@ void LoadConfig() {
     c.nearZ = ReadFloat(ini, "NearZ", c.nearZ);
     if (!(c.nearZ >= 0.0f)) c.nearZ = 0.0f;
     c.hudHeight = ReadFloat(ini, "HudHeight", c.hudHeight);
+    c.hudRight = ReadFloat(ini, "HudRight", c.hudRight);
     char bridge[16] = "auto";
     GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
     c.bridge = _stricmp(bridge, "auto") == 0 ? -1 : atoi(bridge) != 0;
