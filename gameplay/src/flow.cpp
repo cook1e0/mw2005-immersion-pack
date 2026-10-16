@@ -187,9 +187,27 @@ void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
     ((void(__fastcall*)(void*, void*, uint8_t*))kRenderObject)(fe, edx, obj);
 }
 
+// The EA Trax "now playing" banner (the Chyron screen): SummonChyron (cdecl) is its only way in,
+// from FEManager::Update and the EA Trax sound object; it returns at once.
+constexpr uintptr_t kSummonChyron = 0x595ED0;
+
+void HideSongBanner() {
+    if (!Expect(kSummonChyron, {0xA1, 0x48, 0xE3, 0x8E, 0x00})) {
+        Log("flow: song banner code not as expected, left on");
+        return;
+    }
+    DWORD old;
+    VirtualProtect((void*)kSummonChyron, 1, PAGE_EXECUTE_READWRITE, &old);
+    *(uint8_t*)kSummonChyron = 0xC3;   // ret
+    VirtualProtect((void*)kSummonChyron, 1, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)kSummonChyron, 1);
+    Log("flow: song banner (EA Trax now playing) hidden");
+}
+
 }  // namespace
 
 void Flow_Install() {
+    HideSongBanner();
     if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
         void* p = (void*)&Hook_RenderObject;
         DWORD old;

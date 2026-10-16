@@ -682,6 +682,27 @@ void __cdecl hkIceAction(int view, const char* action) {
     ((SetActionFn)kSetAction)(view, action);
 }
 
+// A race's end (PhotoFinishScreen) starts CameraAI::StartCinematicSlowdown: the director's
+// slowdown time (+0x2C0) is handed every frame to the driving camera (CDActionDrive::SetSpecial,
+// which sets its flag +0x70), and the driving camera slows the world while that flag is set. The
+// game ends it by cutting to the race-over camera (a new action clears both). Refused in VR, the
+// cut never came and the career went on in slow motion; so each refused cut ends the slowdown too
+// (the driving camera then eases back to full speed by itself).
+constexpr int kDirectorSlowdown = 0x2C0;          // float: cinematic slowdown handed to the driving camera
+constexpr int kDirectorAction = 0x20;             // the current camera action
+constexpr int kDriveSpecialOn = 0x70;             // CDActionDrive: bool, slowing the world
+
+void EndCinematicSlowdown(uint8_t* director) {
+    float& slow = At<float>(director, kDirectorSlowdown);
+    uint8_t* action = At<uint8_t*>(director, kDirectorAction);
+    const char* name = At<const char*>(director, kDirectorActionName);
+    bool drive = action && name && strcmp(name, (const char*)kActionDriveName) == 0;
+    if (slow == 0.0f && !(drive && At<uint8_t>(action, kDriveSpecialOn))) return;
+    slow = 0.0f;
+    if (drive) At<uint8_t>(action, kDriveSpecialOn) = 0;
+    Log("game: cinematic slowdown ended with the camera cut it waits for (VR)");
+}
+
 void __fastcall hkSelectAction(uint8_t* director, void*) {
     float& timer = At<float>(director, kDirectorTrackCopTimer);
     if (Xr_Available() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
@@ -689,6 +710,15 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
+
+    // Without any cut to refuse either, a slowdown is ended after 4 s.
+    static DWORD slowSince = 0;
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && At<float>(director, kDirectorSlowdown) > 0.0f) {
+        if (!slowSince) slowSince = GetTickCount();
+        else if (GetTickCount() - slowSince > 4000) EndCinematicSlowdown(director);
+    } else {
+        slowSince = 0;
+    }
 
     if (!Xr_Available() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
     const char* action = At<const char*>(director, kDirectorActionName);
@@ -704,6 +734,7 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
     ((void*(__thiscall*)(StringKey*, const char*))kStringKeyCtor)(&key, drive);
     ((void(__thiscall*)(void*, StringKey))kDirectorSetAction)(director, key);
     At<float>(director, kDirectorTrackCopTimer) = 0.0f;
+    EndCinematicSlowdown(director);
 }
 
 // The busted cutscene without its viewfinder frame while VR runs: the scene is seen as it is.
@@ -744,6 +775,7 @@ void __fastcall hkDirectorSetAction(uint8_t* director, void*, ActionKey key) {
         ((void*(__thiscall*)(ActionKey*, const char*))kStringKeyCtor)(&driveKey, drive);
         At<float>(director, kDirectorTrackCopTimer) = 0.0f;
         set(director, driveKey);
+        EndCinematicSlowdown(director);
         return;
     }
     set(director, key);
