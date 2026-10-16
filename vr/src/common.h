@@ -55,6 +55,10 @@ struct Config {
     float hideArms = 1.0f;           // 1 = leave out the seated driver's arms and hands (a 0/1 float: live from F4)
     float hudPerCar = 0.0f;          // 1 = each car remembers its HUD size, distance and height ([Hud] per car; live from F4)
     float wheelOverHud = 0.0f;       // 1 = the car's steering wheel in front of the HUD panel while driving (live from F4)
+    float dash = 1.0f;               // 1 = minimap, pursuit meter and speedometer on the car's dashboard, not on the HUD (live from F4)
+    float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash] per car with HudPerCar)
+    float dashUp = 0.0f;             // ... and up (m)
+    float dashZoom = 1.0f;           // its size
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)

@@ -135,6 +135,10 @@ void LoadConfig() {
     c.hideArms = ReadInt(ini, "HideArms", 1) != 0 ? 1.0f : 0.0f;
     c.wheelOverHud = ReadInt(ini, "WheelOverHud", 0) != 0 ? 1.0f : 0.0f;
     c.hudPerCar = ReadInt(ini, "HudPerCar", 0) != 0 ? 1.0f : 0.0f;
+    c.dash = ReadInt(ini, "Dash", 1) != 0 ? 1.0f : 0.0f;
+    c.dashRight = ReadFloat(ini, "DashRight", c.dashRight);
+    c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
+    c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;

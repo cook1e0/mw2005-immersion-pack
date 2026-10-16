@@ -24,6 +24,7 @@ void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_EndMirrorEye(void*) {}
 void D3D_BeginWheelEye(bool, const float*, const float*, const float*) {}
 void D3D_EndWheelEye() {}
+void D3D_BeginDashEye(bool, const float*, const float*) {}
 double D3D_ProfNow() { return 0; }
 void D3D_ProfAdd(int, double) {}
 void D3D_HideTextures(void*, void*, void*) {}

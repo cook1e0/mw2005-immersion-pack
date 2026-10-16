@@ -100,6 +100,10 @@ struct Wheel {
     float centre[3] = {};                           // model space (x forward, y left, z up)
     float axis[3] = {};                             // steering column, toward the dashboard
     float radius = 0;
+    // The in-car dashboard: where its panel goes (the gauge cluster behind the wheel), facing the
+    // driver: centre, normal toward the head, the panel's right and up (model space).
+    bool dashOk = false;
+    V3 dash, dashN, dashRight, dashUp;
     std::vector<int> kept, turned;                  // per entry: triangles before the wheel, wheel triangles
     std::vector<uint8_t> parts;                     // per entry: the entry without the wheel, the wheel alone
 };
@@ -206,70 +210,74 @@ void SaveOffset() {
     Log("cockpit: seat for %s saved: %s", s_offsetCar.c_str(), buf);
 }
 
-// The HUD panel per car, like the seat: entering a car loads its own HUD if it has one (else the
-// last used stays); changes made in a car are saved for it once they have settled for a second.
-struct HudCar {
+// The HUD panel and the in-car dashboard per car (HudPerCar), like the seat: entering a car loads
+// its own values if it has them (else the last used stay); changes made in a car are saved for it
+// once they have settled for a second. [Hud]: size, distance, height, right; [Dash]: right, up, zoom.
+struct PerCar {
+    const char* section;
+    const char* what;
+    int n;
+    float* v[4];
+    float lo[4], hi[4];                             // accepted when loading
     std::string car;
     float seen[4] = {};
     bool dirty = false;
     double changed = 0;
-} s_hudCar;
+};
+PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
+                   {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}};
+PerCar s_dashCar = {"Dash", "dashboard", 3, {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom},
+                    {-1, -1, 0.2f}, {1, 1, 4}};
 
-void HudValues(float* v[4]) {
-    v[0] = &g_cfg.hudWidth;
-    v[1] = &g_cfg.hudDistance;
-    v[2] = &g_cfg.hudHeight;
-    v[3] = &g_cfg.hudRight;
-}
-
-void SaveHudCar() {
-    float* v[4];
-    HudValues(v);
+void SavePerCar(PerCar& p) {
     char buf[96];
-    snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f,%.3f", *v[0], *v[1], *v[2], *v[3]);
-    WritePrivateProfileStringA("Hud", s_hudCar.car.c_str(), buf, IniPath());
-    s_hudCar.dirty = false;
-    Log("cockpit: HUD for %s saved: %s", s_hudCar.car.c_str(), buf);
+    int len = 0;
+    for (int i = 0; i < p.n; i++) len += snprintf(buf + len, sizeof(buf) - len, i ? ",%.3f" : "%.3f", *p.v[i]);
+    WritePrivateProfileStringA(p.section, p.car.c_str(), buf, IniPath());
+    p.dirty = false;
+    Log("cockpit: %s for %s saved: %s", p.what, p.car.c_str(), buf);
 }
 
-void UpdateHudCar(const std::string& car) {
-    float* v[4];
-    HudValues(v);
+void UpdatePerCar(PerCar& p, const std::string& car) {
     if (g_cfg.hudPerCar < 0.5f || car.empty()) {
-        if (s_hudCar.dirty && !s_hudCar.car.empty()) SaveHudCar();
-        s_hudCar.car.clear();
+        if (p.dirty && !p.car.empty()) SavePerCar(p);
+        p.car.clear();
         return;
     }
-    if (car != s_hudCar.car) {
-        if (s_hudCar.dirty && !s_hudCar.car.empty()) SaveHudCar();
-        s_hudCar.car = car;
+    if (car != p.car) {
+        if (p.dirty && !p.car.empty()) SavePerCar(p);
+        p.car = car;
         char buf[96];
-        GetPrivateProfileStringA("Hud", car.c_str(), "", buf, sizeof(buf), IniPath());
-        float w, d, h, r = 0;
-        if (sscanf(buf, "%f,%f,%f,%f", &w, &d, &h, &r) >= 3 && w > 0.1f && w < 10 && d > 0.1f && d < 10 && fabsf(h) < 5 &&
-            fabsf(r) < 5) {
-            *v[0] = w;
-            *v[1] = d;
-            *v[2] = h;
-            *v[3] = r;
-            Log("cockpit: HUD for %s: size %.2f distance %.2f height %.2f right %.2f", car.c_str(), w, d, h, r);
+        GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
+        float x[4] = {};
+        int got = sscanf(buf, "%f,%f,%f,%f", &x[0], &x[1], &x[2], &x[3]);
+        bool ok = got >= (p.n == 4 ? 3 : p.n);  // older [Hud] lines have no "right"
+        for (int i = 0; i < p.n && ok; i++) ok = x[i] >= p.lo[i] && x[i] <= p.hi[i];
+        if (ok) {
+            for (int i = 0; i < p.n; i++) *p.v[i] = x[i];
+            Log("cockpit: %s for %s: %s", p.what, car.c_str(), buf);
         } else {
-            Log("cockpit: HUD for %s: none saved yet, the last used stays", car.c_str());
+            Log("cockpit: %s for %s: none saved yet, the last used stays", p.what, car.c_str());
         }
-        for (int i = 0; i < 4; i++) s_hudCar.seen[i] = *v[i];
+        for (int i = 0; i < p.n; i++) p.seen[i] = *p.v[i];
         return;
     }
     bool moved = false;
-    for (int i = 0; i < 4; i++) {
-        if (fabsf(*v[i] - s_hudCar.seen[i]) > 1e-4f) moved = true;
-        s_hudCar.seen[i] = *v[i];
+    for (int i = 0; i < p.n; i++) {
+        if (fabsf(*p.v[i] - p.seen[i]) > 1e-4f) moved = true;
+        p.seen[i] = *p.v[i];
     }
     if (moved) {
-        s_hudCar.dirty = true;
-        s_hudCar.changed = Now();
-    } else if (s_hudCar.dirty && Now() - s_hudCar.changed > 1.0) {
-        SaveHudCar();
+        p.dirty = true;
+        p.changed = Now();
+    } else if (p.dirty && Now() - p.changed > 1.0) {
+        SavePerCar(p);
     }
+}
+
+void UpdateHudCar(const std::string& car) {
+    UpdatePerCar(s_hudCar, car);
+    UpdatePerCar(s_dashCar, car);
 }
 
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
@@ -489,6 +497,67 @@ bool OnWheel(const Wheel& w, const float* p) {
     return along > -0.06f && along < 0.05f && off2 < rim * rim;
 }
 
+// The in-car dashboard's place: from the driver's head over the top half of the wheel (its centre
+// plus 0.55 of the radius, up in the wheel's plane) to the first surface of the interior past the
+// wheel (the gauge cluster), pulled 12 mm toward the driver and facing them. Without a hit, a
+// point behind the top of the wheel.
+constexpr float kDashLift = 0.55f, kDashReach = 0.6f, kDashPull = 0.012f;
+using mirror::Sub;
+using mirror::Cross;
+using mirror::Dot;
+using mirror::Norm;
+
+bool RayTriangle(V3 o, V3 d, V3 a, V3 b, V3 c, float* t) {
+    V3 e1 = Sub(b, a), e2 = Sub(c, a), p = Cross(d, e2);
+    float det = Dot(e1, p);
+    if (fabsf(det) < 1e-9f) return false;
+    float inv = 1.0f / det;
+    V3 s = Sub(o, a);
+    float u = Dot(s, p) * inv;
+    if (u < 0 || u > 1) return false;
+    V3 q = Cross(s, e1);
+    float v = Dot(d, q) * inv;
+    if (v < 0 || u + v > 1) return false;
+    *t = Dot(e2, q) * inv;
+    return true;
+}
+
+void FindDash(Wheel& w, const std::vector<V3>& tris, const float headPos[3], const char* name) {
+    V3 head = {headPos[0], headPos[1], headPos[2]}, c = {w.centre[0], w.centre[1], w.centre[2]};
+    V3 k = Norm({w.axis[0], w.axis[1], w.axis[2]}), z = {0, 0, 1};
+    V3 up = Norm(Sub(z, k * Dot(z, k)));
+    V3 target = c + up * (w.radius * kDashLift);
+    V3 to = Sub(target, head);
+    float past = sqrtf(Dot(to, to)) + 0.03f;
+    V3 d = Norm(to);
+    float best = 1e9f;
+    for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+        float t;
+        if (RayTriangle(head, d, tris[i], tris[i + 1], tris[i + 2], &t) && t > past && t < past + kDashReach && t < best) best = t;
+    }
+    V3 hit = best < 1e8f ? head + d * best : c + k * 0.12f + up * (w.radius * 0.7f);
+    V3 n = d * -1.0f;
+    V3 pu = Norm(Sub(z, n * Dot(z, n)));
+    w.dashN = n;
+    w.dashUp = pu;
+    w.dashRight = Norm(Cross(d, pu));
+    w.dash = hit - d * kDashPull;
+    w.dashOk = true;
+    Log("cockpit: %s: dashboard panel at %.2f %.2f %.2f (%s, %.2f m past the wheel)", name, w.dash.x, w.dash.y, w.dash.z,
+        best < 1e8f ? "gauge cluster" : "no surface found, behind the wheel", best < 1e8f ? best - past + 0.03f : 0.0f);
+}
+
+// The panel's corners in the world (top left, top right, bottom right, bottom left), with the
+// offsets and size from F4 (dashRight / dashUp / dashZoom, per car with HudPerCar).
+void DashCorners(const Wheel& w, const float* m, float out[12]) {
+    float width = 0.24f * std::max(0.2f, g_cfg.dashZoom), height = width * D3D_DashAspect();
+    V3 centre = w.dash + w.dashRight * g_cfg.dashRight + w.dashUp * g_cfg.dashUp;
+    V3 r = w.dashRight * (width / 2), u = w.dashUp * (height / 2);
+    V3 p[4] = {centre - r + u, centre + r + u, centre + r - u, centre - r - u};
+    for (int i = 0; i < 4; i++)
+        for (int a = 0; a < 3; a++) out[i * 3 + a] = p[i].x * m[a] + p[i].y * m[4 + a] + p[i].z * m[8 + a] + m[12 + a];
+}
+
 Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
     Wheel* w = new Wheel;
     uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
@@ -519,6 +588,7 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
         return w;
     }
     w->parts.assign(n * 2 * kEntrySize, 0);
+    std::vector<V3> rest;                           // the interior's other triangles (3 points each)
     int total = 0;
     std::vector<std::vector<uint16_t>> orders(n);
     for (int i = 0; i < n; i++) {
@@ -534,6 +604,8 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
             bool on = tri[0] < numVerts && tri[1] < numVerts && tri[2] < numVerts;
             for (int k = 0; k < 3 && on; k++) on = OnWheel(*w, pos(tri[k]));
             (on ? wheel : keep).insert((on ? wheel : keep).end(), tri, tri + 3);
+            if (!on && tri[0] < numVerts && tri[1] < numVerts && tri[2] < numVerts)
+                for (int k = 0; k < 3; k++) rest.push_back(pts[tri[k]]);
         }
         w->kept[i] = (int)keep.size() / 3;
         w->turned[i] = (int)wheel.size() / 3;
@@ -562,6 +634,7 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
     w->ok = true;
     Log("cockpit: %s: steering wheel at %.2f %.2f %.2f, column %.2f %.2f %.2f, radius %.3f, %d triangles", name,
         w->centre[0], w->centre[1], w->centre[2], w->axis[0], w->axis[1], w->axis[2], w->radius, total);
+    FindDash(*w, rest, head, name);
     return w;
 }
 
@@ -1173,6 +1246,11 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
     if (info && m && g_cfg.mirrors && DrawingPlayerCar()) NoteMirrors(solid, *info, m);
+    if (info && m && info->wheel && info->wheel->dashOk && g_cfg.dash > 0.5f && DrawingPlayerCar()) {
+        float corners[12];
+        DashCorners(*info->wheel, m, corners);
+        D3D_AddDash(At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer), corners);
+    }
     Driver* d = info ? info->driver : nullptr;
     if (!d || !d->ok || !m) return entry;
     const float* h = d->head;

@@ -65,6 +65,18 @@ void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount, const
 // rear view surface is copied for the next eye's mirrors.
 void D3D_EndMirrorEye(void* rearViewSurface);
 
+// The in-car dashboard: the HUD's minimap (left), speedometer (right) and pursuit meter (top
+// middle) on a panel at the car's gauge cluster. For each eye: `on` (driving, not paused, the F4
+// menu closed, Dash on), the view and projection. The cockpit adds the panel (its four corners in
+// the world: top left, top right, bottom right, bottom left) as the interior model is submitted; it
+// is drawn right after the game's draws from that index buffer, so the wheel and arms hide it. When
+// a panel was drawn this frame, the HUD phase copies those parts of the HUD onto the panel's picture
+// and clears them from the HUD the headset shows.
+void D3D_BeginDashEye(bool on, const float* view, const float* proj);
+void D3D_AddDash(void* indexBuffer, const float corners[12]);
+// Height / width of the panel's picture (as laid out from the HUD parts found so far).
+float D3D_DashAspect();
+
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.
 void D3D_BeginHudPhase();

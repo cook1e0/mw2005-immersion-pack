@@ -13,6 +13,8 @@ void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int
 void D3D_SetGlassCorners(void*, int, const float*) {}
 void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
+void D3D_AddDash(void*, const float*) {}
+float D3D_DashAspect() { return 0.5f; }
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
 static void* moverVtbl[8];
@@ -363,7 +365,32 @@ static void TestLevelUpsideDown() {
     Near(half.m[0][0], cosf(3.14159265f / 8), "half levelling keeps half the roll");
 }
 
+// The dashboard panel: the first surface past the wheel along the line from the head over its top.
+static void TestDash() {
+    Wheel w;
+    w.centre[0] = 0.4f; w.centre[1] = 0.4f; w.centre[2] = 0.7f;
+    w.axis[0] = 0.94f; w.axis[1] = 0; w.axis[2] = -0.34f;
+    w.radius = 0.16f;
+    const float head[3] = {-0.1f, 0.4f, 0.95f};
+    // A cluster face at x = 0.62 (behind the wheel) and a wall in front of the wheel at x = 0.3.
+    std::vector<V3> tris = {{0.62f, 0.0f, 0.4f}, {0.62f, 0.8f, 0.4f}, {0.62f, 0.4f, 1.2f},
+                            {0.3f, 0.0f, 0.0f}, {0.3f, 0.8f, 0.0f}, {0.3f, 0.4f, 0.2f}};
+    FindDash(w, tris, head, "TEST_INTERIOR");
+    Check(w.dashOk, "dashboard placed");
+    Check(w.dash.x > 0.6f && w.dash.x < 0.62f, "dashboard on the cluster face, pulled toward the driver");
+    Check(w.dashN.x < -0.8f, "dashboard faces the driver");
+    Check(w.dashUp.z > 0.9f, "dashboard upright");
+    Check(w.dashRight.y < -0.9f, "dashboard right is the driver's right");
+    float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1};
+    float c[12];
+    g_cfg.dashZoom = 1; g_cfg.dashRight = 0; g_cfg.dashUp = 0;
+    DashCorners(w, m, c);
+    Near(c[3 + 1] - c[1], -0.24f, "panel 24 cm wide, left to right");
+    Check(fabsf(c[2] - c[9 + 2] - 0.12f) < 0.01f, "panel height from the picture's aspect");
+}
+
 int main() {
+    TestDash();
     TestLevelUpsideDown();
     TestMirrorGlass();
     testTime = Now();

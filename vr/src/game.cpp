@@ -496,6 +496,13 @@ void BeginMirrors(void* view) {
                        g_cfg.mirrorBrightness);
 }
 
+// The in-car dashboard: only from the seat, driving and not paused.
+void BeginDash(void* view, bool seated) {
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_BeginDashEye(seated && g_cfg.dash > 0.5f && DrivingUnpaused(), (const float*)((char*)plat + kPlatView),
+                     (const float*)((char*)plat + kPlatProjection));
+}
+
 void EndMirrors() {
     if (s_mirrorPatched) D3D_EndMirrorEye(RvmSurface());
 }
@@ -570,12 +577,14 @@ void __cdecl hkRenderScene() {
     memcpy(saved, cam, sizeof(saved));
 
     // The eyes are placed relative to this (optionally levelled) camera.
+    bool seated = false;
     uint8_t base[kCameraParamsSize];
     memcpy(base, saved, sizeof(base));
     {
         M4 V;
         memcpy(&V, saved + kCamMatrix, sizeof(V));
-        if (Cockpit_ApplySeat(V)) memcpy(base + kCamMatrix, &V, sizeof(V));
+        seated = Cockpit_ApplySeat(V);
+        if (seated) memcpy(base + kCamMatrix, &V, sizeof(V));
         if (s_levelEnabled && (g_cfg.levelRoll > 0 || g_cfg.levelPitch > 0)) {
             V = LevelCamera(V, kWorldUp, g_cfg.levelRoll, g_cfg.levelPitch);
             memcpy(base + kCamMatrix, &V, sizeof(V));
@@ -608,6 +617,7 @@ void __cdecl hkRenderScene() {
         Cockpit_BeginEye();
         BeginMirrors(view);
         BeginWheelHud(view, base);
+        BeginDash(view, seated);
         s_secondEye = eye > 0;
         int8_t sharedActive[sizeof(kSharedViews) / sizeof(kSharedViews[0])] = {};
         if (s_secondEye && g_cfg.sharedViewsOnce)

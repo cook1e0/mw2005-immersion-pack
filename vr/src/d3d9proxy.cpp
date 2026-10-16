@@ -95,6 +95,8 @@ static IDirect3DSurface9* s_mirrorRawSurf;
 static IDirect3DPixelShader9* s_gradeShader;
 static UINT s_mirrorW, s_mirrorH;
 
+static void ReleaseDash();
+
 static void ReleaseEyeTargets() {
     for (int i = 0; i < 3; i++) {
         if (s_eyeSurf[i]) s_eyeSurf[i]->Release();
@@ -113,6 +115,7 @@ static void ReleaseEyeTargets() {
     s_mirrorTex = s_mirrorRaw = nullptr;
     s_gradeShader = nullptr;
     s_mirrorW = s_mirrorH = 0;
+    ReleaseDash();
     s_eyeW = s_eyeH = 0;
     s_eyeOk = false;
 }
@@ -968,6 +971,287 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
     if (rearViewSurface) MirrorTexture((IDirect3DSurface9*)rearViewSurface);
 }
 
+// --- the in-car dashboard ---------------------------------------------------------------------------
+// The HUD parts are found in the HUD picture by what it covers (it is transparent elsewhere): a
+// small copy is read back a few times a second and its covered cells grouped into blobs; blobs in
+// the lower half are the minimap (left), the speedometer (right) and the pursuit meter (middle).
+// Each part keeps its box while it is seen (blinking parts stay), and is dropped after 2 s without.
+// The panel's picture: minimap bottom left, speedometer bottom right, pursuit meter top middle, all
+// at the HUD's own scale (one factor to fit the texture).
+enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_PARTS };
+static const char* kDashPartName[DASH_PARTS] = {"minimap", "pursuit meter", "speedometer"};
+static const int kDashTexW = 1024, kDashTexH = 512, kProbe = 128;
+static IDirect3DTexture9* s_dashTex;
+static IDirect3DSurface9* s_dashSurf;
+static IDirect3DSurface9* s_probeRT;           // the HUD, small
+static IDirect3DSurface9* s_probeMem;          // ... read back
+static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_PARTS];
+static float s_copReserve[2] = {0.30f, 0.07f}; // room kept for the pursuit meter (HUD share), so the panel doesn't jump
+static float s_dashU = 1, s_dashV = 0.4f;      // the picture's extent in the texture
+static float s_dashAspect = 0.4f;
+static double s_lastProbe;
+static struct {
+    bool on;
+    D3DMATRIX view, proj;
+    void* ib;
+    float corners[12];
+    bool added, drawn;
+} s_dashEye;
+static bool s_dashThisFrame;                   // a panel was drawn in an eye this frame
+
+static void ReleaseDash() {
+    if (s_dashSurf) s_dashSurf->Release();
+    if (s_dashTex) s_dashTex->Release();
+    if (s_probeRT) s_probeRT->Release();
+    if (s_probeMem) s_probeMem->Release();
+    s_dashSurf = s_probeRT = s_probeMem = nullptr;
+    s_dashTex = nullptr;
+}
+
+static bool EnsureDash() {
+    if (s_dashTex && s_probeRT && s_probeMem) return true;
+    ReleaseDash();
+    bool ok = SUCCEEDED(s_dev->CreateTexture(kDashTexW, kDashTexH, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                             &s_dashTex, nullptr)) &&
+              SUCCEEDED(s_dashTex->GetSurfaceLevel(0, &s_dashSurf)) &&
+              SUCCEEDED(s_dev->CreateRenderTarget(kProbe, kProbe, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &s_probeRT, nullptr)) &&
+              SUCCEEDED(s_dev->CreateOffscreenPlainSurface(kProbe, kProbe, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &s_probeMem, nullptr));
+    if (!ok) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("d3d9: in-car dashboard: creating its textures failed");
+        }
+        ReleaseDash();
+        return false;
+    }
+    s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    return true;
+}
+
+void D3D_BeginDashEye(bool on, const float* view, const float* proj) {
+    s_dashEye.on = on && s_uiMenuOpen < 0.5f;
+    s_dashEye.added = s_dashEye.drawn = false;
+    memcpy(&s_dashEye.view, view, sizeof(s_dashEye.view));
+    memcpy(&s_dashEye.proj, proj, sizeof(s_dashEye.proj));
+}
+
+void D3D_AddDash(void* indexBuffer, const float corners[12]) {
+    if (!s_dashEye.on || s_dashEye.added || !indexBuffer) return;
+    s_dashEye.ib = indexBuffer;
+    memcpy(s_dashEye.corners, corners, sizeof(s_dashEye.corners));
+    s_dashEye.added = true;
+}
+
+float D3D_DashAspect() { return s_dashAspect; }
+
+static void DrawDash() {
+    if (!s_dashTex) return;
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    const float* c = s_dashEye.corners;
+    const float uv[4][2] = {{0, 0}, {s_dashU, 0}, {s_dashU, s_dashV}, {0, s_dashV}};
+    PanelVertex v[4];
+    for (int i = 0; i < 4; i++) v[i] = {c[i * 3], c[i * 3 + 1], c[i * 3 + 2], uv[i][0], uv[i][1]};
+    PanelVertex quad[6] = {v[0], v[1], v[2], v[0], v[2], v[3]};
+    s_dev->SetVertexShader(nullptr);
+    s_dev->SetPixelShader(nullptr);
+    s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
+    D3DMATRIX identity = {};
+    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
+    s_dev->SetTransform(D3DTS_WORLD, &identity);
+    s_dev->SetTransform(D3DTS_VIEW, &s_dashEye.view);
+    s_dev->SetTransform(D3DTS_PROJECTION, &s_dashEye.proj);
+    s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
+    // Depth written where the picture is: interior drawn after it stays behind it, the wheel in front.
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
+    float bias = -0.00002f, slope = -1.0f;
+    s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
+    s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD*)&slope);
+    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
+    s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
+    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
+    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
+    s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
+    s_dev->SetRenderState(D3DRS_ALPHAREF, 8);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
+    s_dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
+    s_dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
+    s_dev->SetTexture(0, s_dashTex);
+    for (DWORD st = 1; st < 8; st++) s_dev->SetTexture(st, nullptr);
+    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
+    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
+    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
+    s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
+    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(PanelVertex));
+    saved->Apply();
+    saved->Release();
+    s_dashThisFrame = true;
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        Log("d3d9: in-car dashboard drawn with the interior");
+    }
+}
+
+// After the first draw from the interior's index buffer in the player view, once per eye (its
+// picture is blended: drawn again it would grow more opaque).
+static void AfterModelDrawDash() {
+    if (!s_dashEye.on || !s_dashEye.added || s_dashEye.drawn || s_dashEye.ib != s_curIndices || !DrawingPlayerView()) return;
+    s_dashEye.drawn = true;
+    DrawDash();
+}
+
+// The covered cells of the small HUD copy, grouped into blobs (cells within 2 of each other).
+static void ProbeHud() {
+    if (FAILED(s_dev->StretchRect(s_eyeSurf[2], nullptr, s_probeRT, nullptr, D3DTEXF_LINEAR)) ||
+        FAILED(s_dev->GetRenderTargetData(s_probeRT, s_probeMem)))
+        return;
+    D3DLOCKED_RECT lr;
+    if (FAILED(s_probeMem->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return;
+    static uint8_t cov[kProbe * kProbe];
+    static int label[kProbe * kProbe];
+    for (int y = 0; y < kProbe; y++) {
+        const uint8_t* row = (const uint8_t*)lr.pBits + y * lr.Pitch;
+        for (int x = 0; x < kProbe; x++) cov[y * kProbe + x] = row[x * 4 + 3] > 20;
+    }
+    s_probeMem->UnlockRect();
+    memset(label, 0, sizeof(label));
+    float found[DASH_PARTS][4];
+    bool have[DASH_PARTS] = {};
+    std::vector<int> stack;
+    int next = 0;
+    for (int start = 0; start < kProbe * kProbe; start++) {
+        if (!cov[start] || label[start]) continue;
+        label[start] = ++next;
+        stack.assign(1, start);
+        int x0 = kProbe, y0 = kProbe, x1 = -1, y1 = -1, cells = 0;
+        while (!stack.empty()) {
+            int p = stack.back();
+            stack.pop_back();
+            int px = p % kProbe, py = p / kProbe;
+            x0 = std::min(x0, px); x1 = std::max(x1, px);
+            y0 = std::min(y0, py); y1 = std::max(y1, py);
+            cells++;
+            for (int dy = -2; dy <= 2; dy++)
+                for (int dx = -2; dx <= 2; dx++) {
+                    int qx = px + dx, qy = py + dy;
+                    if (qx < 0 || qy < 0 || qx >= kProbe || qy >= kProbe) continue;
+                    int q = qy * kProbe + qx;
+                    if (cov[q] && !label[q]) {
+                        label[q] = next;
+                        stack.push_back(q);
+                    }
+                }
+        }
+        if (cells < 6) continue;
+        float b[4] = {x0 / (float)kProbe, y0 / (float)kProbe, (x1 + 1) / (float)kProbe, (y1 + 1) / (float)kProbe};
+        float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        int part = -1;
+        if (cy > 0.45f && b[2] < 0.55f && cx < 0.4f) part = DASH_MAP;
+        else if (cy > 0.45f && b[0] > 0.45f && cx > 0.6f) part = DASH_SPEEDO;
+        else if (cy > 0.55f && cx >= 0.3f && cx <= 0.7f && b[2] - b[0] < 0.7f) part = DASH_COP;
+        if (part < 0) continue;
+        if (!have[part]) memcpy(found[part], b, sizeof(b));
+        else {
+            found[part][0] = std::min(found[part][0], b[0]); found[part][1] = std::min(found[part][1], b[1]);
+            found[part][2] = std::max(found[part][2], b[2]); found[part][3] = std::max(found[part][3], b[3]);
+        }
+        have[part] = true;
+    }
+    double now = D3D_ProfNow();
+    for (int i = 0; i < DASH_PARTS; i++) {
+        DashBox& d = s_dashBox[i];
+        if (have[i]) {
+            bool was = d.ok && now - d.seen < 2.0;
+            if (was) {
+                d.x0 = std::min(d.x0, found[i][0]); d.y0 = std::min(d.y0, found[i][1]);
+                d.x1 = std::max(d.x1, found[i][2]); d.y1 = std::max(d.y1, found[i][3]);
+            } else {
+                d.x0 = found[i][0]; d.y0 = found[i][1]; d.x1 = found[i][2]; d.y1 = found[i][3];
+                Log("d3d9: in-car dashboard: %s found at %.2f %.2f - %.2f %.2f of the HUD", kDashPartName[i], d.x0, d.y0, d.x1, d.y1);
+            }
+            d.ok = true;
+            d.seen = now;
+            if (i == DASH_COP) {
+                s_copReserve[0] = std::max(s_copReserve[0], d.x1 - d.x0);
+                s_copReserve[1] = std::max(s_copReserve[1], d.y1 - d.y0);
+            }
+        } else if (d.ok && now - d.seen > 2.0) {
+            d.ok = false;
+        }
+    }
+}
+
+static RECT HudRect(const DashBox& d) {
+    float pad = 0.005f;
+    RECT r;
+    r.left = std::max(0L, (LONG)((d.x0 - pad) * s_eyeW));
+    r.top = std::max(0L, (LONG)((d.y0 - pad) * s_eyeH));
+    r.right = std::min((LONG)s_eyeW, (LONG)((d.x1 + pad) * s_eyeW));
+    r.bottom = std::min((LONG)s_eyeH, (LONG)((d.y1 + pad) * s_eyeH));
+    return r;
+}
+
+// In the HUD phase's end, with the HUD in s_eyeSurf[2]: the panel's picture from it, then those
+// parts cleared from the HUD the headset (and the spectator) shows.
+static void ComposeDash() {
+    bool on = s_dashThisFrame;
+    s_dashThisFrame = false;
+    s_dashEye.on = false;                        // until the next frame's eyes say so
+    if (!on || !s_hudValid || !s_eyeSurf[2] || s_uiMenuOpen > 0.5f || !EnsureDash()) return;
+    if (D3D_ProfNow() - s_lastProbe > 0.3) {
+        s_lastProbe = D3D_ProfNow();
+        ProbeHud();
+    }
+    RECT src[DASH_PARTS];
+    float w[DASH_PARTS] = {}, h[DASH_PARTS] = {};
+    for (int i = 0; i < DASH_PARTS; i++) {
+        if (!s_dashBox[i].ok) continue;
+        src[i] = HudRect(s_dashBox[i]);
+        w[i] = (float)(src[i].right - src[i].left);
+        h[i] = (float)(src[i].bottom - src[i].top);
+        if (w[i] < 2 || h[i] < 2) s_dashBox[i].ok = false;
+    }
+    // The layout, in HUD pixels.
+    float gap = 0.03f * s_eyeW;
+    float copW = std::max(w[DASH_COP], s_copReserve[0] * s_eyeW), copH = std::max(h[DASH_COP], s_copReserve[1] * s_eyeH);
+    float W = std::max(w[DASH_MAP] + gap + w[DASH_SPEEDO], copW);
+    float H = std::max(h[DASH_MAP], h[DASH_SPEEDO]) + copH;
+    s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    if (W < 4 || H < 4) return;
+    float s = std::min(kDashTexW / W, kDashTexH / H);
+    s_dashU = W * s / kDashTexW;
+    s_dashV = H * s / kDashTexH;
+    s_dashAspect = H / W;
+    float at[DASH_PARTS][2] = {{0, H - h[DASH_MAP]}, {(W - w[DASH_COP]) / 2, (copH - h[DASH_COP]) / 2}, {W - w[DASH_SPEEDO], H - h[DASH_SPEEDO]}};
+    for (int i = 0; i < DASH_PARTS; i++) {
+        if (!s_dashBox[i].ok) continue;
+        RECT dst = {(LONG)(at[i][0] * s), (LONG)(at[i][1] * s), (LONG)((at[i][0] + w[i]) * s), (LONG)((at[i][1] + h[i]) * s)};
+        if (dst.right <= dst.left || dst.bottom <= dst.top) continue;
+        s_dev->StretchRect(s_eyeSurf[2], &src[i], s_dashSurf, &dst, D3DTEXF_LINEAR);
+        s_dev->ColorFill(s_eyeSurf[2], &src[i], D3DCOLOR_ARGB(0, 0, 0, 0));
+    }
+}
+
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
 static bool FromGame(void* addr) {
     static uintptr_t end;
@@ -1018,6 +1302,7 @@ static void EndHudPhase() {
     if (cur == s_hudRT) s_dev->SetRenderTarget(0, s_backBuffer);
     if (cur) cur->Release();
     s_hudValid = s_eyeSurf[2] && SUCCEEDED(s_dev->StretchRect(s_hudRT, nullptr, s_eyeSurf[2], nullptr, D3DTEXF_NONE));
+    ComposeDash();
     if (s_hudValid && s_hudInEyes < 2 && Spectator_Mode() == SpectatorMode::Eye)
         Spectator_BlendFullscreen(s_dev, s_eyeTex[2], s_eyeW, s_eyeH);
     s_backBuffer->Release();
@@ -1320,6 +1605,7 @@ public:
             !DrawWheelMarked(real, type, base, minIndex, verts, start, count, &hr))
             hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
         AfterModelDraw();
+        AfterModelDrawDash();
         return hr;
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
@@ -1522,6 +1808,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "HideArms")) return &g_cfg.hideArms;
     if (!strcmp(name, "WheelOverHud")) return &g_cfg.wheelOverHud;
     if (!strcmp(name, "HudPerCar")) return &g_cfg.hudPerCar;
+    if (!strcmp(name, "Dash")) return &g_cfg.dash;
+    if (!strcmp(name, "DashRight")) return &g_cfg.dashRight;
+    if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
+    if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
     if (!strcmp(name, "MenuOpen")) return &s_uiMenuOpen;
     if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "MirrorContrast")) return &g_cfg.mirrorContrast;
