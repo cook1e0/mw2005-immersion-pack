@@ -272,6 +272,8 @@ const struct {
     {MOD_VR, "DashAdjust", 0.0f}, {MOD_VR, "DashHighlight", -1.0f},   // live: the Adjust dashboard page is open
     {MOD_VR, "EditorOn", 0.0f}, {MOD_VR, "EditCommand", 0.0f},        // live: the Triangle editor page, its command
     {MOD_VR, "EditBrush", 0.0f},
+    {MOD_VR, "EditPicking", 0.0f}, {MOD_VR, "EditLayer", 0.0f},   // live: picking with the menu hidden
+    {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -282,7 +284,8 @@ enum {
     VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS,
     VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER,
     VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
-    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH, EXT_COUNT
+    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH,
+    VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -675,10 +678,14 @@ const Item kItems[] = {
 
     PAGE_("TRIANGLE EDITOR"),
     LINK_("< Back", "VR"),
-    HEADER_("LOOK AT IT: THE HIGHLIGHTED TRIANGLES"),
-    {NUMBER, "Brush size", "VR", "EditBrush", &s_ext[VR_EDITBRUSH], 0.0f, 0.3f, 0.005f, 100, "%.1f cm", 0},
+    HEADER_("PICK"),
+    {ACTION, "Pick triangles (the menu hides)", nullptr, "EdPick", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Selection size", "VR", "EditMode", &s_ext[VR_EDITMODE], 0.0f, 5.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("DO WITH THE SELECTION"),
     {ACTION, "Hide", nullptr, "EdHide", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Draw black", nullptr, "EdBlack", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Add to the dashboard blackout", nullptr, "EdDash", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Take off the dashboard blackout", nullptr, "EdNoDash", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Add to the steering wheel", nullptr, "EdWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Take off the steering wheel", nullptr, "EdNoWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restore", nullptr, "EdRestore", nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -846,6 +853,62 @@ std::string LinkSummary(const char* page) {
     return "";
 }
 
+// Triangle editor picking: the menu hides and the VR mod's selection follows the gaze. Menu up / down
+// step through the triangles along it (nearest first), left / right change the selection's size;
+// the menu key or Enter keeps the selection and brings the menu back, Escape leaves it.
+const char* const kPickSizes[6] = {"1 triangle", "Within 2 cm", "Within 5 cm", "Within 10 cm", "Connected piece", "Whole draw entry"};
+bool s_picking = false;
+
+void UpdateVrPages();
+void SetOpen(bool open);
+
+void StartPicking() {
+    float* picking = ExtSetting(VR_EDITPICKING);
+    if (!picking) {
+        Note("No VR mod");
+        return;
+    }
+    *picking = 1;
+    if (float* layer = ExtSetting(VR_EDITLAYER)) *layer = 0;
+    s_picking = true;
+    Log("ui: picking triangles");
+    SetOpen(false);
+}
+
+void StopPicking(bool keep) {
+    s_picking = false;
+    if (float* picking = ExtSetting(VR_EDITPICKING)) *picking = 0;
+    SetOpen(true);
+    float* picked = ExtSetting(VR_EDITPICKED);
+    int n = picked ? (int)lrintf(*picked) : 0;
+    Note(keep ? (n ? "Picked " + std::to_string(n) + (n == 1 ? " triangle" : " triangles") : std::string("Nothing picked"))
+              : std::string("Picking cancelled"));
+    Log("ui: picking %s (%d triangles)", keep ? "done" : "cancelled", n);
+}
+
+// While picking, in place of the menu's own keys.
+void UpdatePicking(int toggles, const int nav[4]) {
+    static bool enterWas = true, escWas = true;
+    bool enter = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0, esc = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
+    bool enterHit = enter && !enterWas, escHit = esc && !escWas;
+    enterWas = enter;
+    escWas = esc;
+    if (escHit) {
+        if (float* cmd = ExtSetting(VR_EDITCOMMAND)) *cmd = 9;   // the selection dropped
+        StopPicking(false);
+        return;
+    }
+    if ((toggles & 1) || enterHit) {
+        StopPicking(true);
+        return;
+    }
+    if (float* layer = ExtSetting(VR_EDITLAYER)) *layer = std::max(0.0f, *layer - nav[0] + nav[1]);
+    if (float* mode = ExtSetting(VR_EDITMODE)) {
+        *mode = Clamp(*mode - nav[2] + nav[3], 0.0f, 5.0f);
+        s_ext[VR_EDITMODE] = *mode;
+    }
+}
+
 std::string ValueText(const Item& it, int index) {
     char buf[64];
     if (it.value == &g_cfg.sequential) return g_cfg.sequential ? "Sequential" : "H-pattern";
@@ -872,6 +935,7 @@ std::string ValueText(const Item& it, int index) {
     for (int el = 0; el < 5; el++)
         if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
     if (it.value == &s_ext[VR_EDITBRUSH] && v <= 0.0f) return "1 triangle";
+    if (it.value == &s_ext[VR_EDITMODE]) return kPickSizes[std::max(0, std::min(5, (int)lrintf(v)))];
     if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS] || it.value == &s_ext[VR_WHEELOVERHUD] ||
         it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH])
         return v > 0.5f ? "On" : "Off";
@@ -1115,7 +1179,12 @@ void Change(int index, int dir) {
         if (strncmp(it.key, "Ed", 2) == 0) {
             static const struct { const char* key; int cmd; const char* note; } kEd[] = {
                 {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
-                {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"}};
+                {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
+                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"}};
+            if (strcmp(it.key, "EdPick") == 0) {
+                StartPicking();
+                return;
+            }
             float* cmd = ExtSetting(VR_EDITCOMMAND);
             for (const auto& e : kEd)
                 if (strcmp(it.key, e.key) == 0) {
@@ -1226,7 +1295,7 @@ void UpdateVrPages() {
     float* highlight = ExtSetting(VR_DASHHIGHLIGHT);
     float* editor = ExtSetting(VR_EDITORON);
     if (adjust) *adjust = strcmp(page, "ADJUST DASHBOARD") == 0 ? 1.0f : 0.0f;
-    if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 ? 1.0f : 0.0f;
+    if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 || s_picking ? 1.0f : 0.0f;
     if (highlight) {
         *highlight = -1;
         const void* v = s_menu.open && s_menu.sel >= 0 && s_menu.sel < kNumItems ? kItems[s_menu.sel].value : nullptr;
@@ -1295,6 +1364,10 @@ void UpdateMenu(const InputSnapshot& in, bool driving) {
             CancelCapture();
             Note("Nothing pressed, cancelled");
         }
+        return;
+    }
+    if (s_picking) {
+        UpdatePicking(toggles, nav);
         return;
     }
     if (toggles & 1) SetOpen(!s_menu.open);
@@ -1452,6 +1525,7 @@ const struct {
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
     {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
+    {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},

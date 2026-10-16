@@ -80,6 +80,8 @@ void D3D_AddDash(void* indexBuffer, const float origin[3], const float right[3],
 // depth (black triangles of the triangle editor, the car's own gauges), translucent ones don't
 // (the editor's highlight). One batch per index buffer and colour per eye.
 void D3D_AddColorTris(void* indexBuffer, const float* xyz, int triangles, uint32_t argb);
+// Triangles (world) drawn over the finished eye right away, without depth test, in one colour.
+void D3D_DrawOverlay(const float* xyz, int triangles, uint32_t argb);
 
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.

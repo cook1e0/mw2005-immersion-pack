@@ -26,3 +26,5 @@ void Cockpit_BeginEye();
 // The headset's gaze in the world (centre of the eyes, forward), for the triangle editor's picking
 // in the next frame.
 void Cockpit_SetGaze(const float pos[3], const float dir[3]);
+// After each eye's scene: the triangle editor's selection and reticle drawn over it.
+void Cockpit_EndEye();

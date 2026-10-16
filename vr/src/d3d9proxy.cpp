@@ -1220,6 +1220,33 @@ static void DrawDash() {
     }
 }
 
+// Triangles over the finished eye (no depth test: seen through what is in front), in one colour:
+// the triangle editor's reticle and selection.
+void D3D_DrawOverlay(const float* xyz, int triangles, uint32_t argb) {
+    if (!s_dev || !s_colorEye || triangles <= 0) return;
+    IDirect3DSurface9* bb = nullptr;
+    if (FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return;
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) {
+        bb->Release();
+        return;
+    }
+    IDirect3DSurface9* rt = nullptr;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->SetRenderTarget(0, bb);
+    SetPanelState(s_dashEye.view, s_dashEye.proj);
+    SetColor(argb);
+    s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+    s_dev->SetFVF(D3DFVF_XYZ);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)triangles, xyz, 3 * sizeof(float));
+    s_dev->SetRenderTarget(0, rt);
+    saved->Apply();
+    saved->Release();
+    if (rt) rt->Release();
+    bb->Release();
+}
+
 static void DrawColorTris(ColorTris& c) {
     IDirect3DStateBlock9* saved = nullptr;
     if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
@@ -1433,6 +1460,13 @@ static void ComposeDash() {
                              {mx1, my0, (LONG)s_eyeW, my1}};
     for (const RECT& r : outside)
         if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
+    // The parts on the dashboard are painted out too where they reach into the message zone (the
+    // cop radar's top).
+    for (int i = 0; i < DASH_PARTS; i++)
+        if (s_dashBox[i].ok) {
+            RECT r = HudRect(s_dashBox[i]);
+            s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
+        }
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
@@ -2000,6 +2034,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "EditorOn")) return &g_cfg.editorOn;
     if (!strcmp(name, "EditCommand")) return &g_cfg.editCommand;
     if (!strcmp(name, "EditBrush")) return &g_cfg.editBrush;
+    if (!strcmp(name, "EditPicking")) return &g_cfg.editPicking;
+    if (!strcmp(name, "EditLayer")) return &g_cfg.editLayer;
+    if (!strcmp(name, "EditMode")) return &g_cfg.editMode;
+    if (!strcmp(name, "EditPicked")) return &g_cfg.editPicked;
     // Dash<Element>X / Y / Size, Config::dashEl.
     for (int i = 0; i < DASH_EL_COUNT; i++) {
         size_t n = strlen(kDashElKey[i]);

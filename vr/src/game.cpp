@@ -645,6 +645,7 @@ void __cdecl hkRenderScene() {
         s_secondEye = false;
         EndMirrors();
         D3D_EndWheelEye();
+        Cockpit_EndEye();
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;

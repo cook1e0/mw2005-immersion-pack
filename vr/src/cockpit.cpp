@@ -135,6 +135,7 @@ struct TriRef {
     uint16_t v[3];                                  // as wound in the index buffer
     int entry;                                      // draw entry
     uint64_t id;
+    bool hidden = false;                            // made zero-area in the index buffer (still pickable)
 };
 
 // The triangle editor's changes to one solid (by name, e.g. IS300_KIT00_INTERIOR_A), saved in
@@ -142,7 +143,7 @@ struct TriRef {
 // off the steering wheel, and kept out of the automatic gauge blackout.
 struct EditSet {
     std::map<uint64_t, std::array<uint16_t, 3>> hide;   // with the original winding, to put it back
-    std::set<uint64_t> black, wheel, noWheel, noAuto;
+    std::set<uint64_t> black, wheel, noWheel, noAuto, dash;   // dash: added to the dashboard blackout
     bool loaded = false;
 };
 std::unordered_map<std::string, EditSet> s_edits;
@@ -199,11 +200,11 @@ EditSet& EditsFor(const std::string& solidName) {
         return ParseTris(buf.data());
     };
     for (auto& t : read("Hide")) e.hide[TriId(t[0], t[1], t[2])] = t;
-    std::set<uint64_t>* sets[4] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto};
-    const char* keys[4] = {"Black", "Wheel", "NoWheel", "NoAuto"};
-    for (int k = 0; k < 4; k++)
+    std::set<uint64_t>* sets[5] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto, &e.dash};
+    const char* keys[5] = {"Black", "Wheel", "NoWheel", "NoAuto", "Dash"};
+    for (int k = 0; k < 5; k++)
         for (auto& t : read(keys[k])) sets[k]->insert(TriId(t[0], t[1], t[2]));
-    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size() + e.noAuto.size();
+    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size() + e.noAuto.size() + e.dash.size();
     if (n) Log("editor: %s: %u edited triangles loaded", solidName.c_str(), (unsigned)n);
     return e;
 }
@@ -212,10 +213,10 @@ void SaveEdits(const std::string& solidName) {
     const EditSet& e = EditsFor(solidName);
     std::vector<std::array<uint16_t, 3>> hide;
     for (auto& h : e.hide) hide.push_back(h.second);
-    const std::set<uint64_t>* sets[4] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto};
-    const char* keys[4] = {"Black", "Wheel", "NoWheel", "NoAuto"};
+    const std::set<uint64_t>* sets[5] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto, &e.dash};
+    const char* keys[5] = {"Black", "Wheel", "NoWheel", "NoAuto", "Dash"};
     WritePrivateProfileStringA(solidName.c_str(), "Hide", hide.empty() ? nullptr : TrisText(hide).c_str(), EditsPath());
-    for (int k = 0; k < 4; k++) {
+    for (int k = 0; k < 5; k++) {
         std::vector<std::array<uint16_t, 3>> v;
         for (uint64_t id : *sets[k]) v.push_back(IdTri(id));
         WritePrivateProfileStringA(solidName.c_str(), keys[k], v.empty() ? nullptr : TrisText(v).c_str(), EditsPath());
@@ -246,7 +247,8 @@ struct SolidInfo {
     std::vector<TriRef> tris;
     bool trisDirty = true;
     std::map<uint64_t, std::array<uint16_t, 3>> hidden;
-    std::vector<V3> blackEdit, blackGauges;         // model space, 3 points per triangle
+    int hiddenDash = -1;                            // the dashboard's state (on / off) the hides were applied for
+    std::vector<V3> black;                          // model space, 3 points per triangle
     bool blackDirty = true;
 };
 std::unordered_map<uint8_t*, SolidInfo> s_solids;
@@ -772,7 +774,7 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
             if (valid && edits.wheel.count(id)) on = true;
             else if (valid && edits.noWheel.count(id)) on = false;
             (on ? wheel : keep).insert((on ? wheel : keep).end(), tri, tri + 3);
-            if (!on && valid) rest.push_back({{pts[tri[0]], pts[tri[1]], pts[tri[2]]}, {tri[0], tri[1], tri[2]}, i, id});
+            if (!on && valid && tri[0] != tri[1] && tri[1] != tri[2] && tri[0] != tri[2]) rest.push_back({{pts[tri[0]], pts[tri[1]], pts[tri[2]]}, {tri[0], tri[1], tri[2]}, i, id});
         }
         w->kept[i] = (int)keep.size() / 3;
         w->turned[i] = (int)wheel.size() / 3;
@@ -861,6 +863,7 @@ const HeadPos* CarHead(const char* name) {
 }
 
 void ApplyHides(uint8_t* solid, SolidInfo& info);
+void RestoreAll(uint8_t* solid, SolidInfo& info);
 
 SolidInfo* GetSolid(uint8_t* solid) {
     SolidInfo now;
@@ -879,8 +882,10 @@ SolidInfo* GetSolid(uint8_t* solid) {
             // An interior seen before its car's driver: look for the wheel once the head is known.
             if (was.interior && !was.wheel && g_cfg.steeringWheel) {
                 if (const HeadPos* head = CarHead(name)) {
+                    RestoreAll(solid, was);
                     was.wheel = PrepareWheel(solid, name, head->v);
                     was.indexHash = CurrentHash(now);
+                    ApplyHides(solid, was);
                 }
             }
             return &was;
@@ -1421,12 +1426,16 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
 }
 
 // --- triangle editor -------------------------------------------------------------------------------
-// F4 > VR > Triangle editor: the triangle of the player car looked at (the line from between the
-// eyes, straight ahead) and those within the brush's radius around it are highlighted; the page's
-// commands hide them (made zero-area in the index buffer: (a, b, b)), draw them black (a copy 2 mm
-// toward the eye, writing depth, over the original), put them on or take them off the steering
-// wheel (it is prepared again), or restore them (which also keeps them out of the automatic gauge
-// blackout); undo goes back one command. Saved per solid in nfsmw_vr_edits.ini.
+// F4 > VR > Triangle editor. Picking ("Pick triangles": the menu hides): every triangle of the player
+// car on the line from between the eyes, straight ahead, is a candidate; the menu's up / down step
+// through them from the nearest, left / right change the selection's size (one triangle, within
+// 2 / 5 / 10 cm, the connected piece, the whole draw entry). A reticle marks the point and the
+// selection is shown over everything (also when behind something); the menu key confirms. The
+// page's commands then hide the selection, draw it black, put it on or take it off the steering
+// wheel (prepared again), add it to or take it off the dashboard blackout, restore it, or undo.
+// Hidden and black triangles (and the car's own gauges while the dashboard shows) are made
+// zero-area in the index buffer, (a, b, b); black ones are drawn again in black in their place, so
+// nothing is left to fight with. Saved per solid in nfsmw_vr_edits.ini.
 
 V3 s_gazePos, s_gazeDir;
 bool s_haveGaze = false;
@@ -1435,16 +1444,21 @@ struct Pick {
     std::string name;
     uint64_t id = 0;
     V3 hit{};                                       // model space
+    V3 hitWorld{};
     float dist = 1e9f;
 };
-Pick s_pickFrame, s_pick;                           // nearest this frame; the one in use
-std::vector<uint64_t> s_brush;                      // s_pick's triangles under the brush
-float s_brushRadius = -1;
+std::vector<Pick> s_hits;                           // this frame's candidates along the gaze
+Pick s_pick;                                        // the one in use
+std::vector<uint64_t> s_brush;                      // s_pick's selection
 uint64_t s_brushFor = 0;
+int s_brushMode = -1;
 struct Undo { std::string name; EditSet set; };
 std::vector<Undo> s_undo;
 int s_eyeIndex = 0;                                 // eye being rendered (Cockpit_BeginEye counts them)
-std::set<uint8_t*> s_eyeDone, s_frameDone;         // solids whose triangles were added this eye / picked this frame
+std::set<uint8_t*> s_eyeDone, s_frameDone;         // solids handled this eye / picked this frame
+std::vector<float> s_overlay;                       // this eye's selection, world (drawn over the eye)
+
+bool EditorLive() { return g_cfg.editorOn > 0.5f || g_cfg.editPicking > 0.5f; }
 
 std::string SolidName(const SolidInfo& info) {
     char name[65] = {};
@@ -1460,6 +1474,7 @@ struct SolidMesh {
     uint16_t* indices = nullptr;
     IDirect3DIndexBuffer9* ib = nullptr;
     const float* pos(int v) const { return (const float*)(verts + v * stride); }
+    V3 at(int v) const { const float* p = pos(v); return {p[0], p[1], p[2]}; }
 };
 
 bool ReadMesh(uint8_t* solid, SolidMesh& s) {
@@ -1480,6 +1495,7 @@ bool ReadMesh(uint8_t* solid, SolidMesh& s) {
     return s.verts && s.stride >= 12 && s.stride <= 128 && s.numVerts > 0;
 }
 
+// The solid's triangles, the hidden ones included (where they were), for picking.
 void BuildTris(uint8_t* solid, SolidInfo& info) {
     info.tris.clear();
     info.trisDirty = false;
@@ -1491,17 +1507,30 @@ void BuildTris(uint8_t* solid, SolidInfo& info) {
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
         if (tris <= 0 || first < 0 || first + tris * 3 > s.numIndices) continue;
         for (int t = 0; t < tris; t++) {
-            const uint16_t* tri = s.indices + first + t * 3;
+            int p = first + t * 3;
+            const uint16_t* tri = s.indices + p;
             if (tri[0] >= s.numVerts || tri[1] >= s.numVerts || tri[2] >= s.numVerts) continue;
-            if (tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2]) continue;   // hidden (or empty)
+            bool empty = tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2];
+            uint16_t v[3] = {tri[0], tri[1], tri[2]};
+            if (empty) {
+                // One of ours, (a, b, b): the triangle it was.
+                bool found = false;
+                for (auto& h : info.hidden)
+                    if (h.second[0] == tri[0] && h.second[1] == tri[1] && tri[2] == tri[1]) {
+                        memcpy(v, h.second.data(), 6);
+                        found = true;
+                        break;
+                    }
+                if (!found || v[2] >= s.numVerts) continue;
+            }
             TriRef r;
             for (int k = 0; k < 3; k++) {
-                const float* p = s.pos(tri[k]);
-                r.p[k] = {p[0], p[1], p[2]};
-                r.v[k] = tri[k];
+                r.p[k] = s.at(v[k]);
+                r.v[k] = v[k];
             }
             r.entry = i;
-            r.id = TriId(tri[0], tri[1], tri[2]);
+            r.id = TriId(v[0], v[1], v[2]);
+            r.hidden = empty;
             info.tris.push_back(r);
         }
     }
@@ -1516,16 +1545,38 @@ bool WriteIndices(const SolidMesh& s, int at, const uint16_t v[3]) {
     return true;
 }
 
-// The edits' hidden triangles applied to the solid's index buffer: newly hidden ones made (a, b, b),
-// ones no longer hidden put back.
+bool DashShown() { return g_cfg.dash > 0.5f; }
+
+// The car's own gauges drawn black with the dashboard: found automatically, plus those added by
+// hand, less those taken off, drawn black or hidden by hand.
+std::set<uint64_t> Gauges(const SolidInfo& info, const EditSet& e) {
+    std::set<uint64_t> g(e.dash.begin(), e.dash.end());
+    if (info.wheel && info.wheel->dashOk) g.insert(info.wheel->gauges.begin(), info.wheel->gauges.end());
+    for (auto it = g.begin(); it != g.end();)
+        it = e.noAuto.count(*it) || e.black.count(*it) || e.hide.count(*it) ? g.erase(it) : std::next(it);
+    return g;
+}
+
+// What should be zero-area in the index buffer now: hidden, black, and the gauges while the
+// dashboard shows; applied by difference (newly hidden made (a, b, b), others put back).
 void ApplyHides(uint8_t* solid, SolidInfo& info) {
     EditSet& e = EditsFor(SolidName(info));
-    if (e.hide.empty() && info.hidden.empty()) return;
+    bool dash = DashShown();
+    std::set<uint64_t> want;
+    for (auto& h : e.hide) want.insert(h.first);
+    want.insert(e.black.begin(), e.black.end());
+    if (dash) {
+        std::set<uint64_t> g = Gauges(info, e);
+        want.insert(g.begin(), g.end());
+    }
+    info.hiddenDash = dash;
+    info.blackDirty = true;
+    if (want.empty() && info.hidden.empty()) return;
     SolidMesh s;
     if (!ReadMesh(solid, s)) return;
     bool changed = false;
     for (auto it = info.hidden.begin(); it != info.hidden.end();) {
-        if (e.hide.count(it->first)) {
+        if (want.count(it->first)) {
             ++it;
             continue;
         }
@@ -1537,15 +1588,15 @@ void ApplyHides(uint8_t* solid, SolidInfo& info) {
             }
         it = info.hidden.erase(it);
     }
-    for (auto& h : e.hide) {
-        if (info.hidden.count(h.first)) continue;
+    for (uint64_t id : want) {
+        if (info.hidden.count(id)) continue;
         for (int p = 0; p + 2 < s.numIndices; p += 3) {
             const uint16_t* t = s.indices + p;
-            if (TriId(t[0], t[1], t[2]) != h.first || t[0] == t[1] || t[1] == t[2]) continue;
+            if (t[0] == t[1] || t[1] == t[2] || TriId(t[0], t[1], t[2]) != id) continue;
             std::array<uint16_t, 3> wound = {t[0], t[1], t[2]};
             uint16_t gone[3] = {t[0], t[1], t[1]};
             if (WriteIndices(s, p, gone)) {
-                info.hidden[h.first] = wound;
+                info.hidden[id] = wound;
                 changed = true;
             }
             break;
@@ -1557,46 +1608,58 @@ void ApplyHides(uint8_t* solid, SolidInfo& info) {
     }
 }
 
-// The black triangles to draw, model space: the editor's, and the car's own gauges (automatic,
-// less those restored by hand).
+// The black triangles, model space, in place of the hidden originals: the editor's, and the gauges
+// while the dashboard shows.
 void UpdateBlack(uint8_t* solid, SolidInfo& info) {
-    if (info.trisDirty) BuildTris(solid, info);
     if (!info.blackDirty) return;
     info.blackDirty = false;
-    info.blackEdit.clear();
-    info.blackGauges.clear();
+    info.black.clear();
     const EditSet& e = EditsFor(SolidName(info));
-    std::set<uint64_t> gauges;
-    if (info.wheel && info.wheel->dashOk)
-        for (uint64_t id : info.wheel->gauges)
-            if (!e.noAuto.count(id) && !e.black.count(id)) gauges.insert(id);
-    if (e.black.empty() && gauges.empty()) return;
-    for (const TriRef& t : info.tris) {
-        std::vector<V3>* to = e.black.count(t.id) ? &info.blackEdit : gauges.count(t.id) ? &info.blackGauges : nullptr;
-        if (to) to->insert(to->end(), t.p, t.p + 3);
+    std::set<uint64_t> ids(e.black.begin(), e.black.end());
+    if (DashShown()) {
+        std::set<uint64_t> g = Gauges(info, e);
+        ids.insert(g.begin(), g.end());
+    }
+    if (ids.empty()) return;
+    SolidMesh s;
+    if (!ReadMesh(solid, s)) return;
+    for (uint64_t id : ids) {
+        std::array<uint16_t, 3> v = IdTri(id);
+        if (v[0] >= s.numVerts || v[1] >= s.numVerts || v[2] >= s.numVerts) continue;
+        for (int k = 0; k < 3; k++) info.black.push_back(s.at(v[k]));
     }
 }
 
-// Model-space triangles to the world for the current eye, each vertex lifted `lift` m toward it.
+V3 ToWorld(const V3& p, const float* m) {
+    return {p.x * m[0] + p.y * m[4] + p.z * m[8] + m[12], p.x * m[1] + p.y * m[5] + p.z * m[9] + m[13],
+            p.x * m[2] + p.y * m[6] + p.z * m[10] + m[14]};
+}
+
+// Model-space triangles to the world for the current eye, each vertex lifted `lift` m toward the
+// eyes (last frame's gaze position: the game camera's own is not where the eyes are).
 void AddColor(void* ib, const std::vector<V3>& tris, const float* m, float lift, uint32_t argb) {
     if (tris.empty()) return;
-    void* cam = At<void*>((void*)kPlayerView, kViewCamera);
-    if (!cam) return;
-    const float* eye = &At<float>(cam, kCamPosition);
+    V3 eye = s_gazePos;
+    if (!s_haveGaze) {
+        void* cam = At<void*>((void*)kPlayerView, kViewCamera);
+        if (!cam) return;
+        const float* c = &At<float>(cam, kCamPosition);
+        eye = {c[0], c[1], c[2]};
+    }
     std::vector<float> xyz(tris.size() * 3);
     for (size_t i = 0; i < tris.size(); i++) {
-        const V3& p = tris[i];
-        float w[3];
-        for (int a = 0; a < 3; a++) w[a] = p.x * m[a] + p.y * m[4 + a] + p.z * m[8 + a] + m[12 + a];
-        float d[3] = {eye[0] - w[0], eye[1] - w[1], eye[2] - w[2]};
-        float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        V3 w = ToWorld(tris[i], m);
+        V3 d = Sub(eye, w);
+        float len = sqrtf(Dot(d, d));
         float k = len > 1e-4f ? std::min(lift, len * 0.5f) / len : 0.0f;
-        for (int a = 0; a < 3; a++) xyz[i * 3 + a] = w[a] + d[a] * k;
+        xyz[i * 3] = w.x + d.x * k;
+        xyz[i * 3 + 1] = w.y + d.y * k;
+        xyz[i * 3 + 2] = w.z + d.z * k;
     }
     D3D_AddColorTris(ib, xyz.data(), (int)tris.size() / 3, argb);
 }
 
-// The gaze against the solid's triangles (drawn with `m`): the nearest hit this frame.
+// The gaze against the solid's triangles (drawn with `m`): every hit is a candidate.
 void PickIn(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.trisDirty) BuildTris(solid, info);
     V3 ax[3] = {{m[0], m[1], m[2]}, {m[4], m[5], m[6]}, {m[8], m[9], m[10]}};
@@ -1610,31 +1673,77 @@ void PickIn(uint8_t* solid, SolidInfo& info, const float* m) {
         *oc[i] = Dot(rel, ax[i]) / l2;
         *dc[i] = Dot(s_gazeDir, ax[i]) / l2;
     }
+    std::string name = SolidName(info);
     for (const TriRef& t : info.tris) {
         float hit;
-        if (!RayTriangle(o, d, t.p[0], t.p[1], t.p[2], &hit) || hit < 0.02f || hit >= s_pickFrame.dist) continue;
-        s_pickFrame.dist = hit;   // world metres: the map from model to world is affine
-        s_pickFrame.solid = solid;
-        s_pickFrame.name = SolidName(info);
-        s_pickFrame.id = t.id;
-        s_pickFrame.hit = o + d * hit;
+        if (!RayTriangle(o, d, t.p[0], t.p[1], t.p[2], &hit) || hit < 0.02f || hit > 6.0f) continue;
+        Pick p;
+        p.solid = solid;
+        p.name = name;
+        p.id = t.id;
+        p.hit = o + d * hit;
+        p.hitWorld = s_gazePos + s_gazeDir * hit;   // the map from model to world is affine: t in metres
+        p.dist = hit;
+        s_hits.push_back(p);
     }
 }
 
-// s_pick's triangles under the brush: the one looked at and those with their centre within the
-// brush's radius of the point looked at.
+// s_pick's selection for the size chosen (Config::editMode).
 void UpdateBrush(SolidInfo& info) {
-    if (s_brushFor == s_pick.id && s_brushRadius == g_cfg.editBrush && !info.trisDirty) return;
+    int mode = std::max(0, std::min(5, (int)lrintf(g_cfg.editMode)));
+    if (s_brushFor == s_pick.id && s_brushMode == mode && !info.trisDirty) return;
     s_brushFor = s_pick.id;
-    s_brushRadius = g_cfg.editBrush;
+    s_brushMode = mode;
     s_brush.assign(1, s_pick.id);
-    float r = std::max(0.0f, g_cfg.editBrush);
-    if (r <= 0) return;
-    for (const TriRef& t : info.tris) {
-        V3 c = (t.p[0] + t.p[1] + t.p[2]) * (1.0f / 3);
-        V3 dd = Sub(c, s_pick.hit);
-        if (t.id != s_pick.id && Dot(dd, dd) < r * r) s_brush.push_back(t.id);
+    const TriRef* picked = nullptr;
+    for (const TriRef& t : info.tris)
+        if (t.id == s_pick.id) picked = &t;
+    if (!picked || mode == 0) return;
+    if (mode <= 3) {
+        const float radius[4] = {0, 0.02f, 0.05f, 0.10f};
+        float r = radius[mode];
+        for (const TriRef& t : info.tris) {
+            V3 dd = Sub((t.p[0] + t.p[1] + t.p[2]) * (1.0f / 3), s_pick.hit);
+            if (t.id != s_pick.id && Dot(dd, dd) < r * r) s_brush.push_back(t.id);
+        }
+    } else if (mode == 4) {
+        // The connected piece: triangles sharing vertices, spreading from the one picked.
+        std::unordered_map<uint16_t, std::vector<int>> byVertex;
+        for (int i = 0; i < (int)info.tris.size(); i++)
+            for (int k = 0; k < 3; k++) byVertex[info.tris[i].v[k]].push_back(i);
+        std::vector<char> seen(info.tris.size(), 0);
+        std::vector<int> todo(1, (int)(picked - info.tris.data()));
+        seen[todo[0]] = 1;
+        while (!todo.empty()) {
+            int i = todo.back();
+            todo.pop_back();
+            if (info.tris[i].id != s_pick.id) s_brush.push_back(info.tris[i].id);
+            for (int k = 0; k < 3; k++)
+                for (int j : byVertex[info.tris[i].v[k]])
+                    if (!seen[j]) {
+                        seen[j] = 1;
+                        todo.push_back(j);
+                    }
+        }
+    } else {
+        for (const TriRef& t : info.tris)
+            if (t.entry == picked->entry && t.id != s_pick.id) s_brush.push_back(t.id);
     }
+}
+
+// Every triangle made zero-area put back (the wheel and the gauges are found from whole triangles).
+void RestoreAll(uint8_t* solid, SolidInfo& info) {
+    SolidMesh s;
+    if (info.hidden.empty() || !ReadMesh(solid, s)) return;
+    for (auto& h : info.hidden)
+        for (int p = 0; p + 2 < s.numIndices; p += 3)
+            if (s.indices[p] == h.second[0] && s.indices[p + 1] == h.second[1] && s.indices[p + 2] == h.second[1]) {
+                WriteIndices(s, p, h.second.data());
+                break;
+            }
+    info.hidden.clear();
+    info.indexHash = CurrentHash(info);
+    info.trisDirty = info.blackDirty = true;
 }
 
 // Prepares the steering wheel of every loaded solid with that name again (after wheel edits).
@@ -1644,6 +1753,7 @@ void RePrepareWheels(const std::string& name) {
         if (!info.interior || SolidName(info) != name) continue;
         const HeadPos* head = CarHead(name.c_str());
         if (!head) continue;
+        RestoreAll(kv.first, info);
         if (info.wheel) s_retiredWheels.push_back(info.wheel);
         info.wheel = PrepareWheel(kv.first, name.c_str(), head->v);
         info.indexHash = CurrentHash(info);
@@ -1661,7 +1771,7 @@ void ApplyEditsTo(const std::string& name, bool wheel) {
     s_brushFor = 0;
 }
 
-// The F4 page's command for the triangles under the brush (see Config::editCommand).
+// The F4 page's command for the selection (see Config::editCommand).
 void RunEditCommand(int cmd) {
     if (cmd == 6) {
         if (s_undo.empty()) {
@@ -1681,7 +1791,7 @@ void RunEditCommand(int cmd) {
     }
     auto it = s_solids.find(s_pick.solid);
     if (!s_pick.solid || it == s_solids.end() || SolidName(it->second) != s_pick.name || s_brush.empty()) {
-        Log("editor: nothing looked at");
+        Log("editor: nothing picked");
         return;
     }
     SolidInfo& info = it->second;
@@ -1715,38 +1825,83 @@ void RunEditCommand(int cmd) {
                 wheel |= e.wheel.erase(id) + e.noWheel.erase(id) > 0;
                 e.hide.erase(id);
                 e.black.erase(id);
+                e.dash.erase(id);
+                e.noAuto.insert(id);
+                break;
+            case 7:
+                e.dash.insert(id);
+                e.noAuto.erase(id);
+                e.hide.erase(id);
+                e.black.erase(id);
+                break;
+            case 8:
+                e.dash.erase(id);
                 e.noAuto.insert(id);
                 break;
         }
     }
-    static const char* kWhat[] = {"", "hidden", "black", "on the steering wheel", "off the steering wheel", "restored"};
+    static const char* kWhat[] = {"", "hidden", "black", "on the steering wheel", "off the steering wheel", "restored", "",
+                                  "added to the dashboard blackout", "taken off the dashboard blackout"};
     Log("editor: %s: %u triangles %s", s_pick.name.c_str(), (unsigned)s_brush.size(), kWhat[cmd]);
     SaveEdits(s_pick.name);
     ApplyEditsTo(s_pick.name, wheel);
 }
 
-// For each player car solid as it is submitted (m: its matrix): its black triangles, the editor's
-// highlight, and picking. Once per solid per eye.
+// For each player car solid as it is submitted (m: its matrix): its black triangles, picking and the
+// selection. Once per solid per eye.
 void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     if (!s_eyeDone.insert(solid).second) return;
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
+    if (info.hiddenDash != (int)DashShown()) ApplyHides(solid, info);
     UpdateBlack(solid, info);
-    if (g_cfg.dash > 0.5f && !info.blackGauges.empty()) {
-        std::vector<V3> all = info.blackEdit;
-        all.insert(all.end(), info.blackGauges.begin(), info.blackGauges.end());
-        AddColor(ib, all, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
-    } else {
-        AddColor(ib, info.blackEdit, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
-    }
-    if (g_cfg.editorOn < 0.5f || !s_haveGaze) return;
-    if (s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
+    AddColor(ib, info.black, m, 0.001f, D3DCOLOR_ARGB(255, 0, 0, 0));
+    if (!EditorLive() || !s_haveGaze) return;
+    if (g_cfg.editPicking > 0.5f && s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
     if (solid != s_pick.solid || SolidName(info) != s_pick.name) return;
+    if (info.trisDirty) BuildTris(solid, info);
     UpdateBrush(info);
+    g_cfg.editPicked = (float)s_brush.size();
     std::set<uint64_t> brush(s_brush.begin(), s_brush.end());
-    std::vector<V3> tris;
     for (const TriRef& t : info.tris)
-        if (brush.count(t.id)) tris.insert(tris.end(), t.p, t.p + 3);
-    AddColor(ib, tris, m, 0.003f, D3DCOLOR_ARGB(140, 255, 200, 0));
+        if (brush.count(t.id))
+            for (int k = 0; k < 3; k++) {
+                V3 w = ToWorld(t.p[k], m);
+                s_overlay.push_back(w.x);
+                s_overlay.push_back(w.y);
+                s_overlay.push_back(w.z);
+            }
+}
+
+// After an eye's scene: the selection over everything, and the reticle where the gaze hits (or
+// a metre ahead), a small cross facing the eyes.
+void DrawEditorOverlay() {
+    if (!EditorLive()) {
+        s_overlay.clear();
+        return;
+    }
+    if (!s_overlay.empty()) D3D_DrawOverlay(s_overlay.data(), (int)s_overlay.size() / 9, D3DCOLOR_ARGB(110, 255, 200, 0));
+    s_overlay.clear();
+    if (g_cfg.editPicking < 0.5f || !s_haveGaze) return;
+    bool hit = s_pick.solid != nullptr;
+    V3 c = hit ? s_pick.hitWorld : s_gazePos + s_gazeDir;
+    float dist = sqrtf(Dot(Sub(c, s_gazePos), Sub(c, s_gazePos)));
+    float r = std::max(0.002f, dist * 0.008f), t = r * 0.18f;
+    V3 up = {0, 0, 1};
+    V3 right = Cross(s_gazeDir, up);
+    if (Dot(right, right) < 1e-6f) right = {1, 0, 0};
+    right = Norm(right);
+    up = Norm(Cross(right, s_gazeDir));
+    std::vector<float> xyz;
+    auto quad = [&](V3 a, V3 b, V3 cc, V3 d) {
+        for (const V3& p : {a, b, cc, a, cc, d}) {
+            xyz.push_back(p.x);
+            xyz.push_back(p.y);
+            xyz.push_back(p.z);
+        }
+    };
+    quad(c - right * r + up * t, c + right * r + up * t, c + right * r - up * t, c - right * r - up * t);
+    quad(c - right * t + up * r, c + right * t + up * r, c + right * t - up * r, c - right * t - up * r);
+    D3D_DrawOverlay(xyz.data(), (int)xyz.size() / 9, hit ? D3DCOLOR_ARGB(255, 255, 60, 0) : D3DCOLOR_ARGB(255, 120, 120, 120));
 }
 
 // The seated driver's ranges set by OnSubmit: s_driverParts entries from s_driverEntry.
@@ -1997,20 +2152,33 @@ bool Cockpit_ApplySeat(M4& view) {
 }
 
 void Cockpit_EndFrame() {
-    // Triangle editor: this frame's pick is the one the highlight and commands use; then the command.
-    if (g_cfg.editorOn > 0.5f) {
-        if (s_pickFrame.solid != s_pick.solid || s_pickFrame.id != s_pick.id) s_brushFor = 0;
-        s_pick = s_pickFrame;
-    } else {
+    // Triangle editor: while picking, the candidate along the gaze chosen with up / down (layer,
+    // nearest first) is the pick; otherwise the last one stays (locked) for the page's commands.
+    if (g_cfg.editPicking > 0.5f) {
+        std::sort(s_hits.begin(), s_hits.end(), [](const Pick& a, const Pick& b) { return a.dist < b.dist; });
+        int n = (int)s_hits.size();
+        int layer = std::max(0, std::min(n - 1, (int)lrintf(g_cfg.editLayer)));
+        if (n && g_cfg.editLayer > (float)(n - 1)) g_cfg.editLayer = (float)(n - 1);
+        Pick next = n ? s_hits[layer] : Pick();
+        if (next.solid != s_pick.solid || next.id != s_pick.id) s_brushFor = 0;
+        s_pick = next;
+        if (!n) g_cfg.editPicked = 0;
+    } else if (!EditorLive()) {
         s_pick = Pick();
     }
-    s_pickFrame = Pick();
+    s_hits.clear();
     s_frameDone.clear();
     s_eyeIndex = -1;
     int cmd = (int)lrintf(g_cfg.editCommand);
     if (cmd) {
         g_cfg.editCommand = 0;
-        if (cmd >= 1 && cmd <= 6) RunEditCommand(cmd);
+        if (cmd >= 1 && cmd <= 8) RunEditCommand(cmd);
+        if (cmd == 9) {   // picking cancelled: no selection
+            s_pick = Pick();
+            s_brush.clear();
+            s_brushFor = 0;
+            g_cfg.editPicked = 0;
+        }
     }
     for (Driver* d : s_retired) delete d;
     s_retired.clear();
@@ -2073,6 +2241,8 @@ void Cockpit_BeginEye() {
     s_eyeDone.clear();
     s_eyeIndex++;
 }
+
+void Cockpit_EndEye() { DrawEditorOverlay(); }
 
 void Cockpit_SetGaze(const float pos[3], const float dir[3]) {
     s_gazePos = {pos[0], pos[1], pos[2]};

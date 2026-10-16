@@ -69,6 +69,11 @@ struct Config {
     // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).
     float dashAdjust = 0, dashHighlight = -1;
     float editorOn = 0, editCommand = 0;
+    // Live from F4, not saved: picking (the menu hidden: the selection follows the gaze), which of
+    // the triangles along the gaze (0 = nearest), the selection's size (0 one triangle, 1..3 within
+    // 2 / 5 / 10 cm, 4 the connected piece, 5 the whole draw entry); out: triangles selected.
+    // Commands besides those above: 7 add to the dashboard blackout, 8 take off it, 9 drop the selection.
+    float editPicking = 0, editLayer = 0, editMode = 0, editPicked = 0;
     float editBrush = 0.0f;          // triangle editor brush radius (m, 0 = one triangle)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
