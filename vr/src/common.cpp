@@ -152,6 +152,11 @@ void LoadConfig() {
         c.dashEl[i][1] = ReadFloat(ini, key, NAN);
         snprintf(key, sizeof(key), "Dash%sSize", kDashElKey[i]);
         c.dashEl[i][2] = ReadFloat(ini, key, 1.0f);
+        static const char* const kEdge[4] = {"Left", "Top", "Right", "Bottom"};
+        for (int k = 0; k < 4; k++) {
+            snprintf(key, sizeof(key), "Dash%s%s", kDashElKey[i], kEdge[k]);
+            c.dashCrop[i][k] = ReadFloat(ini, key, c.dashCrop[i][k]);
+        }
     }
     c.editBrush = ReadFloat(ini, "EditBrush", c.editBrush);
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);

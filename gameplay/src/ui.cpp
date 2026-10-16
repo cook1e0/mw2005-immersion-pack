@@ -276,6 +276,12 @@ const struct {
     {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
     {MOD_VR, "DashDepth", 0.0f},
     {MOD_VR, "DashMsgX", 0.0f}, {MOD_VR, "DashMsgY", 0.12f}, {MOD_VR, "DashMsgSize", 1.0f},
+    {MOD_VR, "DashMapLeft", 0.165f}, {MOD_VR, "DashMapTop", 0.575f}, {MOD_VR, "DashMapRight", 0.415f}, {MOD_VR, "DashMapBottom", 0.835f},
+    {MOD_VR, "DashRadarLeft", 0.355f}, {MOD_VR, "DashRadarTop", 0.150f}, {MOD_VR, "DashRadarRight", 0.645f}, {MOD_VR, "DashRadarBottom", 0.220f},
+    {MOD_VR, "DashSpeedoLeft", 0.585f}, {MOD_VR, "DashSpeedoTop", 0.585f}, {MOD_VR, "DashSpeedoRight", 0.835f}, {MOD_VR, "DashSpeedoBottom", 0.845f},
+    {MOD_VR, "DashPursuitLeft", 0.400f}, {MOD_VR, "DashPursuitTop", 0.620f}, {MOD_VR, "DashPursuitRight", 0.600f}, {MOD_VR, "DashPursuitBottom", 0.845f},
+    {MOD_VR, "DashBoardLeft", 0.645f}, {MOD_VR, "DashBoardTop", 0.130f}, {MOD_VR, "DashBoardRight", 0.900f}, {MOD_VR, "DashBoardBottom", 0.450f},
+    {MOD_VR, "DashMsgLeft", 0.300f}, {MOD_VR, "DashMsgTop", 0.300f}, {MOD_VR, "DashMsgRight", 0.700f}, {MOD_VR, "DashMsgBottom", 0.560f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -289,7 +295,8 @@ enum {
     VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH,
     VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, VR_DASHDEPTH,
     VR_DASHMSG,                 // 3: the messages element's X, Y, Size
-    EXT_COUNT = VR_DASHMSG + 3
+    VR_DASHCROP = VR_DASHMSG + 3,   // 24: each element's crop of the HUD (left, top, right, bottom)
+    EXT_COUNT = VR_DASHCROP + 24
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -664,27 +671,51 @@ const Item kItems[] = {
     {NUMBER, "Minimap left / right", "VR", "DashMapX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Minimap up / down", "VR", "DashMapY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Minimap size", "VR", "DashMapSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Minimap crop left", "VR", "DashMapLeft", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop top", "VR", "DashMapTop", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop right", "VR", "DashMapRight", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop bottom", "VR", "DashMapBottom", &s_ext[VR_DASHCROP + 3], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("COP RADAR"),
     {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar size", "VR", "DashRadarSize", &s_ext[VR_DASHEL + 3 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Cop radar crop left", "VR", "DashRadarLeft", &s_ext[VR_DASHCROP + 4], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop top", "VR", "DashRadarTop", &s_ext[VR_DASHCROP + 5], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop right", "VR", "DashRadarRight", &s_ext[VR_DASHCROP + 6], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop bottom", "VR", "DashRadarBottom", &s_ext[VR_DASHCROP + 7], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("SPEEDOMETER"),
     {NUMBER, "Speedometer left / right", "VR", "DashSpeedoX", &s_ext[VR_DASHEL + 6], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Speedometer up / down", "VR", "DashSpeedoY", &s_ext[VR_DASHEL + 6 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Speedometer size", "VR", "DashSpeedoSize", &s_ext[VR_DASHEL + 6 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speedometer crop left", "VR", "DashSpeedoLeft", &s_ext[VR_DASHCROP + 8], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop top", "VR", "DashSpeedoTop", &s_ext[VR_DASHCROP + 9], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop right", "VR", "DashSpeedoRight", &s_ext[VR_DASHCROP + 10], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop bottom", "VR", "DashSpeedoBottom", &s_ext[VR_DASHCROP + 11], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("PURSUIT INFO"),
     {NUMBER, "Pursuit info left / right", "VR", "DashPursuitX", &s_ext[VR_DASHEL + 9], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Pursuit info up / down", "VR", "DashPursuitY", &s_ext[VR_DASHEL + 9 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Pursuit info size", "VR", "DashPursuitSize", &s_ext[VR_DASHEL + 9 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Pursuit info crop left", "VR", "DashPursuitLeft", &s_ext[VR_DASHCROP + 12], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop top", "VR", "DashPursuitTop", &s_ext[VR_DASHCROP + 13], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop right", "VR", "DashPursuitRight", &s_ext[VR_DASHCROP + 14], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop bottom", "VR", "DashPursuitBottom", &s_ext[VR_DASHCROP + 15], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("LEADERBOARD"),
     {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard size", "VR", "DashBoardSize", &s_ext[VR_DASHEL + 12 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Leaderboard crop left", "VR", "DashBoardLeft", &s_ext[VR_DASHCROP + 16], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop top", "VR", "DashBoardTop", &s_ext[VR_DASHCROP + 17], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop right", "VR", "DashBoardRight", &s_ext[VR_DASHCROP + 18], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop bottom", "VR", "DashBoardBottom", &s_ext[VR_DASHCROP + 19], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
 
     HEADER_("MESSAGES (BUSTED, TOTALED)"),
     {NUMBER, "Messages left / right", "VR", "DashMsgX", &s_ext[VR_DASHMSG], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Messages up / down", "VR", "DashMsgY", &s_ext[VR_DASHMSG + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Messages size", "VR", "DashMsgSize", &s_ext[VR_DASHMSG + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Messages crop left", "VR", "DashMsgLeft", &s_ext[VR_DASHCROP + 20], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop top", "VR", "DashMsgTop", &s_ext[VR_DASHCROP + 21], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop right", "VR", "DashMsgRight", &s_ext[VR_DASHCROP + 22], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop bottom", "VR", "DashMsgBottom", &s_ext[VR_DASHCROP + 23], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
 
     PAGE_("TRIANGLE EDITOR"),
     LINK_("< Back", "VR"),
@@ -1312,6 +1343,8 @@ void UpdateVrPages() {
             if (v == &s_ext[VR_DASHEL + k]) *highlight = (float)(k / 3);
         for (int k = 0; k < 3 && v; k++)
             if (v == &s_ext[VR_DASHMSG + k]) *highlight = 5;
+        for (int k = 0; k < 24 && v; k++)
+            if (v == &s_ext[VR_DASHCROP + k]) *highlight = (float)(k / 4);
     }
 }
 

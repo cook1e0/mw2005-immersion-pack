@@ -1560,13 +1560,10 @@ bool DashShown() { return g_cfg.dash > 0.5f; }
 
 // The car's own gauges drawn black with the dashboard: found automatically, plus those added by
 // hand, less those taken off, drawn black or hidden by hand.
-std::set<uint64_t> Gauges(const SolidInfo& info, const EditSet& e) {
-    std::set<uint64_t> g(e.dash.begin(), e.dash.end());
-    // (The automatically found gauges, Wheel::gauges, are no longer blacked out: done by hand.)
-    for (auto it = g.begin(); it != g.end();)
-        it = e.noAuto.count(*it) || e.black.count(*it) || e.hide.count(*it) ? g.erase(it) : std::next(it);
-    return g;
-}
+// None any more: the dashboard draws nothing over the car's own triangles (they stay as the game has
+// them; the triangle editor's Draw black does that by hand). The old automatic gauges
+// (Wheel::gauges) and the [Dash] lists in nfsmw_vr_edits.ini are left unused.
+std::set<uint64_t> Gauges(const SolidInfo&, const EditSet&) { return {}; }
 
 // What should be zero-area in the index buffer now: the hidden and the black triangles (black ones
 // are drawn again in black in their place: drawn over the game's own, they fought with them, whose

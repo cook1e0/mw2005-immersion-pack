@@ -65,6 +65,14 @@ struct Config {
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard,
     // per car in [DashLayout] with HudPerCar. Keys: Dash<Name>X / Y / Size.
     float dashEl[6][3];
+    // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture). Keys
+    // Dash<Name>Left / Top / Right / Bottom; the same for every car (it's the HUD's own layout).
+    float dashCrop[6][4] = {{0.165f, 0.575f, 0.415f, 0.835f},   // minimap
+                            {0.355f, 0.150f, 0.645f, 0.220f},   // cop radar
+                            {0.585f, 0.585f, 0.835f, 0.845f},   // speedometer
+                            {0.400f, 0.620f, 0.600f, 0.845f},   // pursuit info
+                            {0.645f, 0.130f, 0.900f, 0.450f},   // leaderboard / bounty
+                            {0.300f, 0.300f, 0.700f, 0.560f}};  // messages
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
     // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command
     // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).
