@@ -59,7 +59,17 @@ struct Config {
     float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash] per car with HudPerCar)
     float dashUp = 0.0f;             // ... and up (m)
     float dashZoom = 1.0f;           // its size
-    float dashCover = 1.3f;          // the black cover over the car's own gauges, relative to the panel
+    float dashCover = 1.3f;          // (old rectangle cover, no longer drawn: the gauges' own triangles are black)
+    // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
+    // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard,
+    // per car in [DashLayout] with HudPerCar. Keys: Dash<Name>X / Y / Size.
+    float dashEl[5][3];
+    // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
+    // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command
+    // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).
+    float dashAdjust = 0, dashHighlight = -1;
+    float editorOn = 0, editCommand = 0;
+    float editBrush = 0.0f;          // triangle editor brush radius (m, 0 = one triangle)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
@@ -78,6 +88,9 @@ struct Config {
     int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;
 };
 extern Config g_cfg;
+// Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.
+enum { DASH_EL_MAP, DASH_EL_RADAR, DASH_EL_SPEEDO, DASH_EL_PURSUIT, DASH_EL_BOARD, DASH_EL_COUNT };
+extern const char* const kDashElKey[5];     // ini key part: Map, Radar, Speedo, Pursuit, Board
 void LoadConfig();
 
 // Directory containing speed.exe (with trailing backslash).

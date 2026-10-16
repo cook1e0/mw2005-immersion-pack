@@ -13,8 +13,8 @@ void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int
 void D3D_SetGlassCorners(void*, int, const float*) {}
 void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
-void D3D_AddDash(void*, const float*, const float*) {}
-float D3D_DashAspect() { return 0.5f; }
+void D3D_AddDash(void*, const float*, const float*, const float*, const float*) {}
+void D3D_AddColorTris(void*, const float*, int, uint32_t) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
 static void* moverVtbl[8];
@@ -372,27 +372,57 @@ static void TestDash() {
     w.axis[0] = 0.94f; w.axis[1] = 0; w.axis[2] = -0.34f;
     w.radius = 0.16f;
     const float head[3] = {-0.1f, 0.4f, 0.95f};
-    // A cluster face at x = 0.62 (behind the wheel) and a wall in front of the wheel at x = 0.3.
-    std::vector<V3> tris = {{0.62f, 0.0f, 0.4f}, {0.62f, 0.8f, 0.4f}, {0.62f, 0.4f, 1.2f},
-                            {0.3f, 0.0f, 0.0f}, {0.3f, 0.8f, 0.0f}, {0.3f, 0.4f, 0.2f}};
+    // A cluster face at x = 0.62 (behind the wheel, draw entry 1, plus a small gauge triangle near the
+    // hit), a wall in front of the wheel at x = 0.3 and a far-off triangle of the same entry.
+    auto tri = [](V3 a, V3 b, V3 c, int entry, uint16_t v) {
+        TriRef t;
+        t.p[0] = a; t.p[1] = b; t.p[2] = c;
+        t.v[0] = v; t.v[1] = (uint16_t)(v + 1); t.v[2] = (uint16_t)(v + 2);
+        t.entry = entry;
+        t.id = TriId(t.v[0], t.v[1], t.v[2]);
+        return t;
+    };
+    std::vector<TriRef> tris = {
+        tri({0.62f, 0.0f, 0.4f}, {0.62f, 0.8f, 0.4f}, {0.62f, 0.4f, 1.2f}, 1, 0),
+        tri({0.3f, 0.0f, 0.0f}, {0.3f, 0.8f, 0.0f}, {0.3f, 0.4f, 0.2f}, 0, 3),
+        tri({0.62f, 0.35f, 0.8f}, {0.62f, 0.45f, 0.8f}, {0.62f, 0.4f, 0.85f}, 1, 6),
+        tri({0.62f, 1.5f, 0.0f}, {0.62f, 1.6f, 0.0f}, {0.62f, 1.55f, 0.1f}, 1, 9),
+    };
     FindDash(w, tris, head, "TEST_INTERIOR");
     Check(w.dashOk, "dashboard placed");
-    Check(w.dash.x > 0.56f && w.dash.x < 0.6f, "dashboard cover 4 cm off the cluster face, toward the driver");
+    Check(w.dash.x > 0.58f && w.dash.x < 0.6f, "dashboard plane 3 cm off the cluster face, toward the driver");
     Check(w.dashN.x < -0.8f, "dashboard faces the driver");
     Check(w.dashUp.z > 0.9f, "dashboard upright");
     Check(w.dashRight.y < -0.9f, "dashboard right is the driver's right");
+    bool nearOne = false, farOne = false;
+    for (uint64_t id : w.gauges) {
+        nearOne |= id == tris[2].id;
+        farOne |= id == tris[3].id;
+    }
+    Check(nearOne && !farOne, "gauge triangles: near the hit in its draw entry, not far off");
     float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1};
-    float c[12], cover[12];
-    g_cfg.dashZoom = 1; g_cfg.dashRight = 0; g_cfg.dashUp = 0; g_cfg.dashCover = 1.5f;
-    DashCorners(w, m, c, cover);
-    Near(cover[3 + 1] - cover[1], -0.36f, "cover 1.5 times the panel's width");
-    Check(c[0] < cover[0] - 0.002f, "picture in front of the cover, toward the driver");
-    Near(c[3 + 1] - c[1], -0.24f, "panel 24 cm wide, left to right");
-    Check(fabsf(c[2] - c[9 + 2] - 0.12f) < 0.01f, "panel height from the picture's aspect");
+    float o[3], r[3], u[3], t[3];
+    g_cfg.dashRight = 0.1f; g_cfg.dashUp = 0;
+    DashBasis(w, m, o, r, u, t);
+    Check(fabsf(o[0] - 10 - w.dash.x) < 0.02f && fabsf(o[1] - 20 - (w.dash.y - 0.1f)) < 0.001f,
+          "plane origin in the world, moved right (the car's -y)");
+    Near(r[1], w.dashRight.y, "plane right in the world");
+    g_cfg.dashRight = 0;
+}
+
+// Triangle ids ignore order and winding; the edits file's text round-trips.
+static void TestEditsText() {
+    Check(TriId(5, 2, 9) == TriId(9, 5, 2) && TriId(2, 9, 5) == TriId(2, 5, 9), "triangle id ignores order");
+    Check(TriId(1, 2, 3) != TriId(1, 2, 4), "triangle ids differ");
+    auto t = ParseTris("1.2.3, 40.50.60,7.8.9");
+    Check(t.size() == 3 && t[1][0] == 40 && t[1][2] == 60, "edits text parsed");
+    Check(TrisText(t) == "1.2.3,40.50.60,7.8.9", "edits text written back");
+    Check(IdTri(TriId(9, 4, 7))[0] == 4 && IdTri(TriId(9, 4, 7))[2] == 9, "id back to its vertices");
 }
 
 int main() {
     TestDash();
+    TestEditsText();
     TestLevelUpsideDown();
     TestMirrorGlass();
     testTime = Now();

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <math.h>
 
 Config g_cfg;
 
@@ -77,6 +78,8 @@ void Log(const char* fmt, ...) {
     LeaveCriticalSection(&s_logLock);
 }
 
+const char* const kDashElKey[5] = {"Map", "Radar", "Speedo", "Pursuit", "Board"};
+
 static float ReadFloat(const char* ini, const char* key, float def) {
     char buf[64], defs[64];
     snprintf(defs, sizeof(defs), "%g", def);
@@ -140,6 +143,16 @@ void LoadConfig() {
     c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
+    for (int i = 0; i < 5; i++) {
+        char key[32];
+        snprintf(key, sizeof(key), "Dash%sX", kDashElKey[i]);
+        c.dashEl[i][0] = ReadFloat(ini, key, NAN);
+        snprintf(key, sizeof(key), "Dash%sY", kDashElKey[i]);
+        c.dashEl[i][1] = ReadFloat(ini, key, NAN);
+        snprintf(key, sizeof(key), "Dash%sSize", kDashElKey[i]);
+        c.dashEl[i][2] = ReadFloat(ini, key, 1.0f);
+    }
+    c.editBrush = ReadFloat(ini, "EditBrush", c.editBrush);
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;

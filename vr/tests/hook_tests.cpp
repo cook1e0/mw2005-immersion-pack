@@ -16,6 +16,7 @@ const EyeView& Xr_Eye(int) { static EyeView e; return e; }
 bool Cockpit_ApplySeat(M4&) { return false; }
 void Cockpit_EndFrame() {}
 void Cockpit_BeginEye() {}
+void Cockpit_SetGaze(const float*, const float*) {}
 void D3D_BeginMirrorEye(const float*, const float*, float) {}
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}

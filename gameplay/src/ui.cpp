@@ -264,6 +264,14 @@ const struct {
     {MOD_FFB, "CarHits", 0.8f},
     {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
     {MOD_VR, "DashCover", 1.3f},
+    {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
+    {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
+    {MOD_VR, "DashSpeedoX", 0.0f}, {MOD_VR, "DashSpeedoY", 0.0f}, {MOD_VR, "DashSpeedoSize", 1.0f},
+    {MOD_VR, "DashPursuitX", 0.0f}, {MOD_VR, "DashPursuitY", 0.0f}, {MOD_VR, "DashPursuitSize", 1.0f},
+    {MOD_VR, "DashBoardX", 0.0f}, {MOD_VR, "DashBoardY", 0.0f}, {MOD_VR, "DashBoardSize", 1.0f},
+    {MOD_VR, "DashAdjust", 0.0f}, {MOD_VR, "DashHighlight", -1.0f},   // live: the Adjust dashboard page is open
+    {MOD_VR, "EditorOn", 0.0f}, {MOD_VR, "EditCommand", 0.0f},        // live: the Triangle editor page, its command
+    {MOD_VR, "EditBrush", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -272,7 +280,9 @@ enum {
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
     FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
     VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS,
-    VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER, EXT_COUNT
+    VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER,
+    VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
+    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -630,7 +640,8 @@ const Item kItems[] = {
     {NUMBER, "Dashboard zoom", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
-    {NUMBER, "Dashboard black cover size", "VR", "DashCover", &s_ext[VR_DASHCOVER], 1.0f, 4.0f, 0.05f, 100, "%.0f%%", 0},
+    LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
+    LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Steering wheel rendered in front of HUD", "VR", "WheelOverHud", &s_ext[VR_WHEELOVERHUD], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
@@ -638,6 +649,40 @@ const Item kItems[] = {
     {NUMBER, "Mirror contrast", "VR", "MirrorContrast", &s_ext[VR_MIRRORCONTRAST], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
+
+    PAGE_("ADJUST DASHBOARD"),
+    LINK_("< Back", "VR"),
+    HEADER_("MINIMAP"),
+    {NUMBER, "Minimap left / right", "VR", "DashMapX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap up / down", "VR", "DashMapY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap size", "VR", "DashMapSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("COP RADAR"),
+    {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Cop radar size", "VR", "DashRadarSize", &s_ext[VR_DASHEL + 3 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("SPEEDOMETER"),
+    {NUMBER, "Speedometer left / right", "VR", "DashSpeedoX", &s_ext[VR_DASHEL + 6], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer up / down", "VR", "DashSpeedoY", &s_ext[VR_DASHEL + 6 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer size", "VR", "DashSpeedoSize", &s_ext[VR_DASHEL + 6 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("PURSUIT INFO"),
+    {NUMBER, "Pursuit info left / right", "VR", "DashPursuitX", &s_ext[VR_DASHEL + 9], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info up / down", "VR", "DashPursuitY", &s_ext[VR_DASHEL + 9 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info size", "VR", "DashPursuitSize", &s_ext[VR_DASHEL + 9 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("LEADERBOARD"),
+    {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Leaderboard size", "VR", "DashBoardSize", &s_ext[VR_DASHEL + 12 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+
+    PAGE_("TRIANGLE EDITOR"),
+    LINK_("< Back", "VR"),
+    HEADER_("LOOK AT IT: THE HIGHLIGHTED TRIANGLES"),
+    {NUMBER, "Brush size", "VR", "EditBrush", &s_ext[VR_EDITBRUSH], 0.0f, 0.3f, 0.005f, 100, "%.1f cm", 0},
+    {ACTION, "Hide", nullptr, "EdHide", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Draw black", nullptr, "EdBlack", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Add to the steering wheel", nullptr, "EdWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Take off the steering wheel", nullptr, "EdNoWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Restore", nullptr, "EdRestore", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Undo", nullptr, "EdUndo", nullptr, 0, 0, 0, 0, nullptr, 0},
 
     PAGE_("MENU AND TESTING"),
     BACK_,
@@ -818,6 +863,9 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    for (int el = 0; el < 5; el++)
+        if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
+    if (it.value == &s_ext[VR_EDITBRUSH] && v <= 0.0f) return "1 triangle";
     if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS] || it.value == &s_ext[VR_WHEELOVERHUD] ||
         it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH])
         return v > 0.5f ? "On" : "Off";
@@ -1058,6 +1106,18 @@ void Change(int index, int dir) {
             GoBack();
             return;
         }
+        if (strncmp(it.key, "Ed", 2) == 0) {
+            static const struct { const char* key; int cmd; const char* note; } kEd[] = {
+                {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
+                {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"}};
+            float* cmd = ExtSetting(VR_EDITCOMMAND);
+            for (const auto& e : kEd)
+                if (strcmp(it.key, e.key) == 0) {
+                    if (cmd) *cmd = (float)e.cmd;
+                    Note(cmd ? e.note : "No VR mod");
+                }
+            return;
+        }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
             return;
@@ -1152,6 +1212,23 @@ void CancelCapture() {
     s_menu.capture = -1;
 }
 
+// The VR mod's live flags for the Adjust dashboard page (and the element of the selected row) and
+// the Triangle editor page; all off with the menu closed.
+void UpdateVrPages() {
+    const char* page = s_menu.open ? kItems[s_menu.page].label : "";
+    float* adjust = ExtSetting(VR_DASHADJUST);
+    float* highlight = ExtSetting(VR_DASHHIGHLIGHT);
+    float* editor = ExtSetting(VR_EDITORON);
+    if (adjust) *adjust = strcmp(page, "ADJUST DASHBOARD") == 0 ? 1.0f : 0.0f;
+    if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 ? 1.0f : 0.0f;
+    if (highlight) {
+        *highlight = -1;
+        const void* v = s_menu.open && s_menu.sel >= 0 && s_menu.sel < kNumItems ? kItems[s_menu.sel].value : nullptr;
+        for (int k = 0; k < 15 && v; k++)
+            if (v == &s_ext[VR_DASHEL + k]) *highlight = (float)(k / 3);
+    }
+}
+
 void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
@@ -1161,6 +1238,7 @@ void SetOpen(bool open) {
             if (ExtSetting(i)) s_ext[i] = *ExtSetting(i);
     if (!open) {
         CancelCapture();
+        UpdateVrPages();
         if (s_menu.dirty) {
             Save();
             s_menu.dirty = false;
@@ -1367,7 +1445,7 @@ const struct {
     {&s_ext[VR_DASHZOOM], "Size of the in-car dashboard panel."},
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
-    {&s_ext[VR_DASHCOVER], "Size of the black cover behind the in-car dashboard, relative to it: make it big enough to hide the car's own gauges."},
+    {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
@@ -2065,6 +2143,7 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     ImGui::End();
     s_im.lastSel = s_menu.sel;
     s_im.lastPage = s_menu.page;
+    UpdateVrPages();
 
     ImGui::Render();
     RenderImGui(dev, ImGui::GetDrawData(), W, H);

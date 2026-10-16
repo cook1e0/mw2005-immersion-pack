@@ -23,3 +23,6 @@ extern float g_seatInput[4];
 // submitted for the current eye, it is handed to the d3d9 side (D3D_AddMirror) to be drawn with
 // the rear view right after its model. Before each eye's scene: forget the previous eye's.
 void Cockpit_BeginEye();
+// The headset's gaze in the world (centre of the eyes, forward), for the triangle editor's picking
+// in the next frame.
+void Cockpit_SetGaze(const float pos[3], const float dir[3]);

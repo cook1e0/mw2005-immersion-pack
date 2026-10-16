@@ -978,33 +978,49 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // upper half the pursuit / race info (left and top middle) and the leaderboard side (right). Text in
 // the middle of the screen (messages) is left out. Each part keeps its box while it is seen
 // (blinking parts stay), and is dropped after 2 s without.
-// The panel's picture, in three rows at the HUD's own scale (one factor to fit the texture): the
-// cop radar on top; the minimap left and the speedometer right; the pursuit info in the middle and
-// the leaderboard on the right. Rows keep the largest size their parts have had, so the panel
-// doesn't jump when a pursuit or a race starts. While the panel shows, the whole HUD is left out of
-// the headset's HUD layer.
-enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };
+// Each part is copied at the HUD's own scale into its own cell of the dashboard texture and drawn
+// as its own quad on the panel's plane (Config::dashEl: position and size per element, F4 > VR >
+// Adjust dashboard). Elements not placed by hand follow an automatic layout in three rows: the cop
+// radar on top; the minimap left and the speedometer right; the pursuit info in the middle and the
+// leaderboard on the right. While the panel shows, the HUD is cleared from the headset's HUD layer,
+// but for the messages in the middle.
+enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };   // the DASH_EL_* order
 static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar", "speedometer", "pursuit info (upper left)",
                                                 "leaderboard (upper right)"};
 // Room kept per part (share of the HUD's width, height) before it has been seen.
-static float s_reserve[DASH_PARTS][2] = {{0, 0}, {0.30f, 0.07f}, {0, 0}, {0.22f, 0.10f}, {0.18f, 0.10f}};
-static const int kDashTexW = 1024, kDashTexH = 512, kProbe = 128;
+static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.30f, 0.07f}, {0.12f, 0.12f}, {0.22f, 0.10f}, {0.18f, 0.10f}};
+static const int kAtlasW = 2048, kAtlasH = 1024, kCellW = 682, kCellH = 512, kProbe = 128;
 static IDirect3DTexture9* s_dashTex;
 static IDirect3DSurface9* s_dashSurf;
 static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_PARTS];
-static float s_dashU = 1, s_dashV = 0.4f;      // the picture's extent in the texture
-static float s_dashAspect = 0.4f;
+static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_PARTS];
+static bool s_elAuto[DASH_PARTS] = {true, true, true, true, true};   // following the automatic layout
+static float s_elAutoXY[DASH_PARTS][2];        // the automatic position last written
 static double s_lastProbe;
 static struct {
     bool on;
     D3DMATRIX view, proj;
     void* ib;
-    float corners[12], cover[12];
+    float origin[3], right[3], up[3], toEye[3];
     bool added, drawn;
 } s_dashEye;
 static bool s_dashThisFrame;                   // a panel was drawn in an eye this frame
+
+// Solid colour triangles drawn with a model (index buffer) right after its first draw in the player
+// view: the triangle editor's black triangles and the car's own gauges (opaque, writing depth), its
+// highlight (blended). World space, already pulled toward the eye by the cockpit.
+struct ColorTris {
+    void* ib;
+    std::vector<float> xyz;
+    D3DCOLOR color;
+    bool drawn;
+};
+static std::vector<ColorTris> s_colorTris;
+static bool s_colorEye;
+
+static float MetresPerHudPixel() { return 0.24f / (0.66f * (float)std::max(s_eyeW, 1)); }
 
 static void ReleaseDash() {
     if (s_dashSurf) s_dashSurf->Release();
@@ -1013,12 +1029,13 @@ static void ReleaseDash() {
     if (s_probeMem) s_probeMem->Release();
     s_dashSurf = s_probeRT = s_probeMem = nullptr;
     s_dashTex = nullptr;
+    for (DashEl& e : s_el) e.ok = false;
 }
 
 static bool EnsureDash() {
     if (s_dashTex && s_probeRT && s_probeMem) return true;
     ReleaseDash();
-    bool ok = SUCCEEDED(s_dev->CreateTexture(kDashTexW, kDashTexH, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+    bool ok = SUCCEEDED(s_dev->CreateTexture(kAtlasW, kAtlasH, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
                                              &s_dashTex, nullptr)) &&
               SUCCEEDED(s_dashTex->GetSurfaceLevel(0, &s_dashSurf)) &&
               SUCCEEDED(s_dev->CreateRenderTarget(kProbe, kProbe, D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &s_probeRT, nullptr)) &&
@@ -1037,42 +1054,49 @@ static bool EnsureDash() {
 }
 
 void D3D_BeginDashEye(bool on, const float* view, const float* proj) {
-    s_dashEye.on = on && s_uiMenuOpen < 0.5f;
+    bool menuOk = s_uiMenuOpen < 0.5f || g_cfg.dashAdjust > 0.5f;
+    s_dashEye.on = on && menuOk;
     s_dashEye.added = s_dashEye.drawn = false;
     memcpy(&s_dashEye.view, view, sizeof(s_dashEye.view));
     memcpy(&s_dashEye.proj, proj, sizeof(s_dashEye.proj));
+    s_colorTris.clear();
+    s_colorEye = true;
 }
 
-void D3D_AddDash(void* indexBuffer, const float picture[12], const float cover[12]) {
+void D3D_AddDash(void* indexBuffer, const float origin[3], const float right[3], const float up[3], const float toEye[3]) {
     if (!s_dashEye.on || s_dashEye.added || !indexBuffer) return;
     s_dashEye.ib = indexBuffer;
-    memcpy(s_dashEye.corners, picture, sizeof(s_dashEye.corners));
-    memcpy(s_dashEye.cover, cover, sizeof(s_dashEye.cover));
+    memcpy(s_dashEye.origin, origin, 12);
+    memcpy(s_dashEye.right, right, 12);
+    memcpy(s_dashEye.up, up, 12);
+    memcpy(s_dashEye.toEye, toEye, 12);
     s_dashEye.added = true;
 }
 
-float D3D_DashAspect() { return s_dashAspect; }
+void D3D_AddColorTris(void* indexBuffer, const float* xyz, int triangles, uint32_t argb) {
+    if (!s_colorEye || !indexBuffer || triangles <= 0) return;
+    for (const ColorTris& c : s_colorTris)
+        if (c.ib == indexBuffer && c.color == argb) return;
+    ColorTris c;
+    c.ib = indexBuffer;
+    c.xyz.assign(xyz, xyz + triangles * 9);
+    c.color = argb;
+    c.drawn = false;
+    s_colorTris.push_back(std::move(c));
+}
 
-static void DrawDash() {
-    if (!EnsureDash()) return;
-    IDirect3DStateBlock9* saved = nullptr;
-    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
-    const float* c = s_dashEye.corners;
-    const float uv[4][2] = {{0, 0}, {s_dashU, 0}, {s_dashU, s_dashV}, {0, s_dashV}};
-    PanelVertex v[4];
-    for (int i = 0; i < 4; i++) v[i] = {c[i * 3], c[i * 3 + 1], c[i * 3 + 2], uv[i][0], uv[i][1]};
-    PanelVertex quad[6] = {v[0], v[1], v[2], v[0], v[2], v[3]};
+// Fixed-function state for our own quads and triangles in the eye: world space, the eye's view and
+// projection, depth tested, no depth bias (the geometry stands off what it covers).
+static void SetPanelState(const D3DMATRIX& view, const D3DMATRIX& proj) {
     s_dev->SetVertexShader(nullptr);
     s_dev->SetPixelShader(nullptr);
     s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
     D3DMATRIX identity = {};
     identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
     s_dev->SetTransform(D3DTS_WORLD, &identity);
-    s_dev->SetTransform(D3DTS_VIEW, &s_dashEye.view);
-    s_dev->SetTransform(D3DTS_PROJECTION, &s_dashEye.proj);
+    s_dev->SetTransform(D3DTS_VIEW, &view);
+    s_dev->SetTransform(D3DTS_PROJECTION, &proj);
     s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
-    // Depth written: interior drawn after it stays behind it, the wheel in front. No depth bias:
-    // the cover stands 4 cm off the gauges and the picture 3 mm off the cover, in the geometry.
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
     s_dev->SetRenderState(D3DRS_DEPTHBIAS, 0);
@@ -1086,15 +1110,12 @@ static void DrawDash() {
     s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
     s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
-    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
-    s_dev->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
-    s_dev->SetRenderState(D3DRS_ALPHAREF, 8);
-    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     s_dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
     s_dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
-    s_dev->SetTexture(0, s_dashTex);
-    for (DWORD st = 1; st < 8; st++) s_dev->SetTexture(st, nullptr);
+    for (DWORD st = 0; st < 8; st++) s_dev->SetTexture(st, nullptr);
     s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
     s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
     s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
@@ -1103,29 +1124,92 @@ static void DrawDash() {
     s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
     s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
     s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
+    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+}
+
+// Plain colour (TFACTOR): opaque writes depth, translucent blends over without writing it.
+static void SetColor(D3DCOLOR argb) {
+    bool blend = (argb >> 24) < 255;
+    s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, argb);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, !blend);
+    s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+    s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
+    s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
+}
+
+// The dashboard texture, its alpha blended; depth written where it is drawn (alpha test), so the
+// interior drawn later stays behind it and the wheel and arms in front.
+static void SetPicture() {
+    s_dev->SetTexture(0, s_dashTex);
+    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
+    s_dev->SetRenderState(D3DRS_ALPHAREF, 8);
+    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    // First the black cover over the car's own gauges (opaque, writing depth), then the picture on
-    // it: 3 mm in front of it (DashCorners), so the two never fight.
-    {
-        PanelVertex b[4];
-        for (int i = 0; i < 4; i++) b[i] = {s_dashEye.cover[i * 3], s_dashEye.cover[i * 3 + 1], s_dashEye.cover[i * 3 + 2], 0, 0};
-        PanelVertex back[6] = {b[0], b[1], b[2], b[0], b[2], b[3]};
-        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, 0, 0, 0));
-        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
-        s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, back, sizeof(PanelVertex));
-        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
-        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+}
+
+// A quad on the panel's plane: centre (x, y) and half sizes (m, world), lifted `lift` m toward the eye.
+static void PanelQuad(float x, float y, float hw, float hh, float lift, const float uv[4], PanelVertex out[6]) {
+    const float *o = s_dashEye.origin, *r = s_dashEye.right, *u = s_dashEye.up, *t = s_dashEye.toEye;
+    auto at = [&](float sx, float sy, float tu, float tv) {
+        PanelVertex p;
+        p.x = o[0] + r[0] * (x + sx) + u[0] * (y + sy) + t[0] * lift;
+        p.y = o[1] + r[1] * (x + sx) + u[1] * (y + sy) + t[1] * lift;
+        p.z = o[2] + r[2] * (x + sx) + u[2] * (y + sy) + t[2] * lift;
+        p.u = tu;
+        p.v = tv;
+        return p;
+    };
+    float u0 = uv ? uv[0] : 0, v0 = uv ? uv[1] : 0, u1 = uv ? uv[2] : 0, v1 = uv ? uv[3] : 0;
+    PanelVertex a = at(-hw, hh, u0, v0), b = at(hw, hh, u1, v0), c = at(hw, -hh, u1, v1), d = at(-hw, -hh, u0, v1);
+    out[0] = a; out[1] = b; out[2] = c; out[3] = a; out[4] = c; out[5] = d;
+}
+
+static void DrawDash() {
+    if (!EnsureDash()) return;
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    SetPanelState(s_dashEye.view, s_dashEye.proj);
+    bool adjust = g_cfg.dashAdjust > 0.5f;
+    int highlight = (int)lrintf(g_cfg.dashHighlight);
+    float zoom = std::max(0.2f, g_cfg.dashZoom), mpp = MetresPerHudPixel() * zoom;
+    for (int i = 0; i < DASH_PARTS; i++) {
+        const float* e = g_cfg.dashEl[i];
+        if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
+        bool have = s_el[i].ok;
+        if (!have && !adjust) continue;
+        float wPx = have ? s_el[i].wPx : s_reserve[i][0] * s_eyeW, hPx = have ? s_el[i].hPx : s_reserve[i][1] * s_eyeH;
+        float hw = wPx * mpp * e[2] / 2, hh = hPx * mpp * e[2] / 2, x = e[0] * zoom, y = e[1] * zoom;
+        PanelVertex q[6];
+        if (have) {
+            const float uv[4] = {s_el[i].u0, s_el[i].v0, s_el[i].u1, s_el[i].v1};
+            PanelQuad(x, y, hw, hh, 0, uv, q);
+            SetPicture();
+        } else {
+            PanelQuad(x, y, hw, hh, 0, nullptr, q);   // not on the HUD now: where it will go
+            SetColor(D3DCOLOR_ARGB(110, 70, 70, 70));
+        }
+        s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, q, sizeof(PanelVertex));
+        if (adjust && i == highlight) {
+            // The element being adjusted: a yellow outline, 2 mm wide, just in front.
+            float t = 0.002f;
+            SetColor(D3DCOLOR_ARGB(255, 255, 210, 0));
+            const float strips[4][4] = {{x, y + hh, hw + t, t / 2}, {x, y - hh, hw + t, t / 2}, {x - hw, y, t / 2, hh},
+                                        {x + hw, y, t / 2, hh}};
+            for (const auto& s : strips) {
+                PanelQuad(s[0], s[1], s[2], s[3], 0.0005f, nullptr, q);
+                s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, q, sizeof(PanelVertex));
+            }
+        }
     }
-    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(PanelVertex));
     saved->Apply();
     saved->Release();
     s_dashThisFrame = true;
@@ -1136,9 +1220,33 @@ static void DrawDash() {
     }
 }
 
+static void DrawColorTris(ColorTris& c) {
+    IDirect3DStateBlock9* saved = nullptr;
+    if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
+    SetPanelState(s_dashEye.view, s_dashEye.proj);
+    SetColor(c.color);
+    s_dev->SetFVF(D3DFVF_XYZ);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(c.xyz.size() / 9), c.xyz.data(), 3 * sizeof(float));
+    saved->Apply();
+    saved->Release();
+}
+
 // After the first draw from the interior's index buffer in the player view, once per eye (its
-// picture is blended: drawn again it would grow more opaque).
+// picture is blended: drawn again it would grow more opaque); the same for coloured triangles.
 static void AfterModelDrawDash() {
+    if (s_colorEye && !s_colorTris.empty()) {
+        bool checked = false, player = false;
+        for (ColorTris& c : s_colorTris) {
+            if (c.drawn || c.ib != s_curIndices) continue;
+            if (!checked) {
+                checked = true;
+                player = DrawingPlayerView();
+            }
+            if (!player) break;
+            c.drawn = true;
+            DrawColorTris(c);
+        }
+    }
     if (!s_dashEye.on || !s_dashEye.added || s_dashEye.drawn || s_dashEye.ib != s_curIndices || !DrawingPlayerView()) return;
     s_dashEye.drawn = true;
     DrawDash();
@@ -1250,27 +1358,11 @@ static RECT HudRect(const DashBox& d) {
     return r;
 }
 
-// In the HUD phase's end, with the HUD in s_eyeSurf[2]: the panel's picture from it, then those
-// parts cleared from the HUD the headset (and the spectator) shows.
-static void ComposeDash() {
-    bool on = s_dashThisFrame;
-    s_dashThisFrame = false;
-    s_dashEye.on = false;                        // until the next frame's eyes say so
-    if (!on || !s_hudValid || !s_eyeSurf[2] || s_uiMenuOpen > 0.5f || !EnsureDash()) return;
-    if (D3D_ProfNow() - s_lastProbe > 0.3) {
-        s_lastProbe = D3D_ProfNow();
-        ProbeHud();
-    }
-    RECT src[DASH_PARTS];
-    float w[DASH_PARTS] = {}, h[DASH_PARTS] = {};
-    for (int i = 0; i < DASH_PARTS; i++) {
-        if (!s_dashBox[i].ok) continue;
-        src[i] = HudRect(s_dashBox[i]);
-        w[i] = (float)(src[i].right - src[i].left);
-        h[i] = (float)(src[i].bottom - src[i].top);
-        if (w[i] < 2 || h[i] < 2) s_dashBox[i].ok = false;
-    }
-    // The layout, in HUD pixels: each part's room is the largest it has been (or the default).
+// The automatic layout, element centres in metres at zoom 1 (x right, y up from the panel's
+// anchor): the cop radar on top; the minimap left and the speedometer right; the pursuit info in the
+// middle and the leaderboard right. Each part's room is the largest it has been (or the default).
+// An element follows it until it is moved by hand: a position other than the one last written here.
+static void AutoLayout(const float w[DASH_PARTS], const float h[DASH_PARTS]) {
     float roomW[DASH_PARTS], roomH[DASH_PARTS];
     for (int i = 0; i < DASH_PARTS; i++) {
         roomW[i] = std::max(w[i], s_reserve[i][0] * s_eyeW);
@@ -1281,26 +1373,60 @@ static void ComposeDash() {
           row3 = std::max(roomH[DASH_UL], roomH[DASH_UR]);
     float W = std::max({roomW[DASH_COP], roomW[DASH_MAP] + gap + roomW[DASH_SPEEDO], roomW[DASH_UL] + 2 * (gap + roomW[DASH_UR])});
     float H = row1 + gapV + row2 + gapV + row3;
-    s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
-    if (W < 4 || H < 4) return;
-    float s = std::min(kDashTexW / W, kDashTexH / H);
-    s_dashU = W * s / kDashTexW;
-    s_dashV = H * s / kDashTexH;
-    s_dashAspect = H / W;
     float y2 = row1 + gapV, y3 = y2 + row2 + gapV;
-    float at[DASH_PARTS][2];
-    at[DASH_COP][0] = (W - w[DASH_COP]) / 2;     at[DASH_COP][1] = (row1 - h[DASH_COP]) / 2;
-    at[DASH_MAP][0] = 0;                          at[DASH_MAP][1] = y2 + row2 - h[DASH_MAP];
-    at[DASH_SPEEDO][0] = W - w[DASH_SPEEDO];      at[DASH_SPEEDO][1] = y2 + row2 - h[DASH_SPEEDO];
-    at[DASH_UL][0] = (W - w[DASH_UL]) / 2;       at[DASH_UL][1] = y3;
-    at[DASH_UR][0] = W - w[DASH_UR];              at[DASH_UR][1] = y3;
+    // Centres in HUD pixels from the layout's top left; parts are bottom-aligned in the middle row.
+    float c[DASH_PARTS][2] = {
+        {roomW[DASH_MAP] / 2, y2 + row2 - roomH[DASH_MAP] / 2},
+        {W / 2, row1 / 2},
+        {W - roomW[DASH_SPEEDO] / 2, y2 + row2 - roomH[DASH_SPEEDO] / 2},
+        {W / 2, y3 + roomH[DASH_UL] / 2},
+        {W - roomW[DASH_UR] / 2, y3 + roomH[DASH_UR] / 2},
+    };
+    float mpp = MetresPerHudPixel();
     for (int i = 0; i < DASH_PARTS; i++) {
-        if (!s_dashBox[i].ok) continue;
-        RECT dst = {(LONG)(at[i][0] * s), (LONG)(at[i][1] * s), (LONG)((at[i][0] + w[i]) * s), (LONG)((at[i][1] + h[i]) * s)};
-        if (dst.right <= dst.left || dst.bottom <= dst.top) continue;
-        s_dev->StretchRect(s_eyeSurf[2], &src[i], s_dashSurf, &dst, D3DTEXF_LINEAR);
+        float ax = (c[i][0] - W / 2) * mpp, ay = (H / 2 - c[i][1]) * mpp;
+        float* e = g_cfg.dashEl[i];
+        bool byHand = e[0] == e[0] && e[1] == e[1] &&
+                      !(s_elAuto[i] && e[0] == s_elAutoXY[i][0] && e[1] == s_elAutoXY[i][1]);
+        s_elAuto[i] = !byHand;
+        if (byHand) continue;
+        e[0] = s_elAutoXY[i][0] = ax;
+        e[1] = s_elAutoXY[i][1] = ay;
     }
-    // None of the game's HUD in the headset's HUD layer while the panel shows, but the messages.
+}
+
+// In the HUD phase's end, with the HUD in s_eyeSurf[2]: each part into its cell of the dashboard
+// texture, then the HUD cleared from the headset's HUD layer (and the spectator) but the messages.
+static void ComposeDash() {
+    bool on = s_dashThisFrame;
+    s_dashThisFrame = false;
+    s_dashEye.on = false;                        // until the next frame's eyes say so
+    s_colorEye = false;
+    if (!on || !s_hudValid || !s_eyeSurf[2] || s_uiMenuOpen > 0.5f || !EnsureDash()) return;
+    if (D3D_ProfNow() - s_lastProbe > 0.3) {
+        s_lastProbe = D3D_ProfNow();
+        ProbeHud();
+    }
+    float w[DASH_PARTS] = {}, h[DASH_PARTS] = {};
+    s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    for (int i = 0; i < DASH_PARTS; i++) {
+        s_el[i].ok = false;
+        if (!s_dashBox[i].ok) continue;
+        RECT src = HudRect(s_dashBox[i]);
+        w[i] = (float)(src.right - src.left);
+        h[i] = (float)(src.bottom - src.top);
+        if (w[i] < 2 || h[i] < 2) {
+            w[i] = h[i] = 0;
+            continue;
+        }
+        float k = std::min(1.0f, std::min(kCellW / w[i], kCellH / h[i]));
+        LONG cx = (LONG)((i % 3) * kCellW), cy = (LONG)((i / 3) * kCellH);
+        RECT dst = {cx, cy, cx + (LONG)(w[i] * k), cy + (LONG)(h[i] * k)};
+        if (FAILED(s_dev->StretchRect(s_eyeSurf[2], &src, s_dashSurf, &dst, D3DTEXF_LINEAR))) continue;
+        s_el[i] = {true, dst.left / (float)kAtlasW, dst.top / (float)kAtlasH, dst.right / (float)kAtlasW,
+                   dst.bottom / (float)kAtlasH, w[i], h[i]};
+    }
+    AutoLayout(w, h);
     LONG mx0 = (LONG)(kMsgZone[0] * s_eyeW), my0 = (LONG)(kMsgZone[1] * s_eyeH), mx1 = (LONG)(kMsgZone[2] * s_eyeW),
          my1 = (LONG)(kMsgZone[3] * s_eyeH);
     const RECT outside[4] = {{0, 0, (LONG)s_eyeW, my0}, {0, my1, (LONG)s_eyeW, (LONG)s_eyeH}, {0, my0, mx0, my1},
@@ -1869,7 +1995,20 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashRight")) return &g_cfg.dashRight;
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
-    if (!strcmp(name, "DashCover")) return &g_cfg.dashCover;
+    if (!strcmp(name, "DashAdjust")) return &g_cfg.dashAdjust;
+    if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;
+    if (!strcmp(name, "EditorOn")) return &g_cfg.editorOn;
+    if (!strcmp(name, "EditCommand")) return &g_cfg.editCommand;
+    if (!strcmp(name, "EditBrush")) return &g_cfg.editBrush;
+    // Dash<Element>X / Y / Size, Config::dashEl.
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
+        size_t n = strlen(kDashElKey[i]);
+        if (strncmp(name, "Dash", 4) || strncmp(name + 4, kDashElKey[i], n)) continue;
+        const char* field = name + 4 + n;
+        if (!strcmp(field, "X")) return &g_cfg.dashEl[i][0];
+        if (!strcmp(field, "Y")) return &g_cfg.dashEl[i][1];
+        if (!strcmp(field, "Size")) return &g_cfg.dashEl[i][2];
+    }
     if (!strcmp(name, "MenuOpen")) return &s_uiMenuOpen;
     if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "MirrorContrast")) return &g_cfg.mirrorContrast;

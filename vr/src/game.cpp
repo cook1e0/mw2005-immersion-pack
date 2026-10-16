@@ -604,10 +604,22 @@ void __cdecl hkRenderScene() {
     }
 
     double tEyes = D3D_ProfNow();
+    float gazePos[3] = {}, gazeDir[3] = {};
     D3D_BeginEyes();
     for (int eye = 0; eye < 2; eye++) {
         if (eye > 0) D3D_ResetForNextEye();
         ApplyEyeToCamera(cam, base, Xr_Eye(eye));
+        {
+            // The gaze for the triangle editor: between the eyes, straight ahead (rows: right, down,
+            // forward, position).
+            M4 V;
+            memcpy(&V, (const char*)cam + kCamMatrix, sizeof(V));
+            M4 W = MInvRigid(V);
+            for (int a = 0; a < 3; a++) {
+                gazePos[a] += W.m[3][a] * 0.5f;
+                gazeDir[a] += W.m[2][a] * 0.5f;
+            }
+        }
         SetupPlayerView(view, cam, tanX, tanY);
         if (g_cfg.stableReflections) {
             memcpy(&s_eyeView, (const char*)cam + kCamMatrix, sizeof(s_eyeView));
@@ -636,6 +648,7 @@ void __cdecl hkRenderScene() {
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
+    Cockpit_SetGaze(gazePos, gazeDir);
     s_stableView = false;
 
     memcpy(cam, saved, sizeof(saved));

@@ -65,19 +65,21 @@ void D3D_AddMirror(void* indexBuffer, const float* verts, int vertexCount, const
 // rear view surface is copied for the next eye's mirrors.
 void D3D_EndMirrorEye(void* rearViewSurface);
 
-// The in-car dashboard: the HUD's minimap (left), speedometer (right) and pursuit meter (top
-// middle) on a panel at the car's gauge cluster. For each eye: `on` (driving, not paused, the F4
-// menu closed, Dash on), the view and projection. The cockpit adds the panel (its four corners in
-// the world: top left, top right, bottom right, bottom left) as the interior model is submitted; it
-// is drawn right after the game's draws from that index buffer, so the wheel and arms hide it. When
-// a panel was drawn this frame, the HUD phase copies those parts of the HUD onto the panel's picture
-// and clears them from the HUD the headset shows.
+// The in-car dashboard: the HUD's parts (Config::dashEl: minimap, cop radar, speedometer, pursuit
+// info, leaderboard) each on its own quad on a plane at the car's gauge cluster. For each eye: `on`
+// (driving, not paused, Dash on; the F4 menu closed unless on its Adjust dashboard page), the view
+// and projection. The cockpit adds the plane (world: origin, right, up, toward the eye, unit) as
+// the interior model is submitted; it is drawn right after the game's first draw from that index
+// buffer, so the wheel and arms hide it. When it was drawn this frame, the HUD phase copies the
+// parts into the dashboard texture and clears the HUD from the headset's HUD layer (but messages).
+// Starting an eye also clears its coloured triangles (D3D_AddColorTris).
 void D3D_BeginDashEye(bool on, const float* view, const float* proj);
-// `picture`: the HUD parts' corners; `cover`: the black cover's (behind the picture, over the car's
-// own gauges).
-void D3D_AddDash(void* indexBuffer, const float picture[12], const float cover[12]);
-// Height / width of the panel's picture (as laid out from the HUD parts found so far).
-float D3D_DashAspect();
+void D3D_AddDash(void* indexBuffer, const float origin[3], const float right[3], const float up[3], const float toEye[3]);
+// Triangles (xyz per vertex, world, already lifted toward the eye) in one colour, drawn right after
+// the game's first draw from that index buffer in the player view this eye: opaque ones write
+// depth (black triangles of the triangle editor, the car's own gauges), translucent ones don't
+// (the editor's highlight). One batch per index buffer and colour per eye.
+void D3D_AddColorTris(void* indexBuffer, const float* xyz, int triangles, uint32_t argb);
 
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.
