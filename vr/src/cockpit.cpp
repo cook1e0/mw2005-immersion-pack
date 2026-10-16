@@ -1143,10 +1143,23 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         info.mirrorKind = 1;
         if (info.glass[left ? 0 : 1].ok) s_hasMirrorSolids[CarOf(name)] = true;
     } else if (strstr(name, "_KIT") && strstr(name, "_BODY_")) {
+        // Mirrors built into the body sit beside the driver: from 0.2 m behind to 1 m ahead of the
+        // head. Further ahead are hood vents (the Viper's KIT04 body). Looked at once the head is known.
+        const HeadPos* head = CarHead(name);
+        if (!head) {
+            info.mirrorKind = -1;
+            return;
+        }
+        float hx = head->v[0];
         for (int side = 0; side < 2; side++) {
             std::vector<V3> tris;
             float s = side == 0 ? 1.0f : -1.0f;
-            SolidTriangles(solid, tris, [s](const V3* p) { return mirror::InBodyMirrorRegion(p, s); });
+            SolidTriangles(solid, tris, [s, hx](const V3* p) {
+                if (!mirror::InBodyMirrorRegion(p, s)) return false;
+                for (int k = 0; k < 3; k++)
+                    if (p[k].x < hx - 0.2f || p[k].x > hx + 1.0f) return false;
+                return true;
+            });
             info.glass[side] = mirror::FindGlass(tris, false);
         }
         info.mirrorKind = 2;
