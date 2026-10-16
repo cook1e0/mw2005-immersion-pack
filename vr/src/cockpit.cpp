@@ -226,8 +226,8 @@ struct PerCar {
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}};
-PerCar s_dashCar = {"Dash", "dashboard", 3, {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom},
-                    {-1, -1, 0.2f}, {1, 1, 4}};
+PerCar s_dashCar = {"Dash", "dashboard", 4, {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover},
+                    {-1, -1, 0.2f, 1}, {1, 1, 4, 4}};
 
 void SavePerCar(PerCar& p) {
     char buf[96];
@@ -249,9 +249,12 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         p.car = car;
         char buf[96];
         GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
+        // Lines saved before a value existed lack it (older [Hud]: no "right", 0; [Dash]: no cover,
+        // the current one stays).
         float x[4] = {};
         int got = sscanf(buf, "%f,%f,%f,%f", &x[0], &x[1], &x[2], &x[3]);
-        bool ok = got >= (p.n == 4 ? 3 : p.n);  // older [Hud] lines have no "right"
+        for (int i = std::max(got, 0); i < p.n; i++) x[i] = p.section[0] == 'H' ? 0.0f : *p.v[i];
+        bool ok = got >= 3;
         for (int i = 0; i < p.n && ok; i++) ok = x[i] >= p.lo[i] && x[i] <= p.hi[i];
         if (ok) {
             for (int i = 0; i < p.n; i++) *p.v[i] = x[i];
@@ -499,9 +502,11 @@ bool OnWheel(const Wheel& w, const float* p) {
 
 // The in-car dashboard's place: from the driver's head over the top half of the wheel (its centre
 // plus 0.55 of the radius, up in the wheel's plane) to the first surface of the interior past the
-// wheel (the gauge cluster), pulled 12 mm toward the driver and facing them. Without a hit, a
-// point behind the top of the wheel.
-constexpr float kDashLift = 0.55f, kDashReach = 0.6f, kDashPull = 0.012f;
+// wheel (the gauge cluster), facing the driver. Without a hit, a point behind the top of the wheel.
+// The black cover stands 4 cm off that surface toward the driver, clear of the cluster's curves
+// (on it, it fought with them), and the picture 3 mm in front of the cover; the wheel is 15 cm or
+// more in front of both.
+constexpr float kDashLift = 0.55f, kDashReach = 0.6f, kDashCoverPull = 0.04f, kDashPicturePull = 0.003f;
 using mirror::Sub;
 using mirror::Cross;
 using mirror::Dot;
@@ -541,21 +546,27 @@ void FindDash(Wheel& w, const std::vector<V3>& tris, const float headPos[3], con
     w.dashN = n;
     w.dashUp = pu;
     w.dashRight = Norm(Cross(d, pu));
-    w.dash = hit - d * kDashPull;
+    w.dash = hit - d * kDashCoverPull;
     w.dashOk = true;
     Log("cockpit: %s: dashboard panel at %.2f %.2f %.2f (%s, %.2f m past the wheel)", name, w.dash.x, w.dash.y, w.dash.z,
         best < 1e8f ? "gauge cluster" : "no surface found, behind the wheel", best < 1e8f ? best - past + 0.03f : 0.0f);
 }
 
-// The panel's corners in the world (top left, top right, bottom right, bottom left), with the
-// offsets and size from F4 (dashRight / dashUp / dashZoom, per car with HudPerCar).
-void DashCorners(const Wheel& w, const float* m, float out[12]) {
+// The picture's and the cover's corners in the world (top left, top right, bottom right, bottom
+// left), with the offsets and sizes from F4 (dashRight / dashUp / dashZoom / dashCover, per car with
+// HudPerCar).
+void DashCorners(const Wheel& w, const float* m, float picture[12], float cover[12]) {
     float width = 0.24f * std::max(0.2f, g_cfg.dashZoom), height = width * D3D_DashAspect();
+    float k = std::max(1.0f, g_cfg.dashCover);
     V3 centre = w.dash + w.dashRight * g_cfg.dashRight + w.dashUp * g_cfg.dashUp;
-    V3 r = w.dashRight * (width / 2), u = w.dashUp * (height / 2);
-    V3 p[4] = {centre - r + u, centre + r + u, centre + r - u, centre - r - u};
-    for (int i = 0; i < 4; i++)
-        for (int a = 0; a < 3; a++) out[i * 3 + a] = p[i].x * m[a] + p[i].y * m[4 + a] + p[i].z * m[8 + a] + m[12 + a];
+    auto put = [&](V3 c, float hw, float hh, float* out) {
+        V3 r = w.dashRight * hw, u = w.dashUp * hh;
+        V3 p[4] = {c - r + u, c + r + u, c + r - u, c - r - u};
+        for (int i = 0; i < 4; i++)
+            for (int a = 0; a < 3; a++) out[i * 3 + a] = p[i].x * m[a] + p[i].y * m[4 + a] + p[i].z * m[8 + a] + m[12 + a];
+    };
+    put(centre + w.dashN * kDashPicturePull, width / 2, height / 2, picture);
+    put(centre, width * k / 2, height * k / 2, cover);
 }
 
 Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
@@ -1260,9 +1271,9 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
     if (info && m && g_cfg.mirrors && DrawingPlayerCar()) NoteMirrors(solid, *info, m);
     if (info && m && info->wheel && info->wheel->dashOk && g_cfg.dash > 0.5f && DrawingPlayerCar()) {
-        float corners[12];
-        DashCorners(*info->wheel, m, corners);
-        D3D_AddDash(At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer), corners);
+        float picture[12], cover[12];
+        DashCorners(*info->wheel, m, picture, cover);
+        D3D_AddDash(At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer), picture, cover);
     }
     Driver* d = info ? info->driver : nullptr;
     if (!d || !d->ok || !m) return entry;

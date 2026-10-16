@@ -1001,7 +1001,7 @@ static struct {
     bool on;
     D3DMATRIX view, proj;
     void* ib;
-    float corners[12];
+    float corners[12], cover[12];
     bool added, drawn;
 } s_dashEye;
 static bool s_dashThisFrame;                   // a panel was drawn in an eye this frame
@@ -1043,10 +1043,11 @@ void D3D_BeginDashEye(bool on, const float* view, const float* proj) {
     memcpy(&s_dashEye.proj, proj, sizeof(s_dashEye.proj));
 }
 
-void D3D_AddDash(void* indexBuffer, const float corners[12]) {
+void D3D_AddDash(void* indexBuffer, const float picture[12], const float cover[12]) {
     if (!s_dashEye.on || s_dashEye.added || !indexBuffer) return;
     s_dashEye.ib = indexBuffer;
-    memcpy(s_dashEye.corners, corners, sizeof(s_dashEye.corners));
+    memcpy(s_dashEye.corners, picture, sizeof(s_dashEye.corners));
+    memcpy(s_dashEye.cover, cover, sizeof(s_dashEye.cover));
     s_dashEye.added = true;
 }
 
@@ -1070,12 +1071,12 @@ static void DrawDash() {
     s_dev->SetTransform(D3DTS_VIEW, &s_dashEye.view);
     s_dev->SetTransform(D3DTS_PROJECTION, &s_dashEye.proj);
     s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_TRUE);
-    // Depth written where the picture is: interior drawn after it stays behind it, the wheel in front.
+    // Depth written: interior drawn after it stays behind it, the wheel in front. No depth bias:
+    // the cover stands 4 cm off the gauges and the picture 3 mm off the cover, in the geometry.
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-    float bias = -0.00002f, slope = -1.0f;
-    s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
-    s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD*)&slope);
+    s_dev->SetRenderState(D3DRS_DEPTHBIAS, 0);
+    s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, 0);
     s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
     s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
     s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
@@ -1108,18 +1109,11 @@ static void DrawDash() {
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
     s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    // First a black backing, a little larger than the picture, over the car's own gauges: opaque,
-    // writing depth. The picture then goes on it with twice the depth bias, so the two never fight.
+    // First the black cover over the car's own gauges (opaque, writing depth), then the picture on
+    // it: 3 mm in front of it (DashCorners), so the two never fight.
     {
         PanelVertex b[4];
-        float cx = 0, cy = 0, cz = 0;
-        for (int i = 0; i < 4; i++) cx += v[i].x / 4, cy += v[i].y / 4, cz += v[i].z / 4;
-        for (int i = 0; i < 4; i++) {
-            b[i] = v[i];
-            b[i].x = cx + (v[i].x - cx) * 1.04f;
-            b[i].y = cy + (v[i].y - cy) * 1.04f;
-            b[i].z = cz + (v[i].z - cz) * 1.04f;
-        }
+        for (int i = 0; i < 4; i++) b[i] = {s_dashEye.cover[i * 3], s_dashEye.cover[i * 3 + 1], s_dashEye.cover[i * 3 + 2], 0, 0};
         PanelVertex back[6] = {b[0], b[1], b[2], b[0], b[2], b[3]};
         s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
         s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
@@ -1130,8 +1124,6 @@ static void DrawDash() {
         s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
         s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
         s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
-        float pictureBias = 2 * bias;
-        s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&pictureBias);
     }
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(PanelVertex));
     saved->Apply();
@@ -1150,6 +1142,13 @@ static void AfterModelDrawDash() {
     if (!s_dashEye.on || !s_dashEye.added || s_dashEye.drawn || s_dashEye.ib != s_curIndices || !DrawingPlayerView()) return;
     s_dashEye.drawn = true;
     DrawDash();
+}
+
+// Busted, totaled, location and other text in the middle of the screen: left on the floating HUD,
+// in front of the eyes, not put on the panel.
+static const float kMsgZone[4] = {0.30f, 0.18f, 0.70f, 0.56f};
+static bool InMessageZone(float cx, float cy) {
+    return cx > kMsgZone[0] && cx < kMsgZone[2] && cy > kMsgZone[1] && cy < kMsgZone[3];
 }
 
 // The covered cells of the small HUD copy, grouped into blobs (cells within 2 of each other).
@@ -1201,12 +1200,14 @@ static void ProbeHud() {
         if (cy > 0.45f && b[2] < 0.55f && cx < 0.4f) part = DASH_MAP;
         else if (cy > 0.45f && b[0] > 0.45f && cx > 0.6f) part = DASH_SPEEDO;
         else if (cy > 0.55f && cx >= 0.3f && cx <= 0.7f && b[2] - b[0] < 0.7f) part = DASH_COP;
-        else if (cy < 0.45f && !(cy > 0.3f && cx > 0.4f && cx < 0.6f)) part = cx < 0.5f ? DASH_UL : DASH_UR;
+        else if (InMessageZone(cx, cy)) part = -1;
+        else if (cy < 0.45f) part = cx < 0.5f ? DASH_UL : DASH_UR;
         if (part < 0) {
             static double lastLog;
             if (D3D_ProfNow() - lastLog > 10.0) {
                 lastLog = D3D_ProfNow();
-                Log("d3d9: in-car dashboard: HUD part at %.2f %.2f - %.2f %.2f not used (a message)", b[0], b[1], b[2], b[3]);
+                Log("d3d9: in-car dashboard: HUD part at %.2f %.2f - %.2f %.2f left on the HUD (%s)", b[0], b[1], b[2], b[3],
+                    InMessageZone(cx, cy) ? "a message" : "not sorted");
             }
             continue;
         }
@@ -1299,8 +1300,13 @@ static void ComposeDash() {
         if (dst.right <= dst.left || dst.bottom <= dst.top) continue;
         s_dev->StretchRect(s_eyeSurf[2], &src[i], s_dashSurf, &dst, D3DTEXF_LINEAR);
     }
-    // None of the game's HUD in the headset's HUD layer while the panel shows.
-    s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    // None of the game's HUD in the headset's HUD layer while the panel shows, but the messages.
+    LONG mx0 = (LONG)(kMsgZone[0] * s_eyeW), my0 = (LONG)(kMsgZone[1] * s_eyeH), mx1 = (LONG)(kMsgZone[2] * s_eyeW),
+         my1 = (LONG)(kMsgZone[3] * s_eyeH);
+    const RECT outside[4] = {{0, 0, (LONG)s_eyeW, my0}, {0, my1, (LONG)s_eyeW, (LONG)s_eyeH}, {0, my0, mx0, my1},
+                             {mx1, my0, (LONG)s_eyeW, my1}};
+    for (const RECT& r : outside)
+        if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
@@ -1863,6 +1869,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashRight")) return &g_cfg.dashRight;
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
+    if (!strcmp(name, "DashCover")) return &g_cfg.dashCover;
     if (!strcmp(name, "MenuOpen")) return &s_uiMenuOpen;
     if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;
     if (!strcmp(name, "MirrorContrast")) return &g_cfg.mirrorContrast;

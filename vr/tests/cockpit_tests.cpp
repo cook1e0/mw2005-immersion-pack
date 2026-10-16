@@ -13,7 +13,7 @@ void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int
 void D3D_SetGlassCorners(void*, int, const float*) {}
 void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
-void D3D_AddDash(void*, const float*) {}
+void D3D_AddDash(void*, const float*, const float*) {}
 float D3D_DashAspect() { return 0.5f; }
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
@@ -377,14 +377,16 @@ static void TestDash() {
                             {0.3f, 0.0f, 0.0f}, {0.3f, 0.8f, 0.0f}, {0.3f, 0.4f, 0.2f}};
     FindDash(w, tris, head, "TEST_INTERIOR");
     Check(w.dashOk, "dashboard placed");
-    Check(w.dash.x > 0.6f && w.dash.x < 0.62f, "dashboard on the cluster face, pulled toward the driver");
+    Check(w.dash.x > 0.56f && w.dash.x < 0.6f, "dashboard cover 4 cm off the cluster face, toward the driver");
     Check(w.dashN.x < -0.8f, "dashboard faces the driver");
     Check(w.dashUp.z > 0.9f, "dashboard upright");
     Check(w.dashRight.y < -0.9f, "dashboard right is the driver's right");
     float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1};
-    float c[12];
-    g_cfg.dashZoom = 1; g_cfg.dashRight = 0; g_cfg.dashUp = 0;
-    DashCorners(w, m, c);
+    float c[12], cover[12];
+    g_cfg.dashZoom = 1; g_cfg.dashRight = 0; g_cfg.dashUp = 0; g_cfg.dashCover = 1.5f;
+    DashCorners(w, m, c, cover);
+    Near(cover[3 + 1] - cover[1], -0.36f, "cover 1.5 times the panel's width");
+    Check(c[0] < cover[0] - 0.002f, "picture in front of the cover, toward the driver");
     Near(c[3 + 1] - c[1], -0.24f, "panel 24 cm wide, left to right");
     Check(fabsf(c[2] - c[9 + 2] - 0.12f) < 0.01f, "panel height from the picture's aspect");
 }

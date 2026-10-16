@@ -139,6 +139,7 @@ void LoadConfig() {
     c.dashRight = ReadFloat(ini, "DashRight", c.dashRight);
     c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
+    c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;

@@ -59,6 +59,7 @@ struct Config {
     float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash] per car with HudPerCar)
     float dashUp = 0.0f;             // ... and up (m)
     float dashZoom = 1.0f;           // its size
+    float dashCover = 1.3f;          // the black cover over the car's own gauges, relative to the panel
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)

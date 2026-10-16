@@ -73,7 +73,9 @@ void D3D_EndMirrorEye(void* rearViewSurface);
 // a panel was drawn this frame, the HUD phase copies those parts of the HUD onto the panel's picture
 // and clears them from the HUD the headset shows.
 void D3D_BeginDashEye(bool on, const float* view, const float* proj);
-void D3D_AddDash(void* indexBuffer, const float corners[12]);
+// `picture`: the HUD parts' corners; `cover`: the black cover's (behind the picture, over the car's
+// own gauges).
+void D3D_AddDash(void* indexBuffer, const float picture[12], const float cover[12]);
 // Height / width of the panel's picture (as laid out from the HUD parts found so far).
 float D3D_DashAspect();
 
