@@ -20,6 +20,7 @@
 #include "flow.h"
 #include "common.h"
 #include <cstring>
+#include <cwchar>
 #include <initializer_list>
 
 namespace {
@@ -170,9 +171,35 @@ void __fastcall Hook_RequestDoAction(uint8_t* zone, void* edx) {
     s_requestDoAction(zone, edx);
 }
 
+// WS_Loading.fng (the loading screen over the story movies) carries a developer's text object
+// reading "EVENT HANDLER", drawn in red in the top right corner. Every frontend object is drawn
+// through cFEngGameInterface::RenderObject (vtable slot): that string is left out.
+constexpr uintptr_t kSlotRenderObject = 0x89B46C;
+constexpr uintptr_t kRenderObject = 0x516630;         // cFEngGameInterface::RenderObject(FEObject*), thiscall
+constexpr int kObjType = 0x18;                        // FEObject: 2 = FEString
+constexpr int kStringText = 0x64;                     // FEString: FEWideString, +0 the characters
+
+void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
+    if (obj && *(int*)(obj + kObjType) == 2) {
+        const wchar_t* text = *(const wchar_t**)(obj + kStringText);
+        if (text && !IsBadReadPtr(text, 28) && wcscmp(text, L"EVENT HANDLER") == 0) return;
+    }
+    ((void(__fastcall*)(void*, void*, uint8_t*))kRenderObject)(fe, edx, obj);
+}
+
 }  // namespace
 
 void Flow_Install() {
+    if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
+        void* p = (void*)&Hook_RenderObject;
+        DWORD old;
+        VirtualProtect((void*)kSlotRenderObject, 4, PAGE_READWRITE, &old);
+        memcpy((void*)kSlotRenderObject, &p, 4);
+        VirtualProtect((void*)kSlotRenderObject, 4, old, &old);
+        Log("flow: loading screen's \"EVENT HANDLER\" text hidden");
+    } else {
+        Log("flow: unexpected frontend renderer, \"EVENT HANDLER\" text left");
+    }
     // push -1; push <handler> / mov eax, fs:[0]: both move as they are.
     if (!Expect(kZoneRequestDoAction, {0x6A, 0xFF, 0x68}) || !Expect(kDoSafeHouseIntro, {0x64, 0xA1, 0x00, 0x00, 0x00, 0x00})) {
         Log("flow: safehouse code not as expected, first-visit fix unavailable");
