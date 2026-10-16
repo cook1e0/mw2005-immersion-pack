@@ -1361,7 +1361,7 @@ const struct {
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
     {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance, height and left / right position, and its dashboard zoom and position, like the seat. A car you haven't set yet starts with the last ones you used."},
-    {&s_ext[VR_DASH], "On: from the driver's seat, the HUD's minimap (left), speedometer (right) and pursuit meter (top middle) are shown on the car's gauge cluster behind the steering wheel, and left out of the floating HUD. Off in the pause menu and this menu."},
+    {&s_ext[VR_DASH], "On: from the driver's seat the HUD moves onto a black screen over the car's gauge cluster: the cop radar on top, the minimap and speedometer in the middle row, the pursuit info and the leaderboard below. The floating HUD is hidden meanwhile. Back to normal in the pause menu and this menu."},
     {&s_ext[VR_DASHZOOM], "Size of the in-car dashboard panel."},
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},

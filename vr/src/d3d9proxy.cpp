@@ -974,19 +974,26 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // --- the in-car dashboard ---------------------------------------------------------------------------
 // The HUD parts are found in the HUD picture by what it covers (it is transparent elsewhere): a
 // small copy is read back a few times a second and its covered cells grouped into blobs; blobs in
-// the lower half are the minimap (left), the speedometer (right) and the pursuit meter (middle).
-// Each part keeps its box while it is seen (blinking parts stay), and is dropped after 2 s without.
-// The panel's picture: minimap bottom left, speedometer bottom right, pursuit meter top middle, all
-// at the HUD's own scale (one factor to fit the texture).
-enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_PARTS };
-static const char* kDashPartName[DASH_PARTS] = {"minimap", "pursuit meter", "speedometer"};
+// the lower half are the minimap (left), the speedometer (right) and the cop radar (middle); in the
+// upper half the pursuit / race info (left and top middle) and the leaderboard side (right). Text in
+// the middle of the screen (messages) is left out. Each part keeps its box while it is seen
+// (blinking parts stay), and is dropped after 2 s without.
+// The panel's picture, in three rows at the HUD's own scale (one factor to fit the texture): the
+// cop radar on top; the minimap left and the speedometer right; the pursuit info in the middle and
+// the leaderboard on the right. Rows keep the largest size their parts have had, so the panel
+// doesn't jump when a pursuit or a race starts. While the panel shows, the whole HUD is left out of
+// the headset's HUD layer.
+enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };
+static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar", "speedometer", "pursuit info (upper left)",
+                                                "leaderboard (upper right)"};
+// Room kept per part (share of the HUD's width, height) before it has been seen.
+static float s_reserve[DASH_PARTS][2] = {{0, 0}, {0.30f, 0.07f}, {0, 0}, {0.22f, 0.10f}, {0.18f, 0.10f}};
 static const int kDashTexW = 1024, kDashTexH = 512, kProbe = 128;
 static IDirect3DTexture9* s_dashTex;
 static IDirect3DSurface9* s_dashSurf;
 static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_PARTS];
-static float s_copReserve[2] = {0.30f, 0.07f}; // room kept for the pursuit meter (HUD share), so the panel doesn't jump
 static float s_dashU = 1, s_dashV = 0.4f;      // the picture's extent in the texture
 static float s_dashAspect = 0.4f;
 static double s_lastProbe;
@@ -1101,6 +1108,31 @@ static void DrawDash() {
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
     s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
     s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
+    // First a black backing, a little larger than the picture, over the car's own gauges: opaque,
+    // writing depth. The picture then goes on it with twice the depth bias, so the two never fight.
+    {
+        PanelVertex b[4];
+        float cx = 0, cy = 0, cz = 0;
+        for (int i = 0; i < 4; i++) cx += v[i].x / 4, cy += v[i].y / 4, cz += v[i].z / 4;
+        for (int i = 0; i < 4; i++) {
+            b[i] = v[i];
+            b[i].x = cx + (v[i].x - cx) * 1.04f;
+            b[i].y = cy + (v[i].y - cy) * 1.04f;
+            b[i].z = cz + (v[i].z - cz) * 1.04f;
+        }
+        PanelVertex back[6] = {b[0], b[1], b[2], b[0], b[2], b[3]};
+        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
+        s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, 0, 0, 0));
+        s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
+        s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, back, sizeof(PanelVertex));
+        s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
+        s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+        s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
+        float pictureBias = 2 * bias;
+        s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&pictureBias);
+    }
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(PanelVertex));
     saved->Apply();
     saved->Release();
@@ -1169,7 +1201,15 @@ static void ProbeHud() {
         if (cy > 0.45f && b[2] < 0.55f && cx < 0.4f) part = DASH_MAP;
         else if (cy > 0.45f && b[0] > 0.45f && cx > 0.6f) part = DASH_SPEEDO;
         else if (cy > 0.55f && cx >= 0.3f && cx <= 0.7f && b[2] - b[0] < 0.7f) part = DASH_COP;
-        if (part < 0) continue;
+        else if (cy < 0.45f && !(cy > 0.3f && cx > 0.4f && cx < 0.6f)) part = cx < 0.5f ? DASH_UL : DASH_UR;
+        if (part < 0) {
+            static double lastLog;
+            if (D3D_ProfNow() - lastLog > 10.0) {
+                lastLog = D3D_ProfNow();
+                Log("d3d9: in-car dashboard: HUD part at %.2f %.2f - %.2f %.2f not used (a message)", b[0], b[1], b[2], b[3]);
+            }
+            continue;
+        }
         if (!have[part]) memcpy(found[part], b, sizeof(b));
         else {
             found[part][0] = std::min(found[part][0], b[0]); found[part][1] = std::min(found[part][1], b[1]);
@@ -1191,10 +1231,8 @@ static void ProbeHud() {
             }
             d.ok = true;
             d.seen = now;
-            if (i == DASH_COP) {
-                s_copReserve[0] = std::max(s_copReserve[0], d.x1 - d.x0);
-                s_copReserve[1] = std::max(s_copReserve[1], d.y1 - d.y0);
-            }
+            s_reserve[i][0] = std::max(s_reserve[i][0], d.x1 - d.x0);
+            s_reserve[i][1] = std::max(s_reserve[i][1], d.y1 - d.y0);
         } else if (d.ok && now - d.seen > 2.0) {
             d.ok = false;
         }
@@ -1231,25 +1269,38 @@ static void ComposeDash() {
         h[i] = (float)(src[i].bottom - src[i].top);
         if (w[i] < 2 || h[i] < 2) s_dashBox[i].ok = false;
     }
-    // The layout, in HUD pixels.
-    float gap = 0.03f * s_eyeW;
-    float copW = std::max(w[DASH_COP], s_copReserve[0] * s_eyeW), copH = std::max(h[DASH_COP], s_copReserve[1] * s_eyeH);
-    float W = std::max(w[DASH_MAP] + gap + w[DASH_SPEEDO], copW);
-    float H = std::max(h[DASH_MAP], h[DASH_SPEEDO]) + copH;
+    // The layout, in HUD pixels: each part's room is the largest it has been (or the default).
+    float roomW[DASH_PARTS], roomH[DASH_PARTS];
+    for (int i = 0; i < DASH_PARTS; i++) {
+        roomW[i] = std::max(w[i], s_reserve[i][0] * s_eyeW);
+        roomH[i] = std::max(h[i], s_reserve[i][1] * s_eyeH);
+    }
+    float gap = 0.03f * s_eyeW, gapV = 0.01f * s_eyeH;
+    float row1 = roomH[DASH_COP], row2 = std::max(roomH[DASH_MAP], roomH[DASH_SPEEDO]),
+          row3 = std::max(roomH[DASH_UL], roomH[DASH_UR]);
+    float W = std::max({roomW[DASH_COP], roomW[DASH_MAP] + gap + roomW[DASH_SPEEDO], roomW[DASH_UL] + 2 * (gap + roomW[DASH_UR])});
+    float H = row1 + gapV + row2 + gapV + row3;
     s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
     if (W < 4 || H < 4) return;
     float s = std::min(kDashTexW / W, kDashTexH / H);
     s_dashU = W * s / kDashTexW;
     s_dashV = H * s / kDashTexH;
     s_dashAspect = H / W;
-    float at[DASH_PARTS][2] = {{0, H - h[DASH_MAP]}, {(W - w[DASH_COP]) / 2, (copH - h[DASH_COP]) / 2}, {W - w[DASH_SPEEDO], H - h[DASH_SPEEDO]}};
+    float y2 = row1 + gapV, y3 = y2 + row2 + gapV;
+    float at[DASH_PARTS][2];
+    at[DASH_COP][0] = (W - w[DASH_COP]) / 2;     at[DASH_COP][1] = (row1 - h[DASH_COP]) / 2;
+    at[DASH_MAP][0] = 0;                          at[DASH_MAP][1] = y2 + row2 - h[DASH_MAP];
+    at[DASH_SPEEDO][0] = W - w[DASH_SPEEDO];      at[DASH_SPEEDO][1] = y2 + row2 - h[DASH_SPEEDO];
+    at[DASH_UL][0] = (W - w[DASH_UL]) / 2;       at[DASH_UL][1] = y3;
+    at[DASH_UR][0] = W - w[DASH_UR];              at[DASH_UR][1] = y3;
     for (int i = 0; i < DASH_PARTS; i++) {
         if (!s_dashBox[i].ok) continue;
         RECT dst = {(LONG)(at[i][0] * s), (LONG)(at[i][1] * s), (LONG)((at[i][0] + w[i]) * s), (LONG)((at[i][1] + h[i]) * s)};
         if (dst.right <= dst.left || dst.bottom <= dst.top) continue;
         s_dev->StretchRect(s_eyeSurf[2], &src[i], s_dashSurf, &dst, D3DTEXF_LINEAR);
-        s_dev->ColorFill(s_eyeSurf[2], &src[i], D3DCOLOR_ARGB(0, 0, 0, 0));
     }
+    // None of the game's HUD in the headset's HUD layer while the panel shows.
+    s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
