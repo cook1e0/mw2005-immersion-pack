@@ -78,7 +78,7 @@ void Log(const char* fmt, ...) {
     LeaveCriticalSection(&s_logLock);
 }
 
-const char* const kDashElKey[5] = {"Map", "Radar", "Speedo", "Pursuit", "Board"};
+const char* const kDashElKey[6] = {"Map", "Radar", "Speedo", "Pursuit", "Board", "Msg"};
 
 static float ReadFloat(const char* ini, const char* key, float def) {
     char buf[64], defs[64];
@@ -144,7 +144,7 @@ void LoadConfig() {
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
     c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 6; i++) {
         char key[32];
         snprintf(key, sizeof(key), "Dash%sX", kDashElKey[i]);
         c.dashEl[i][0] = ReadFloat(ini, key, NAN);

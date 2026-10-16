@@ -22,6 +22,8 @@
 #include <cstring>
 #include <cwchar>
 #include <initializer_list>
+#include <set>
+#include <cstdlib>
 
 namespace {
 
@@ -179,10 +181,47 @@ constexpr uintptr_t kRenderObject = 0x516630;         // cFEngGameInterface::Ren
 constexpr int kObjType = 0x18;                        // FEObject: 2 = FEString
 constexpr int kStringText = 0x64;                     // FEString: FEWideString, +0 the characters
 
+// The HUD's texts, for hiding one by its object (the location name): each new text is logged with
+// its object's name hash (+0x10) and the string's label hash (FEString +0x60), and objects listed in
+// [HUD] HideText (name hashes, hex, comma separated) aren't drawn.
+constexpr int kObjNameHash = 0x10;
+constexpr int kStringLabel = 0x60;
+
+const std::set<uint32_t>& HiddenTexts() {
+    static std::set<uint32_t> hidden;
+    static bool read;
+    if (!read) {
+        read = true;
+        char ini[MAX_PATH], buf[1024];
+        ConfigFile("nfsmw_gameplay.ini", ini, false);
+        GetPrivateProfileStringA("HUD", "HideText", "", buf, sizeof(buf), ini);
+        for (char* t = strtok(buf, ", "); t; t = strtok(nullptr, ", ")) hidden.insert((uint32_t)strtoul(t, nullptr, 16));
+        if (!hidden.empty()) Log("flow: %u HUD texts hidden ([HUD] HideText)", (unsigned)hidden.size());
+    }
+    return hidden;
+}
+
+void NoteText(uint8_t* obj, const wchar_t* text) {
+    static std::set<uint64_t> seen;
+    if (seen.size() >= 400 || !text[0]) return;
+    uint32_t name = *(uint32_t*)(obj + kObjNameHash), label = *(uint32_t*)(obj + kStringLabel), h = 2166136261u;
+    for (const wchar_t* c = text; *c; c++) h = (h ^ (uint32_t)*c) * 16777619u;
+    if (!seen.insert(((uint64_t)name << 32) | h).second) return;
+    char narrow[96];
+    int n = 0;
+    for (const wchar_t* c = text; *c && n < 90; c++) narrow[n++] = *c >= 32 && *c < 127 ? (char)*c : '?';
+    narrow[n] = 0;
+    Log("flow: HUD text object %08X label %08X: \"%s\"", name, label, narrow);
+}
+
 void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
     if (obj && *(int*)(obj + kObjType) == 2) {
         const wchar_t* text = *(const wchar_t**)(obj + kStringText);
-        if (text && !IsBadReadPtr(text, 28) && wcscmp(text, L"EVENT HANDLER") == 0) return;
+        if (text && !IsBadReadPtr(text, 2)) {
+            if (!IsBadReadPtr(text, 28) && wcscmp(text, L"EVENT HANDLER") == 0) return;
+            NoteText(obj, text);
+            if (HiddenTexts().count(*(uint32_t*)(obj + kObjNameHash))) return;
+        }
     }
     ((void(__fastcall*)(void*, void*, uint8_t*))kRenderObject)(fe, edx, obj);
 }

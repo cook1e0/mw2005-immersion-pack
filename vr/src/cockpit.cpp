@@ -330,12 +330,12 @@ struct PerCar {
     const char* section;
     const char* what;
     int n;
-    float* v[16];
-    float lo[16], hi[16];                           // accepted when loading
+    float* v[20];
+    float lo[20], hi[20];                           // accepted when loading
     int least;                                      // values a line needs (older lines lack the last ones)
     bool nanOk;                                     // NaN accepted (automatic placement)
     std::string car;
-    float seen[16] = {};
+    float seen[20] = {};
     bool dirty = false;
     double changed = 0;
 };
@@ -345,13 +345,14 @@ PerCar s_dashCar = {"Dash", "dashboard", 5,
                     {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover, &g_cfg.dashDepth},
                     {-1, -1, 0.2f, 1, -0.2f}, {1, 1, 4, 4, 0.3f}, 3, false};
 // Each dashboard element's x, y and size (Config::dashEl), in that order per element.
-PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 15,
+PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                           {&g_cfg.dashEl[0][0], &g_cfg.dashEl[0][1], &g_cfg.dashEl[0][2], &g_cfg.dashEl[1][0],
                            &g_cfg.dashEl[1][1], &g_cfg.dashEl[1][2], &g_cfg.dashEl[2][0], &g_cfg.dashEl[2][1],
                            &g_cfg.dashEl[2][2], &g_cfg.dashEl[3][0], &g_cfg.dashEl[3][1], &g_cfg.dashEl[3][2],
-                           &g_cfg.dashEl[4][0], &g_cfg.dashEl[4][1], &g_cfg.dashEl[4][2]},
-                          {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
-                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true};
+                           &g_cfg.dashEl[4][0], &g_cfg.dashEl[4][1], &g_cfg.dashEl[4][2], &g_cfg.dashEl[5][0],
+                           &g_cfg.dashEl[5][1], &g_cfg.dashEl[5][2]},
+                          {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
+                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true};
 
 void SavePerCar(PerCar& p) {
     char buf[512];
@@ -376,7 +377,7 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
         // Lines saved before a value existed lack it (older [Hud]: no "right", 0; [Dash]: no cover,
         // the current one stays).
-        float x[16] = {};
+        float x[20] = {};
         int got = 0;
         for (char* s = buf; *s && got < p.n;) {
             char* end;
@@ -1443,9 +1444,9 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
 // selection is shown over everything (also when behind something); the menu key confirms. The
 // page's commands then hide the selection, draw it black, put it on or take it off the steering
 // wheel (prepared again), add it to or take it off the dashboard blackout, restore it, or undo.
-// Hidden triangles are made zero-area in the index buffer, (a, b, b). Black ones (and the car's own
-// gauges while the dashboard shows) are drawn over the originals in black, 2 mm toward the eyes
-// with a depth bias. Saved per solid in nfsmw_vr_edits.ini.
+// Hidden and black triangles are made zero-area in the index buffer, (a, b, b); black ones are
+// drawn again in black in their place, so the game's own (whose gauge layer ignores the depth
+// test) can't show through. Saved per solid in nfsmw_vr_edits.ini.
 
 V3 s_gazePos, s_gazeDir;
 bool s_haveGaze = false;
@@ -1567,13 +1568,16 @@ std::set<uint64_t> Gauges(const SolidInfo& info, const EditSet& e) {
     return g;
 }
 
-// What should be zero-area in the index buffer now: the hidden triangles; applied by difference
-// (newly hidden made (a, b, b), others put back). Black ones and the gauges stay, drawn over.
+// What should be zero-area in the index buffer now: the hidden and the black triangles (black ones
+// are drawn again in black in their place: drawn over the game's own, they fought with them, whose
+// gauge layer doesn't keep to the depth test); applied by difference (newly hidden made (a, b, b),
+// others put back). A model prepared again gets them back first (GetSolid, RestoreAll).
 void ApplyHides(uint8_t* solid, SolidInfo& info) {
     EditSet& e = EditsFor(SolidName(info));
     bool dash = DashShown();
     std::set<uint64_t> want;
     for (auto& h : e.hide) want.insert(h.first);
+    want.insert(e.black.begin(), e.black.end());
     info.hiddenDash = dash;
     info.blackDirty = true;
     if (want.empty() && info.hidden.empty()) return;
@@ -1859,8 +1863,8 @@ void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
     if (info.hiddenDash != (int)DashShown()) ApplyHides(solid, info);
     UpdateBlack(solid, info);
-    // Over the originals: 2 mm toward the eyes (and a depth bias, d3d9), so they never fight.
-    AddColor(ib, info.black, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
+    // In place of the originals (zero-area in the index buffer), a hair toward the eyes.
+    AddColor(ib, info.black, m, 0.0005f, D3DCOLOR_ARGB(255, 0, 0, 0));
     if (!EditorLive() || !s_haveGaze) return;
     if (g_cfg.editPicking > 0.5f && s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
     if (solid != s_pick.solid || SolidName(info) != s_pick.name) return;

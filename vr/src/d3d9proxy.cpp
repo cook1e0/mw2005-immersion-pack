@@ -981,12 +981,14 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // as its own quad on the panel's plane (Config::dashEl: position and size per element, F4 > VR >
 // Adjust dashboard); elements not placed yet start at fixed places (AutoLayout). While the panel
 // shows, the HUD is cleared from the headset's HUD layer, but for the messages in the middle.
-// The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard.
-enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };
+// The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard,
+// messages (the middle of the screen: busted, totaled, ...).
+enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_MSG, DASH_PARTS };
 static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar (top middle)", "speedometer",
-                                                "pursuit info (bottom middle)", "leaderboard (upper side)"};
+                                                "pursuit info (bottom middle)", "leaderboard (upper side)", "messages"};
 // Room kept per part (share of the HUD's width, height) before it has been seen.
-static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f}};
+static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f},
+                                         {0.40f, 0.26f}};
 static const int kAtlasW = 2048, kAtlasH = 1024, kCellW = 682, kCellH = 512, kProbe = 128;
 static IDirect3DTexture9* s_dashTex;
 static IDirect3DSurface9* s_dashSurf;
@@ -1354,6 +1356,18 @@ static void ProbeHud() {
         if (b[2] - b[0] > 0.6f || b[3] - b[1] > 0.5f) continue;   // a layer over the screen, not a part
         float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
         int part = ClassifyBlob(b, cx, cy);
+        if (part < 0 && InMessageZone(cx, cy)) {
+            // The messages part is the whole zone (it doesn't jump with the text's length).
+            static double lastMsgLog;
+            if (D3D_ProfNow() - lastMsgLog > 1.0) {
+                lastMsgLog = D3D_ProfNow();
+                Log("d3d9: in-car dashboard: message text at %.2f %.2f - %.2f %.2f of the HUD", b[0], b[1], b[2], b[3]);
+            }
+            float zone[4] = {kMsgZone[0], kMsgZone[1], kMsgZone[2], kMsgZone[3]};
+            memcpy(found[DASH_MSG], zone, sizeof(zone));
+            have[DASH_MSG] = true;
+            continue;
+        }
         if (part < 0) {
             static double lastLog;
             if (D3D_ProfNow() - lastLog > 10.0) {
@@ -1411,7 +1425,8 @@ static RECT HudRect(const DashBox& d) {
 // anchor): the cop radar on top, the minimap left and the speedometer right, the pursuit info in
 // the middle below and the leaderboard right below. Never moved after that but by hand.
 static void AutoLayout(const float*, const float*) {
-    static const float kPlace[DASH_PARTS][2] = {{-0.07f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f}};
+    static const float kPlace[DASH_PARTS][2] = {{-0.07f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
+                                                {0.0f, 0.12f}};
     for (int i = 0; i < DASH_PARTS; i++) {
         float* e = g_cfg.dashEl[i];
         if (e[0] != e[0]) e[0] = kPlace[i][0];
@@ -1451,19 +1466,8 @@ static void ComposeDash() {
                    dst.bottom / (float)kAtlasH, w[i], h[i]};
     }
     AutoLayout(w, h);
-    LONG mx0 = (LONG)(kMsgZone[0] * s_eyeW), my0 = (LONG)(kMsgZone[1] * s_eyeH), mx1 = (LONG)(kMsgZone[2] * s_eyeW),
-         my1 = (LONG)(kMsgZone[3] * s_eyeH);
-    const RECT outside[4] = {{0, 0, (LONG)s_eyeW, my0}, {0, my1, (LONG)s_eyeW, (LONG)s_eyeH}, {0, my0, mx0, my1},
-                             {mx1, my0, (LONG)s_eyeW, my1}};
-    for (const RECT& r : outside)
-        if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
-    // The parts on the dashboard are painted out too where they reach into the message zone (the
-    // cop radar's top).
-    for (int i = 0; i < DASH_PARTS; i++)
-        if (s_dashBox[i].ok) {
-            RECT r = HudRect(s_dashBox[i]);
-            s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
-        }
+    // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the dashboard.
+    s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).

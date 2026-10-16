@@ -64,7 +64,7 @@ struct Config {
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard,
     // per car in [DashLayout] with HudPerCar. Keys: Dash<Name>X / Y / Size.
-    float dashEl[5][3];
+    float dashEl[6][3];
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
     // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command
     // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).
@@ -95,8 +95,8 @@ struct Config {
 };
 extern Config g_cfg;
 // Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.
-enum { DASH_EL_MAP, DASH_EL_RADAR, DASH_EL_SPEEDO, DASH_EL_PURSUIT, DASH_EL_BOARD, DASH_EL_COUNT };
-extern const char* const kDashElKey[5];     // ini key part: Map, Radar, Speedo, Pursuit, Board
+enum { DASH_EL_MAP, DASH_EL_RADAR, DASH_EL_SPEEDO, DASH_EL_PURSUIT, DASH_EL_BOARD, DASH_EL_MSG, DASH_EL_COUNT };
+extern const char* const kDashElKey[6];     // ini key part: Map, Radar, Speedo, Pursuit, Board, Msg (messages)
 void LoadConfig();
 
 // Directory containing speed.exe (with trailing backslash).
