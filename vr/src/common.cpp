@@ -142,6 +142,7 @@ void LoadConfig() {
     c.dashRight = ReadFloat(ini, "DashRight", c.dashRight);
     c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
+    c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
     c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
     for (int i = 0; i < 5; i++) {
         char key[32];

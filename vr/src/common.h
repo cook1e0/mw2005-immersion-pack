@@ -59,6 +59,7 @@ struct Config {
     float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash] per car with HudPerCar)
     float dashUp = 0.0f;             // ... and up (m)
     float dashZoom = 1.0f;           // its size
+    float dashDepth = 0.0f;          // ... and toward the driver (m) from 3 cm off the gauge cluster
     float dashCover = 1.3f;          // (old rectangle cover, no longer drawn: the gauges' own triangles are black)
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard,

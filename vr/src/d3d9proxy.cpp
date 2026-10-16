@@ -973,22 +973,20 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 
 // --- the in-car dashboard ---------------------------------------------------------------------------
 // The HUD parts are found in the HUD picture by what it covers (it is transparent elsewhere): a
-// small copy is read back a few times a second and its covered cells grouped into blobs; blobs in
-// the lower half are the minimap (left), the speedometer (right) and the cop radar (middle); in the
-// upper half the pursuit / race info (left and top middle) and the leaderboard side (right). Text in
-// the middle of the screen (messages) is left out. Each part keeps its box while it is seen
-// (blinking parts stay), and is dropped after 2 s without.
+// small copy is read back a few times a second and its covered cells grouped into blobs: the
+// minimap (bottom left), the speedometer (bottom right), the pursuit info box (bottom middle), the
+// cop radar (top middle) and the leaderboard / bounty (upper sides). Text in the middle of the
+// screen (messages) is left out. Each part's box only grows; it is shown while seen in the last 2 s.
 // Each part is copied at the HUD's own scale into its own cell of the dashboard texture and drawn
 // as its own quad on the panel's plane (Config::dashEl: position and size per element, F4 > VR >
-// Adjust dashboard). Elements not placed by hand follow an automatic layout in three rows: the cop
-// radar on top; the minimap left and the speedometer right; the pursuit info in the middle and the
-// leaderboard on the right. While the panel shows, the HUD is cleared from the headset's HUD layer,
-// but for the messages in the middle.
-enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };   // the DASH_EL_* order
-static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar", "speedometer", "pursuit info (upper left)",
-                                                "leaderboard (upper right)"};
+// Adjust dashboard); elements not placed yet start at fixed places (AutoLayout). While the panel
+// shows, the HUD is cleared from the headset's HUD layer, but for the messages in the middle.
+// The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard.
+enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_PARTS };
+static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar (top middle)", "speedometer",
+                                                "pursuit info (bottom middle)", "leaderboard (upper side)"};
 // Room kept per part (share of the HUD's width, height) before it has been seen.
-static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.30f, 0.07f}, {0.12f, 0.12f}, {0.22f, 0.10f}, {0.18f, 0.10f}};
+static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f}};
 static const int kAtlasW = 2048, kAtlasH = 1024, kCellW = 682, kCellH = 512, kProbe = 128;
 static IDirect3DTexture9* s_dashTex;
 static IDirect3DSurface9* s_dashSurf;
@@ -996,8 +994,6 @@ static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_PARTS];
 static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_PARTS];
-static bool s_elAuto[DASH_PARTS] = {true, true, true, true, true};   // following the automatic layout
-static float s_elAutoXY[DASH_PARTS][2];        // the automatic position last written
 static double s_lastProbe;
 static struct {
     bool on;
@@ -1285,26 +1281,46 @@ static void AfterModelDrawDash() {
 }
 
 // Busted, totaled, location and other text in the middle of the screen: left on the floating HUD,
-// in front of the eyes, not put on the panel.
-static const float kMsgZone[4] = {0.30f, 0.18f, 0.70f, 0.56f};
+// in front of the eyes, not put on the panel. Below the cop radar (top middle, about 0.18..0.21).
+static const float kMsgZone[4] = {0.30f, 0.30f, 0.70f, 0.56f};
 static bool InMessageZone(float cx, float cy) {
     return cx > kMsgZone[0] && cx < kMsgZone[2] && cy > kMsgZone[1] && cy < kMsgZone[3];
 }
 
-// The covered cells of the small HUD copy, grouped into blobs (cells within 2 of each other).
+// Which part a blob (box b, centre cx, cy, shares of the HUD) is, or -1.
+static int ClassifyBlob(const float b[4], float cx, float cy) {
+    if (cy > 0.45f && b[2] < 0.55f && cx < 0.4f) return DASH_MAP;
+    if (cy > 0.45f && b[0] > 0.45f && cx > 0.6f) return DASH_SPEEDO;
+    if (cy > 0.55f && cx >= 0.3f && cx <= 0.7f) return DASH_UL;          // pursuit info, bottom middle
+    if (cy < 0.30f && cx > 0.33f && cx < 0.67f) return DASH_COP;         // cop radar, top middle
+    if (InMessageZone(cx, cy)) return -1;
+    if (cy < 0.50f && (cx <= 0.33f || cx >= 0.67f)) return DASH_UR;     // leaderboard / bounty, upper side
+    return -1;
+}
+
+// The covered cells of the small HUD copy, grouped into blobs (touching cells). A pursuit lays a
+// faint layer over the whole screen: when most cells read as covered at the lowest threshold, the
+// threshold goes up until the parts stand apart again; blobs the size of the screen are left out.
 static void ProbeHud() {
     if (FAILED(s_dev->StretchRect(s_eyeSurf[2], nullptr, s_probeRT, nullptr, D3DTEXF_LINEAR)) ||
         FAILED(s_dev->GetRenderTargetData(s_probeRT, s_probeMem)))
         return;
     D3DLOCKED_RECT lr;
     if (FAILED(s_probeMem->LockRect(&lr, nullptr, D3DLOCK_READONLY))) return;
-    static uint8_t cov[kProbe * kProbe];
+    static uint8_t alpha[kProbe * kProbe], cov[kProbe * kProbe];
     static int label[kProbe * kProbe];
     for (int y = 0; y < kProbe; y++) {
         const uint8_t* row = (const uint8_t*)lr.pBits + y * lr.Pitch;
-        for (int x = 0; x < kProbe; x++) cov[y * kProbe + x] = row[x * 4 + 3] > 20;
+        for (int x = 0; x < kProbe; x++) alpha[y * kProbe + x] = row[x * 4 + 3];
     }
     s_probeMem->UnlockRect();
+    int threshold = 20;
+    for (int pass = 0; pass < 3; pass++) {
+        int covered = 0;
+        for (int i = 0; i < kProbe * kProbe; i++) covered += cov[i] = alpha[i] > threshold;
+        if (covered < kProbe * kProbe * 4 / 10) break;
+        threshold = pass == 0 ? 100 : 180;
+    }
     memset(label, 0, sizeof(label));
     float found[DASH_PARTS][4];
     bool have[DASH_PARTS] = {};
@@ -1322,8 +1338,8 @@ static void ProbeHud() {
             x0 = std::min(x0, px); x1 = std::max(x1, px);
             y0 = std::min(y0, py); y1 = std::max(y1, py);
             cells++;
-            for (int dy = -2; dy <= 2; dy++)
-                for (int dx = -2; dx <= 2; dx++) {
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
                     int qx = px + dx, qy = py + dy;
                     if (qx < 0 || qy < 0 || qx >= kProbe || qy >= kProbe) continue;
                     int q = qy * kProbe + qx;
@@ -1333,15 +1349,11 @@ static void ProbeHud() {
                     }
                 }
         }
-        if (cells < 6) continue;
+        if (cells < 2) continue;
         float b[4] = {x0 / (float)kProbe, y0 / (float)kProbe, (x1 + 1) / (float)kProbe, (y1 + 1) / (float)kProbe};
+        if (b[2] - b[0] > 0.6f || b[3] - b[1] > 0.5f) continue;   // a layer over the screen, not a part
         float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
-        int part = -1;
-        if (cy > 0.45f && b[2] < 0.55f && cx < 0.4f) part = DASH_MAP;
-        else if (cy > 0.45f && b[0] > 0.45f && cx > 0.6f) part = DASH_SPEEDO;
-        else if (cy > 0.55f && cx >= 0.3f && cx <= 0.7f && b[2] - b[0] < 0.7f) part = DASH_COP;
-        else if (InMessageZone(cx, cy)) part = -1;
-        else if (cy < 0.45f) part = cx < 0.5f ? DASH_UL : DASH_UR;
+        int part = ClassifyBlob(b, cx, cy);
         if (part < 0) {
             static double lastLog;
             if (D3D_ProfNow() - lastLog > 10.0) {
@@ -1358,14 +1370,19 @@ static void ProbeHud() {
         }
         have[part] = true;
     }
+    // Each part's box only grows (for the session), so its picture keeps its size and place on the
+    // panel when parts of it blink or change; shown while seen in the last 2 s.
     double now = D3D_ProfNow();
     for (int i = 0; i < DASH_PARTS; i++) {
         DashBox& d = s_dashBox[i];
         if (have[i]) {
-            bool was = d.ok && now - d.seen < 2.0;
-            if (was) {
+            bool known = d.x1 > d.x0;
+            if (known) {
+                float before[4] = {d.x0, d.y0, d.x1, d.y1};
                 d.x0 = std::min(d.x0, found[i][0]); d.y0 = std::min(d.y0, found[i][1]);
                 d.x1 = std::max(d.x1, found[i][2]); d.y1 = std::max(d.y1, found[i][3]);
+                if (memcmp(before, &d.x0, sizeof(before)))
+                    Log("d3d9: in-car dashboard: %s grown to %.2f %.2f - %.2f %.2f of the HUD", kDashPartName[i], d.x0, d.y0, d.x1, d.y1);
             } else {
                 d.x0 = found[i][0]; d.y0 = found[i][1]; d.x1 = found[i][2]; d.y1 = found[i][3];
                 Log("d3d9: in-car dashboard: %s found at %.2f %.2f - %.2f %.2f of the HUD", kDashPartName[i], d.x0, d.y0, d.x1, d.y1);
@@ -1390,40 +1407,15 @@ static RECT HudRect(const DashBox& d) {
     return r;
 }
 
-// The automatic layout, element centres in metres at zoom 1 (x right, y up from the panel's
-// anchor): the cop radar on top; the minimap left and the speedometer right; the pursuit info in the
-// middle and the leaderboard right. Each part's room is the largest it has been (or the default).
-// An element follows it until it is moved by hand: a position other than the one last written here.
-static void AutoLayout(const float w[DASH_PARTS], const float h[DASH_PARTS]) {
-    float roomW[DASH_PARTS], roomH[DASH_PARTS];
+// Elements not placed yet get a fixed place (metres at zoom 1, x right, y up from the panel's
+// anchor): the cop radar on top, the minimap left and the speedometer right, the pursuit info in
+// the middle below and the leaderboard right below. Never moved after that but by hand.
+static void AutoLayout(const float*, const float*) {
+    static const float kPlace[DASH_PARTS][2] = {{-0.07f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f}};
     for (int i = 0; i < DASH_PARTS; i++) {
-        roomW[i] = std::max(w[i], s_reserve[i][0] * s_eyeW);
-        roomH[i] = std::max(h[i], s_reserve[i][1] * s_eyeH);
-    }
-    float gap = 0.03f * s_eyeW, gapV = 0.01f * s_eyeH;
-    float row1 = roomH[DASH_COP], row2 = std::max(roomH[DASH_MAP], roomH[DASH_SPEEDO]),
-          row3 = std::max(roomH[DASH_UL], roomH[DASH_UR]);
-    float W = std::max({roomW[DASH_COP], roomW[DASH_MAP] + gap + roomW[DASH_SPEEDO], roomW[DASH_UL] + 2 * (gap + roomW[DASH_UR])});
-    float H = row1 + gapV + row2 + gapV + row3;
-    float y2 = row1 + gapV, y3 = y2 + row2 + gapV;
-    // Centres in HUD pixels from the layout's top left; parts are bottom-aligned in the middle row.
-    float c[DASH_PARTS][2] = {
-        {roomW[DASH_MAP] / 2, y2 + row2 - roomH[DASH_MAP] / 2},
-        {W / 2, row1 / 2},
-        {W - roomW[DASH_SPEEDO] / 2, y2 + row2 - roomH[DASH_SPEEDO] / 2},
-        {W / 2, y3 + roomH[DASH_UL] / 2},
-        {W - roomW[DASH_UR] / 2, y3 + roomH[DASH_UR] / 2},
-    };
-    float mpp = MetresPerHudPixel();
-    for (int i = 0; i < DASH_PARTS; i++) {
-        float ax = (c[i][0] - W / 2) * mpp, ay = (H / 2 - c[i][1]) * mpp;
         float* e = g_cfg.dashEl[i];
-        bool byHand = e[0] == e[0] && e[1] == e[1] &&
-                      !(s_elAuto[i] && e[0] == s_elAutoXY[i][0] && e[1] == s_elAutoXY[i][1]);
-        s_elAuto[i] = !byHand;
-        if (byHand) continue;
-        e[0] = s_elAutoXY[i][0] = ax;
-        e[1] = s_elAutoXY[i][1] = ay;
+        if (e[0] != e[0]) e[0] = kPlace[i][0];
+        if (e[1] != e[1]) e[1] = kPlace[i][1];
     }
 }
 
@@ -2034,6 +2026,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashRight")) return &g_cfg.dashRight;
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
+    if (!strcmp(name, "DashDepth")) return &g_cfg.dashDepth;
     if (!strcmp(name, "DashAdjust")) return &g_cfg.dashAdjust;
     if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;
     if (!strcmp(name, "EditorOn")) return &g_cfg.editorOn;

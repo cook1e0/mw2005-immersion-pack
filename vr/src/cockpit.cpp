@@ -341,8 +341,9 @@ struct PerCar {
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
-PerCar s_dashCar = {"Dash", "dashboard", 4, {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover},
-                    {-1, -1, 0.2f, 1}, {1, 1, 4, 4}, 3, false};
+PerCar s_dashCar = {"Dash", "dashboard", 5,
+                    {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover, &g_cfg.dashDepth},
+                    {-1, -1, 0.2f, 1, -0.2f}, {1, 1, 4, 4, 0.3f}, 3, false};
 // Each dashboard element's x, y and size (Config::dashEl), in that order per element.
 PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 15,
                           {&g_cfg.dashEl[0][0], &g_cfg.dashEl[0][1], &g_cfg.dashEl[0][2], &g_cfg.dashEl[1][0],
@@ -708,10 +709,10 @@ void FindDash(Wheel& w, const std::vector<TriRef>& tris, const float headPos[3],
         bestTri >= 0 ? best - past + 0.03f : 0.0f, (unsigned)w.gauges.size(), bestTri >= 0 ? tris[bestTri].entry : -1);
 }
 
-// The panel's plane in the world: origin (with the offsets from F4, dashRight / dashUp, per car
-// with HudPerCar), right, up and toward the driver (unit).
+// The panel's plane in the world: origin (with the offsets from F4, dashRight / dashUp / dashDepth,
+// per car with HudPerCar), right, up and toward the driver (unit).
 void DashBasis(const Wheel& w, const float* m, float origin[3], float right[3], float up[3], float toEye[3]) {
-    V3 o = w.dash + w.dashRight * g_cfg.dashRight + w.dashUp * g_cfg.dashUp;
+    V3 o = w.dash + w.dashRight * g_cfg.dashRight + w.dashUp * g_cfg.dashUp + w.dashN * g_cfg.dashDepth;
     for (int a = 0; a < 3; a++) origin[a] = o.x * m[a] + o.y * m[4 + a] + o.z * m[8 + a] + m[12 + a];
     auto dir = [&](V3 v, float* out) {
         V3 r = {v.x * m[0] + v.y * m[4] + v.z * m[8], v.x * m[1] + v.y * m[5] + v.z * m[9], v.x * m[2] + v.y * m[6] + v.z * m[10]};
@@ -1560,7 +1561,7 @@ bool DashShown() { return g_cfg.dash > 0.5f; }
 // hand, less those taken off, drawn black or hidden by hand.
 std::set<uint64_t> Gauges(const SolidInfo& info, const EditSet& e) {
     std::set<uint64_t> g(e.dash.begin(), e.dash.end());
-    if (info.wheel && info.wheel->dashOk) g.insert(info.wheel->gauges.begin(), info.wheel->gauges.end());
+    // (The automatically found gauges, Wheel::gauges, are no longer blacked out: done by hand.)
     for (auto it = g.begin(); it != g.end();)
         it = e.noAuto.count(*it) || e.black.count(*it) || e.hide.count(*it) ? g.erase(it) : std::next(it);
     return g;

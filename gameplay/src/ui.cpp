@@ -274,6 +274,7 @@ const struct {
     {MOD_VR, "EditBrush", 0.0f},
     {MOD_VR, "EditPicking", 0.0f}, {MOD_VR, "EditLayer", 0.0f},   // live: picking with the menu hidden
     {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
+    {MOD_VR, "DashDepth", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -285,7 +286,7 @@ enum {
     VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER,
     VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
     VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH,
-    VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, EXT_COUNT
+    VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, VR_DASHDEPTH, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -643,6 +644,7 @@ const Item kItems[] = {
     {NUMBER, "Dashboard zoom", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
     LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
     LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
@@ -684,8 +686,6 @@ const Item kItems[] = {
     HEADER_("DO WITH THE SELECTION"),
     {ACTION, "Hide", nullptr, "EdHide", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Draw black", nullptr, "EdBlack", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {ACTION, "Add to the dashboard blackout", nullptr, "EdDash", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {ACTION, "Take off the dashboard blackout", nullptr, "EdNoDash", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Add to the steering wheel", nullptr, "EdWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Take off the steering wheel", nullptr, "EdNoWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restore", nullptr, "EdRestore", nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -1520,10 +1520,11 @@ const struct {
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
     {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance, height and left / right position, and its dashboard zoom and position, like the seat. A car you haven't set yet starts with the last ones you used."},
-    {&s_ext[VR_DASH], "On: from the driver's seat the HUD moves onto a black screen over the car's gauge cluster: the cop radar on top, the minimap and speedometer in the middle row, the pursuit info and the leaderboard below. The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
+    {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
     {&s_ext[VR_DASHZOOM], "Size of the in-car dashboard panel."},
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
+    {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car remembers it with HUD positioning."},
     {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
