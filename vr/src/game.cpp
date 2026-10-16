@@ -642,11 +642,14 @@ void __cdecl hkRenderScene() {
     s_stereoFrame = true;
 }
 
+// The patches below, on while VR runs unless CutscenePatches is off (F4, for testing).
+bool CutsPatched() { return Xr_Available() && g_cfg.cutscenePatches > 0.5f; }
+
 // A totaled car (drag race crash, or an engine blown by the H-shifter mod's engine wear) cuts
 // to a third-person crash camera. In the headset that is a sudden jump out of the car, so it is
 // skipped while VR is running and the view stays in the cockpit.
 void __cdecl hkTotaledCam(void* player) {
-    if (Xr_Available()) {
+    if (CutsPatched()) {
         Log("game: totaled camera skipped (VR)");
         return;
     }
@@ -656,7 +659,7 @@ void __cdecl hkTotaledCam(void* player) {
 // The other cinematic cameras cut away from the cockpit just the same, so they are off in VR too.
 // Pursuit, jump and crash cams all check the "Jump Cams" option first; it reads as off.
 bool __cdecl hkJumpCamsOn() {
-    if (Xr_Available()) return false;
+    if (CutsPatched()) return false;
     return ((JumpCamsOnFn)kJumpCamsOn)();
 }
 
@@ -664,7 +667,7 @@ bool __cdecl hkJumpCamsOn() {
 bool s_iceSkipped = false;
 
 void __fastcall hkPlayIce(void* ice, void* edx, const char* name, const char* track) {
-    s_iceSkipped = Xr_Available();
+    s_iceSkipped = CutsPatched();
     if (s_iceSkipped) {
         Log("game: cinematic camera '%s' skipped (VR)", track ? track : "");
         return;
@@ -679,13 +682,13 @@ void __cdecl hkIceAction(int view, const char* action) {
 
 void __fastcall hkSelectAction(uint8_t* director, void*) {
     float& timer = At<float>(director, kDirectorTrackCopTimer);
-    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
+    if (CutsPatched() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
         Log("game: pursuit breaker / cop camera skipped (VR)");
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
 
-    if (!Xr_Available() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
+    if (!CutsPatched() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
     const char* action = At<const char*>(director, kDirectorActionName);
     const char* drive = (const char*)kActionDriveName;
     if (!action || !action[0] || action == drive || strcmp(action, drive) == 0 || strncmp(action, "CDActionDebug", 13) == 0)
@@ -703,7 +706,7 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
 
 // The busted cutscene without its viewfinder frame while VR runs: the scene is seen as it is.
 void __cdecl hkNisOverlay(int id) {
-    if (Xr_Available() && (id & 0x7F) == kNisOverlayBusted) {
+    if (CutsPatched() && (id & 0x7F) == kNisOverlayBusted) {
         Log("game: busted overlay skipped (VR)");
         return;
     }
@@ -723,7 +726,7 @@ void __fastcall hkTriggerMomentNis(void* ev, void*) {
     float* stamp = (float*)kMomentNisTime;
     float saved = *stamp;
     const char* scene = ev ? *(const char**)((uint8_t*)ev + 8) : nullptr;
-    bool skip = Xr_Available() && PursuitBreakerScene(scene);
+    bool skip = CutsPatched() && PursuitBreakerScene(scene);
     ((void(__thiscall*)(void*))kTriggerMomentNis)(ev);
     bool started = *stamp != saved;
     if (skip && started) *stamp = saved;
@@ -740,7 +743,7 @@ void __fastcall hkDirectorSetAction(uint8_t* director, void*, ActionKey key) {
     auto set = (void(__thiscall*)(void*, ActionKey))kDirectorSetAction;
     const char* drive = (const char*)kActionDriveName;
     const char* action = key.string;
-    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
+    if (CutsPatched() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
         action != drive && strcmp(action, drive) != 0 && strncmp(action, "CDActionDebug", 13) != 0) {
         static DWORD lastLog = 0;
         if (GetTickCount() - lastLog > 2000) {

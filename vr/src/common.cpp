@@ -134,6 +134,7 @@ void LoadConfig() {
     c.hideHead = ReadInt(ini, "HideHead", c.hideHead) != 0;
     c.hideArms = ReadInt(ini, "HideArms", 1) != 0 ? 1.0f : 0.0f;
     c.wheelOverHud = ReadInt(ini, "WheelOverHud", 0) != 0 ? 1.0f : 0.0f;
+    c.cutscenePatches = ReadInt(ini, "CutscenePatches", 1) != 0 ? 1.0f : 0.0f;
     c.hudPerCar = ReadInt(ini, "HudPerCar", 0) != 0 ? 1.0f : 0.0f;
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;

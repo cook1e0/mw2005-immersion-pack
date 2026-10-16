@@ -262,6 +262,7 @@ const struct {
     {MOD_FFB, "NosLighter", 0.3f},
     {MOD_FFB, "Landing", 0.8f},
     {MOD_FFB, "CarHits", 0.8f},
+    {MOD_VR, "CutscenePatches", 1.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -269,7 +270,7 @@ enum {
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
     FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
-    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS, EXT_COUNT
+    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS, VR_CUTSCENES, EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -624,6 +625,7 @@ const Item kItems[] = {
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Steering wheel rendered in front of HUD", "VR", "WheelOverHud", &s_ext[VR_WHEELOVERHUD], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    {NUMBER, "Cutscene patches", "VR", "CutscenePatches", &s_ext[VR_CUTSCENES], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Mirror brightness", "VR", "MirrorBrightness", &s_ext[VR_MIRRORBRIGHTNESS], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Mirror contrast", "VR", "MirrorContrast", &s_ext[VR_MIRRORCONTRAST], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
@@ -809,7 +811,7 @@ std::string ValueText(const Item& it, int index) {
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
     if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS] || it.value == &s_ext[VR_WHEELOVERHUD] ||
-        it.value == &s_ext[VR_HUDPERCAR])
+        it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_CUTSCENES])
         return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
         std::string name;
@@ -1347,6 +1349,7 @@ const struct {
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
     {&s_ext[VR_HUDRIGHT], "Moves the HUD panel to the left (-) or right (+)."},
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
+    {&s_ext[VR_CUTSCENES], "Off: every cutscene and cinematic camera patch of the VR mod is disabled (totaled, jump, pursuit breaker and cop cameras, the busted frame, moment cutscenes), so the game plays them as without VR. For testing whether a cutscene problem comes from the mod."},
     {&s_ext[VR_WHEELOVERHUD], "On: the car's steering wheel is drawn in front of the HUD while driving. In the pause menu, other menus and this menu the HUD is on top again."},
     {&s_ext[FFB_OFFROAD], "The wheel vibrates while the front wheels are off the road: grass, dirt, mud, gravel, sand. Stronger with both wheels off and with speed."},
     {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
@@ -1756,7 +1759,7 @@ void ValueWidget(int i, float w, float k) {
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
             if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE] || it.value == &s_ext[VR_HIDEARMS] ||
-                it.value == &s_ext[VR_WHEELOVERHUD] || it.value == &s_ext[VR_HUDPERCAR]) {
+                it.value == &s_ext[VR_WHEELOVERHUD] || it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_CUTSCENES]) {
                 fmt.clear();   // the text from ValueText, as a format without conversions
                 for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             }
