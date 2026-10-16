@@ -10,7 +10,10 @@
 // the door is all that's left: the safehouse menu, "Resume Career" back to the street, the intro
 // never plays and the career can't go on.
 //
-// So the door starts the intro itself while the career is in exactly that state: career mode,
+// The usual reason is an "intro done" flag the career can't have at bin 16 (a prepared profile):
+// it is cleared when the script asks, so drive_to_target runs and the safehouse's trigger starts
+// the intro on arrival. SkipMovies left on by the widescreen fix is turned off then too.
+// As a fallback the door starts the intro itself while the career is in exactly that state: career mode,
 // still bin 16 (the prologue's bin), the D-Day races done (as CareerSettings::ResumeCareer checks)
 // and no CS_INTRO_DONE. When the intro was just started by the script, the door's quit to the
 // plain menu is dropped instead, so it can't replace the intro's.
@@ -23,6 +26,7 @@ namespace {
 
 constexpr uintptr_t kZoneRequestDoAction = 0x58C640;  // MenuZoneTrigger::RequestDoAction(), thiscall; +0x14 zone type
 constexpr uintptr_t kDoSafeHouseIntro = 0x605560;     // Game_DoSafeHouseIntro(GRuntimeInstance* or null), cdecl
+constexpr uintptr_t kSkipCareerIntro = 0x612490;      // bool Game_SkipCareerIntro() (Lua Game.SkipCareerIntro), cdecl
 constexpr uintptr_t kFEDatabase = 0x91CF90;           // cFrontendDatabase*: +0x10 player 1's profile, +0x12C FEGameMode
 constexpr int kFEGameMode = 0x12C;                    // bit 0 career
 constexpr int kCareerFlags = 0xAC;                    // profile: CareerSettings (+0xA8) SpecialFlags
@@ -66,6 +70,7 @@ void* Detour(uintptr_t at, size_t stolen, void* hook) {
 
 void(__fastcall* s_requestDoAction)(void*, void*);
 void(__cdecl* s_doSafeHouseIntro)(void*);
+bool(__cdecl* s_skipCareerIntro)();
 double s_introAt = -1;   // Now() of the last intro start
 
 uint8_t* Profile() {
@@ -102,7 +107,43 @@ bool IntroPending() {
     return p[kCareerBin] == 16 && !(*(uint32_t*)(p + kCareerFlags) & kIntroDone) && DDayDone();
 }
 
+// Story movies (Mia, the Blacklist bios) end the moment they start while SkipMovies is set: the
+// widescreen fix's SkipIntro leaves it on after the startup movies. Turned off once in the world.
+void PlayMovies() {
+    if (*(int*)kSkipMovies) {
+        Log("flow: SkipMovies was on in game (startup movie skip left on), story movies play again");
+        *(int*)kSkipMovies = 0;
+    }
+}
+
+// CS_INTRO_DONE is only ever set by the rival flow after Mia's intro, together with bin 15 (or by
+// the debug skip, also bin 15). With it set while the career is still at bin 16 (seen in a
+// prepared profile, 0x1DF7F3), Game.SkipCareerIntro() says yes and drive_to_target ends at once:
+// no GPS, no trigger at the safehouse, no intro. Such a flag is cleared before the script asks.
+void RepairIntroFlag() {
+    uint8_t* db = *(uint8_t**)kFEDatabase;
+    uint8_t* p = Profile();
+    if (!db || !p || !(*(uint32_t*)(db + kFEGameMode) & 1) || p[kCareerBin] != 16) return;
+    uint32_t& flags = *(uint32_t*)(p + kCareerFlags);
+    if (!(flags & kIntroDone)) return;
+    Log("flow: career at bin 16 marked intro done (flags 0x%X): impossible in the game, mark cleared", flags);
+    flags &= ~kIntroDone;
+}
+
+bool __cdecl Hook_SkipCareerIntro() {
+    RepairIntroFlag();
+    PlayMovies();
+    bool skip = s_skipCareerIntro();
+    static int logged;
+    if (logged < 10) {
+        logged++;
+        LogCareer(skip ? "career script: skip the intro" : "career script: intro to come");
+    }
+    return skip;
+}
+
 void __cdecl Hook_DoSafeHouseIntro(void* instance) {
+    PlayMovies();
     s_introAt = Now();
     LogCareer("first safehouse visit (Mia's intro)");
     s_doSafeHouseIntro(instance);
@@ -118,6 +159,7 @@ void __fastcall Hook_RequestDoAction(uint8_t* zone, void* edx) {
         Log("flow: safehouse door after the intro started: the plain safehouse menu skipped");
         return;
     }
+    RepairIntroFlag();
     if (IntroPending()) {
         LogCareer("safehouse door with the career intro not played");
         Log("flow: starting Mia's intro (the career script didn't)");
@@ -139,5 +181,10 @@ void Flow_Install() {
     s_doSafeHouseIntro = (void(__cdecl*)(void*))Detour(kDoSafeHouseIntro, 6, (void*)&Hook_DoSafeHouseIntro);
     if (!s_doSafeHouseIntro) return;
     s_requestDoAction = (void(__fastcall*)(void*, void*))Detour(kZoneRequestDoAction, 7, (void*)&Hook_RequestDoAction);
+    // mov eax, [SkipFE]: an absolute address, moves as it is.
+    if (Expect(kSkipCareerIntro, {0xA1, 0x64, 0x60, 0x92, 0x00}))
+        s_skipCareerIntro = (bool(__cdecl*)())Detour(kSkipCareerIntro, 5, (void*)&Hook_SkipCareerIntro);
+    else
+        Log("flow: Game_SkipCareerIntro not as expected, the career's own intro trigger left as it is");
     Log("flow: installed (first safehouse visit)");
 }
