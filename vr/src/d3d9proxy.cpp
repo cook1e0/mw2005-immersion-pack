@@ -274,7 +274,7 @@ static IDirect3DPixelShader9* MirrorMapShader() {
         // A dark rim along the glass's edge, as a mirror set in its housing: the distance from the
         // centre in a rounded rectangle (superellipse) shape, so it follows oval glass too.
         "  float2 p = abs(uv * 2 - 1); float r = pow(pow(p.x, 3) + pow(p.y, 3), 1.0 / 3);"
-        "  float rim = saturate((1 - r) / 0.14);"
+        "  float rim = saturate((1 - r) / 0.2);"
         "  return float4(c * lerp(0.06, 1, rim * rim), 1); }";
     ID3DBlob *code = nullptr, *errors = nullptr;
     HRESULT hr = compile(src, strlen(src), "mirrormap", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
@@ -913,7 +913,9 @@ void D3D_EndWheelEye() {
     }
 }
 
-// After the game's draw from `ib`: the mirror glass of that model, once per eye.
+// After each of the game's draws from `ib` in the player view: the mirror glass of that model. Not
+// only after the first: the model's own glass can be a later draw entry of it (the Punto's rear
+// view mirror) whose material would otherwise cover the picture.
 // The car is also drawn into shadow maps, the environment map and the rear view: only the player
 // view's draw counts, the one into a target the size of the back buffer, with a depth buffer.
 static bool DrawingPlayerView() {
@@ -934,7 +936,7 @@ static void AfterModelDraw() {
     if (!s_mirrorEye || s_pendingMirrors.empty()) return;
     bool checked = false, playerView = false;
     for (PendingMirror& m : s_pendingMirrors) {
-        if (m.drawn || m.ib != s_curIndices) continue;
+        if (m.ib != s_curIndices) continue;
         if (!checked) {
             checked = true;
             playerView = DrawingPlayerView();

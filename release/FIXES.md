@@ -1,3 +1,53 @@
+### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
+
+- **VR: the car's own mirrors show what's behind you:** the game's rear view is drawn on the
+  interior rear view mirror and on both side mirrors' glass in the player car (static slices of the
+  rear view, `[VR] SideMirrorWidth`), with a dark rim around the side mirror glass. The game's
+  MIRROR material no longer tints the picture; F4 > VR > Mirror brightness / Mirror contrast.
+  Works on cars whose mirror glass is part of the body (BMW M3 GTR). `[VR] GameMirrorsSkip` lists
+  cars to leave with the game's own glass. The HUD's rear view mirror is hidden in VR.
+- **VR: Fiat Punto rear view mirror:** its own glass was drawn after the rear view picture and
+  covered it with a reflective surface; the picture is now drawn after every draw of the model.
+- **VR: faster frames:** the rear view and the environment map are rendered once a frame instead
+  of once per eye, and the game's pre-display pass (lights, flares, fades) runs once, so both eyes
+  also see the same lights. Frame timing is in nfsmw_vr.log ("perf:" lines).
+- **VR: no cutaways:** no camera flip when the car rolls, no pursuit breaker cutscene, cutaway or
+  cop camera, no busted viewfinder frame while the headset runs.
+- **VR: HUD:** F4 > VR > HUD left / right; "Each car remembers HUD positioning" keeps size,
+  distance, height and side per car; "Steering wheel rendered in front of HUD" draws the car's
+  wheel over the HUD panel while driving (not in menus).
+- **VR: driver's hand leftovers hidden:** a hand split into its own draw entry was left floating on
+  some cars; it is hidden with the arms.
+- **Physics: spin limit (fixes the pinball):** a car spinning fast (launched by props, landing while
+  rotating) could get caught in a collision loop and be thrown across the map. The player's car
+  never spins faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 8 rad/s), checked before
+  and after each physics step, with the torque limited too.
+- **Physics: new grip sliders,** all per car with "Settings for this car only":
+  - Rear grip (oversteer): the rear tyres' grip relative to the front.
+  - Offroad grip: grip on grass, dirt, mud, gravel and sand.
+  - Slide grip: a tyre that has broken loose slides on less grip than its peak.
+  - Slide oversteer: the rear tyres' side grip under throttle, as on grass (front drive cars:
+    lifting off), fading as the slide passes 20-45 degrees, so it stays catchable.
+  - Rain grip: grip in the rain (90% = 10% less).
+  - Grip loss at speed: cornering grip falls with the square of the speed; launching and braking
+    keep their grip (`[Physics] SpeedGripLoss`, the share gone at 300 km/h).
+- **Per-car physics covers every physics slider.**
+- **Testing: Drop from air** (F4 > Menu and testing): lifts your car and lets it fall.
+- **Sequential shifting has neutral and reverse:** shift down from 1st to N, then R; the
+  automatic reverse no longer kicks in with a manual gearbox.
+- **Engine heat:** nitrous on the rev limiter heats the engine twice as fast (a third faster on a
+  car over 75% damage); no heat for 8 s after a race start, restart or respawn reset, or in a
+  cutscene.
+- **Smoke:** engine smoke no longer hangs in the air where it stopped; a missed shift no longer
+  leaves a smoke trail.
+- **Force feedback:** off-road vibration (replaces the grass pull), the wheel goes lighter with
+  nitrous (F4 > Force feedback > NOS), a hard jolt on landing, and the same jolt when you hit
+  another vehicle (traffic, cops, racers, told apart by the game's own object type). Vehicle hits
+  and breakable objects are at full strength from 150 km/h.
+
+Known issue: in a new career, entering the safehouse after buying the first car can skip the
+first-visit scene with Mia and go to the safehouse menu. Being investigated.
+
 ### v0.13.0: direct wheel steering, turning steering wheel, new force feedback
 
 - **Wheel steering:** a bound wheel used to reach the game as a gamepad: a few degrees of front

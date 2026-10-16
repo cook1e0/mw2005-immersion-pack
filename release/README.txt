@@ -29,19 +29,17 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
-Upgrading from v0.12.1: replace the three scripts
-fsmw_*.asi plugins and ffbtool.exe. A bound wheel
+Upgrading from v0.13.0: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe.
+Keep your scripts\nfsmw_*.ini files: new settings start at their defaults. See FIXES.md.
+
+Upgrading from v0.12.1: replace the three scripts\nfsmw_*.asi plugins and ffbtool.exe. A bound wheel
 now steers the car directly (full lock at SteeringLock), the car's steering wheel turns with yours, and
 the force feedback has new effects (F4 > Force feedback). See FIXES.md.
 
-Upgrading from v0.12.0: replace scripts
-fsmw_vr.asi and scripts
-fsmw_gameplay.asi. Fixes
+Upgrading from v0.12.0: replace scripts\nfsmw_vr.asi and scripts\nfsmw_gameplay.asi. Fixes
 garbage polygons in the VR cockpit and a d3d9.dll crash after cars were streamed in and out.
 
-Upgrading from v0.11.2: replace scripts
-fsmw_vr.asi and scripts
-fsmw_gameplay.asi. Keep
+Upgrading from v0.11.2: replace scripts\nfsmw_vr.asi and scripts\nfsmw_gameplay.asi. Keep
 your existing .ini files and bindings. New: VR near clip plane (F4 > VR, [VR] NearZ) so the
 cockpit close to your eyes isn't cut off, a bindable Recenter VR view (F4 > Controls), and a 50%
 chance of 5% car damage when a shift is refused for lack of clutch (F4 > Shifter and clutch,
