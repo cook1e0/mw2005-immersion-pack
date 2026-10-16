@@ -1442,9 +1442,9 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
 // selection is shown over everything (also when behind something); the menu key confirms. The
 // page's commands then hide the selection, draw it black, put it on or take it off the steering
 // wheel (prepared again), add it to or take it off the dashboard blackout, restore it, or undo.
-// Hidden and black triangles (and the car's own gauges while the dashboard shows) are made
-// zero-area in the index buffer, (a, b, b); black ones are drawn again in black in their place, so
-// nothing is left to fight with. Saved per solid in nfsmw_vr_edits.ini.
+// Hidden triangles are made zero-area in the index buffer, (a, b, b). Black ones (and the car's own
+// gauges while the dashboard shows) are drawn over the originals in black, 2 mm toward the eyes
+// with a depth bias. Saved per solid in nfsmw_vr_edits.ini.
 
 V3 s_gazePos, s_gazeDir;
 bool s_haveGaze = false;
@@ -1566,18 +1566,13 @@ std::set<uint64_t> Gauges(const SolidInfo& info, const EditSet& e) {
     return g;
 }
 
-// What should be zero-area in the index buffer now: hidden, black, and the gauges while the
-// dashboard shows; applied by difference (newly hidden made (a, b, b), others put back).
+// What should be zero-area in the index buffer now: the hidden triangles; applied by difference
+// (newly hidden made (a, b, b), others put back). Black ones and the gauges stay, drawn over.
 void ApplyHides(uint8_t* solid, SolidInfo& info) {
     EditSet& e = EditsFor(SolidName(info));
     bool dash = DashShown();
     std::set<uint64_t> want;
     for (auto& h : e.hide) want.insert(h.first);
-    want.insert(e.black.begin(), e.black.end());
-    if (dash) {
-        std::set<uint64_t> g = Gauges(info, e);
-        want.insert(g.begin(), g.end());
-    }
     info.hiddenDash = dash;
     info.blackDirty = true;
     if (want.empty() && info.hidden.empty()) return;
@@ -1863,7 +1858,8 @@ void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
     if (info.hiddenDash != (int)DashShown()) ApplyHides(solid, info);
     UpdateBlack(solid, info);
-    AddColor(ib, info.black, m, 0.001f, D3DCOLOR_ARGB(255, 0, 0, 0));
+    // Over the originals: 2 mm toward the eyes (and a depth bias, d3d9), so they never fight.
+    AddColor(ib, info.black, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
     if (!EditorLive() || !s_haveGaze) return;
     if (g_cfg.editPicking > 0.5f && s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
     if (solid != s_pick.solid || SolidName(info) != s_pick.name) return;

@@ -1252,6 +1252,11 @@ static void DrawColorTris(ColorTris& c) {
     if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
     SetPanelState(s_dashEye.view, s_dashEye.proj);
     SetColor(c.color);
+    // Drawn over the game's own triangles: pulled toward the eye in depth too (decal bias), so the
+    // two never fight.
+    float bias = -0.00005f, slope = -1.0f;
+    s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
+    s_dev->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *(DWORD*)&slope);
     s_dev->SetFVF(D3DFVF_XYZ);
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(c.xyz.size() / 9), c.xyz.data(), 3 * sizeof(float));
     saved->Apply();
