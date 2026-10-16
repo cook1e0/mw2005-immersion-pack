@@ -158,11 +158,6 @@ constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12};
 constexpr uint32_t kFrameMemGame = 0x64000;
 constexpr uint32_t kFrameMemVr = 0x200000;
 constexpr uintptr_t kFrameMemBuffer = 0x915128;  // FrameMemoryBuffer (null until eInitEngine)
-// eInitEngine allocates both buffers from the game's own memory pool (operator new, 0x652AD0);
-// 2 x 2 MB taken from that fixed pool left too little for big story scenes (the first safehouse
-// visit fell back to the main menu). The two calls get memory of their own instead.
-constexpr uintptr_t kCallsFrameMemAlloc[] = {0x5009D6, 0x5009E5};
-constexpr uintptr_t kGameNew = 0x652AD0;
 constexpr uintptr_t kFrameMemLargest = 0x915FA0; // Eframelargest: most used in one frame (bytes)
 constexpr uintptr_t kFrameMemMaxFail = 0x915F9C; // FrameMallocMaxFailAmount: most refused in one frame (bytes)
 
@@ -642,14 +637,11 @@ void __cdecl hkRenderScene() {
     s_stereoFrame = true;
 }
 
-// The patches below, on while VR runs unless CutscenePatches is off (F4, for testing).
-bool CutsPatched() { return Xr_Available() && g_cfg.cutscenePatches > 0.5f; }
-
 // A totaled car (drag race crash, or an engine blown by the H-shifter mod's engine wear) cuts
 // to a third-person crash camera. In the headset that is a sudden jump out of the car, so it is
 // skipped while VR is running and the view stays in the cockpit.
 void __cdecl hkTotaledCam(void* player) {
-    if (CutsPatched()) {
+    if (Xr_Available()) {
         Log("game: totaled camera skipped (VR)");
         return;
     }
@@ -659,7 +651,7 @@ void __cdecl hkTotaledCam(void* player) {
 // The other cinematic cameras cut away from the cockpit just the same, so they are off in VR too.
 // Pursuit, jump and crash cams all check the "Jump Cams" option first; it reads as off.
 bool __cdecl hkJumpCamsOn() {
-    if (CutsPatched()) return false;
+    if (Xr_Available()) return false;
     return ((JumpCamsOnFn)kJumpCamsOn)();
 }
 
@@ -667,7 +659,7 @@ bool __cdecl hkJumpCamsOn() {
 bool s_iceSkipped = false;
 
 void __fastcall hkPlayIce(void* ice, void* edx, const char* name, const char* track) {
-    s_iceSkipped = CutsPatched();
+    s_iceSkipped = Xr_Available();
     if (s_iceSkipped) {
         Log("game: cinematic camera '%s' skipped (VR)", track ? track : "");
         return;
@@ -682,13 +674,13 @@ void __cdecl hkIceAction(int view, const char* action) {
 
 void __fastcall hkSelectAction(uint8_t* director, void*) {
     float& timer = At<float>(director, kDirectorTrackCopTimer);
-    if (CutsPatched() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
         Log("game: pursuit breaker / cop camera skipped (VR)");
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
 
-    if (!CutsPatched() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
+    if (!Xr_Available() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
     const char* action = At<const char*>(director, kDirectorActionName);
     const char* drive = (const char*)kActionDriveName;
     if (!action || !action[0] || action == drive || strcmp(action, drive) == 0 || strncmp(action, "CDActionDebug", 13) == 0)
@@ -706,33 +698,21 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
 
 // The busted cutscene without its viewfinder frame while VR runs: the scene is seen as it is.
 void __cdecl hkNisOverlay(int id) {
-    if (CutsPatched() && (id & 0x7F) == kNisOverlayBusted) {
+    if (Xr_Available() && (id & 0x7F) == kNisOverlayBusted) {
         Log("game: busted overlay skipped (VR)");
         return;
     }
     ((void(__cdecl*)(int))kNisOverlay)(id);
 }
 
-// The event's scene (ETriggerMomentNIS::fSceneName at +8): pursuit breakers are the world moments
-// (NIS\Scene_WM*: WMGasStation, WMBoat, WMDriveIn...). Story scenes (the first safehouse visit
-// and the like) come the same way and must play, or the career falls back to the main menu.
-bool PursuitBreakerScene(const char* scene) {
-    if (!scene || IsBadStringPtrA(scene, 64)) return false;
-    if (_strnicmp(scene, "Scene_", 6) == 0) scene += 6;
-    return _strnicmp(scene, "WM", 2) == 0;
-}
-
 void __fastcall hkTriggerMomentNis(void* ev, void*) {
     float* stamp = (float*)kMomentNisTime;
     float saved = *stamp;
-    const char* scene = ev ? *(const char**)((uint8_t*)ev + 8) : nullptr;
-    bool skip = CutsPatched() && PursuitBreakerScene(scene);
     ((void(__thiscall*)(void*))kTriggerMomentNis)(ev);
-    bool started = *stamp != saved;
-    if (skip && started) *stamp = saved;
-    if (started)
-        Log("game: moment cutscene '%s' %s", scene && !IsBadStringPtrA(scene, 64) ? scene : "?",
-            skip ? "skipped (VR, pursuit breaker)" : "plays");
+    if (Xr_Available() && *stamp != saved) {
+        *stamp = saved;
+        Log("game: pursuit breaker cutscene skipped (VR)");
+    }
 }
 
 struct ActionKey { uint32_t hash64[2], hash32; const char* string; };
@@ -743,7 +723,7 @@ void __fastcall hkDirectorSetAction(uint8_t* director, void*, ActionKey key) {
     auto set = (void(__thiscall*)(void*, ActionKey))kDirectorSetAction;
     const char* drive = (const char*)kActionDriveName;
     const char* action = key.string;
-    if (CutsPatched() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
         action != drive && strcmp(action, drive) != 0 && strncmp(action, "CDActionDebug", 13) != 0) {
         static DWORD lastLog = 0;
         if (GetTickCount() - lastLog > 2000) {
@@ -794,12 +774,6 @@ void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what) {
 // This is a possible cause of the reported right-eye failure, independent of the XR runtime.
 // Reserve 2 MB per buffer before allocation; never rewind the allocator between the eyes, as
 // queued GPU work may still use matrices and lights allocated for the first eye.
-void* __cdecl FrameMemAlloc(size_t size) {
-    return VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-}
-
-void PatchCall(uintptr_t site, uintptr_t target, void* hook, const char* what);
-
 void EnlargeFrameMemory() {
     if (*(void**)kFrameMemBuffer) {
         Log("game: frame memory already allocated, left at %u KB", kFrameMemGame / 1024);
@@ -817,8 +791,7 @@ void EnlargeFrameMemory() {
         VirtualProtect((void*)a, 4, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)a, 4);
     }
-    for (uintptr_t site : kCallsFrameMemAlloc) PatchCall(site, kGameNew, (void*)&FrameMemAlloc, "frame memory allocation");
-    Log("game: frame memory %u KB -> %u KB per buffer (outside the game's pool)", kFrameMemGame / 1024, kFrameMemVr / 1024);
+    Log("game: frame memory %u KB -> %u KB per buffer", kFrameMemGame / 1024, kFrameMemVr / 1024);
 }
 
 } // namespace

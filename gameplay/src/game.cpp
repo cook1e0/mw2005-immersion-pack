@@ -39,7 +39,6 @@
 #include "hud.h"
 #include "physics.h"
 #include "vfx.h"
-#include "flow.h"
 #include "traffic.h"
 #include "controls.h"
 #include <math.h>
@@ -989,7 +988,6 @@ bool Game_Install() {
     Vfx_Install();
     Traffic_Install();
     Controls_Install();
-    Flow_Install();
     // Only the call itself: the widescreen fix hooks the instruction right after it.
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);

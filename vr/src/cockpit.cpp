@@ -53,7 +53,6 @@ constexpr int kConnCog = 0x50;                      // bVector4: centre of mass 
 constexpr int kConnRenderMatrix = 0x330;            // bMatrix4: smoothed render matrix (other cameras)
 constexpr int kViewMovers = 0x44;                   // eView: list of camera movers (node = mover + 4)
 constexpr int kMoverGetAnchor = 0x10 / 4;           // CameraMover vtable: GetAnchor()
-constexpr int kMoverDrawsTarget = 0x28 / 4;         // CameraMover vtable: false = its car isn't drawn (bumper camera)
 constexpr int kAnchorWorldId = 0x94;
 constexpr int kAnchorPov = 0xC8;                    // int16: 1 = in-car (bumper / hood) camera
 
@@ -671,17 +670,6 @@ uint8_t* ViewAnchor(uint8_t* view) {
     uint8_t* mover = node - 4;
     typedef uint8_t*(__thiscall * GetAnchor_t)(uint8_t*);
     return ((GetAnchor_t)(At<void**>(mover, 0)[kMoverGetAnchor]))(mover);
-}
-
-// Whether the view's camera draws the car it follows: CarRenderConn::OnRender skips that car when
-// the first mover's slot 0x28 says no (the bumper camera). The seat is only for a car that is drawn.
-bool DrawsTarget(uint8_t* view) {
-    uint8_t* list = view + kViewMovers;
-    uint8_t* node = At<uint8_t*>(list, 0);
-    if (node == list || !node) return true;
-    uint8_t* mover = node - 4;
-    typedef bool(__thiscall * DrawsTarget_t)(uint8_t*);
-    return ((DrawsTarget_t)(At<void**>(mover, 0)[kMoverDrawsTarget]))(mover);
 }
 
 bool DrawsWithPov(uint8_t* conn, uint8_t* view) {
@@ -1328,69 +1316,6 @@ bool PatchCall(uintptr_t site, uintptr_t target, void* hook) {
     return true;
 }
 
-// A car drawn from inside it: CarRenderInfo::Render first asks eView::GetPixelSize how big the car
-// is on screen (from its centre and radius) and drops it when that is too small. Looking down from
-// the seat, the car's centre is behind the eye's plane and its size comes out as nothing: the whole
-// car vanished. With the camera inside (or within a metre of) the car's sphere it is always big.
-constexpr uintptr_t kCallsPixelSize[] = {0x74E1BB, 0x74E1E0};   // CarRenderInfo::Render
-constexpr uintptr_t kPixelSize = 0x4FCAC0;          // int eView::GetPixelSize(const bVector3*, float radius), thiscall
-
-int __fastcall hkCarPixelSize(uint8_t* view, void*, const float* pos, float radius) {
-    int size = ((int(__thiscall*)(void*, const float*, float))kPixelSize)(view, pos, radius);
-    void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
-    if (!cam || !pos) return size;
-    const float* eye = &At<float>(cam, kCamPosition);
-    float dx = pos[0] - eye[0], dy = pos[1] - eye[1], dz = pos[2] - eye[2];
-    float reach = radius + 1.0f;
-    if (dx * dx + dy * dy + dz * dz >= reach * reach || size >= 4096) return size;
-    static int logged;
-    if (size < 64 && logged < 3) {
-        logged++;
-        Log("cockpit: car drawn from inside it kept (its screen size was %d)", size);
-    }
-    return 4096;
-}
-
-// Then eView::GetVisibleState: the car's bounding box against the view (0 = not visible). With the
-// camera inside the box (or within a metre of it) the car counts as partly visible.
-constexpr uintptr_t kCallCarVisible = 0x74E346;     // CarRenderInfo::Render
-// The same test per model (0x6DA9A2) and per draw entry (0x6DAB11, eViewPlatInterface::Render:
-// the entry's own box): looking down in the IS300 the car's parts were skipped one by one.
-constexpr uintptr_t kCallsPartVisible[] = {0x6DA9A2, 0x6DAB11, 0x50288E, 0x5055B6, 0x505656, 0x505F07};
-// Every other caller of the test and of the screen size (models, car parts, scenery).
-constexpr uintptr_t kCallsVisibleState[] = {0x723F4E, 0x7267EF, 0x726900, 0x7291FD, 0x7296C1, 0x7297B7, 0x742A62};
-constexpr uintptr_t kCallsPixelSizeOther[] = {0x728E79, 0x742A21, 0x753858};
-constexpr uintptr_t kPlatVisibleState = 0x6CF2B0;   // eViewPlatInterface::GetVisibleState, thiscall, 3 args
-constexpr uintptr_t kVisibleState = 0x4FCA70;       // int eView::GetVisibleState(const bVector3* min, max, const bMatrix4*), thiscall
-
-int __fastcall hkCarVisible(uint8_t* view, void*, const float* mn, const float* mx, const float* m) {
-    int state = ((int(__thiscall*)(void*, const float*, const float*, const float*))kVisibleState)(view, mn, mx, m);
-    void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
-    if (state != 0 || !cam || !mn || !mx) return state;
-    const float* eye = &At<float>(cam, kCamPosition);
-    if (!m) {   // a box in world space
-        for (int a = 0; a < 3; a++)
-            if (eye[a] < mn[a] - 1.0f || eye[a] > mx[a] + 1.0f) return state;
-        return 1;
-    }
-    // The eye in the box's own space (row vectors: p = local * m; the axes may carry a scale).
-    float rel[3] = {eye[0] - m[12], eye[1] - m[13], eye[2] - m[14]};
-    for (int a = 0; a < 3; a++) {
-        const float* axis = m + a * 4;
-        float len2 = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
-        if (len2 < 1e-8f) return state;
-        float local = (rel[0] * axis[0] + rel[1] * axis[1] + rel[2] * axis[2]) / len2;
-        float margin = 1.0f / sqrtf(len2);
-        if (local < mn[a] - margin || local > mx[a] + margin) return state;
-    }
-    static int logged;
-    if (logged < 6) {
-        logged++;
-        Log("cockpit: model seen from inside its box kept visible");
-    }
-    return 1;
-}
-
 bool GameFocused() {
     DWORD pid = 0;
     GetWindowThreadProcessId(GetForegroundWindow(), &pid);
@@ -1403,11 +1328,6 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 
 void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
-    for (uintptr_t site : kCallsPixelSize) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
-    PatchCall(kCallCarVisible, kVisibleState, (void*)&hkCarVisible);
-    for (uintptr_t site : kCallsPartVisible) PatchCall(site, kPlatVisibleState, (void*)&hkCarVisible);
-    for (uintptr_t site : kCallsVisibleState) PatchCall(site, kVisibleState, (void*)&hkCarVisible);
-    for (uintptr_t site : kCallsPixelSizeOther) PatchCall(site, kPixelSize, (void*)&hkCarPixelSize);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;
@@ -1424,11 +1344,7 @@ bool Cockpit_ApplySeat(M4& view) {
     s_seatedConn = nullptr;
     s_base = MInvRigid(view);
     s_haveBase = true;
-    // No time limit on the last observation of the driver: some cars (IS300) go a while without
-    // their driver drawn near the camera, and the view jumped out of the car above it and back.
-    // An outside camera still draws the driver, far away, which ends the seat (kSeatRange), and
-    // another car as the view's anchor does too (below).
-    if (!g_cfg.seat || !s_head.valid) return false;
+    if (!g_cfg.seat || !s_head.valid || Now() - s_head.time > 0.5) return false;
     float d = sqrtf(s_head.cam[0] * s_head.cam[0] + s_head.cam[1] * s_head.cam[1] + s_head.cam[2] * s_head.cam[2]);
     if (d > kSeatRange) return false;
     if (s_head.car != s_offsetCar) {
@@ -1437,15 +1353,6 @@ bool Cockpit_ApplySeat(M4& view) {
     }
     uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
     if (!anchor || At<uint32_t>(anchor, kAnchorWorldId) != s_head.worldId) return false;
-    // A camera that doesn't draw the car (bumper): the game's own view, not a seat in no car.
-    if (!DrawsTarget((uint8_t*)kPlayerView)) {
-        static bool logged;
-        if (!logged) {
-            logged = true;
-            Log("cockpit: camera without the car drawn (bumper), seat off while it is used");
-        }
-        return false;
-    }
     // The previous car may have unloaded. Resolve the current connection by id, rather than
     // inspecting yesterday's pointer (which may already be freed or reused by a traffic car).
     auto find = (uint8_t*(__cdecl*)(uint32_t))kFindConn;
