@@ -766,11 +766,17 @@ void SetPage(const char* title) {
         }
 }
 
-// Back to the main page, on the category we came from.
+// Back to the page that links to this one (a sub-page's parent, e.g. VR), on that link; for a
+// category, the main page.
 void GoBack() {
     if (s_menu.page == 0) return;
     const char* from = kItems[s_menu.page].label;
-    SetPage(kMainPage);
+    const char* parent = kMainPage;
+    for (int i = 1, page = 0; i < kNumItems; i++) {
+        if (kItems[i].kind == PAGE) page = i;
+        else if (page && kItems[i].kind == LINK && strcmp(kItems[i].section, from) == 0) parent = kItems[page].label;
+    }
+    SetPage(parent);
     for (int i : PageRows())
         if (kItems[i].kind == LINK && strcmp(kItems[i].section, from) == 0) s_menu.sel = i;
 }
@@ -1920,6 +1926,14 @@ void ValueWidget(int i, float w, float k) {
                 Change(i, +1);
             }
             break;
+        case LINK:
+            // A link on a page (to a sub-page, or back): opened like a category.
+            if (ImGui::Button(it.section == kMainPage || strncmp(it.label, "<", 1) == 0 ? "< Back" : "Open  >",
+                              ImVec2(w * 0.4f, 0))) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            break;
         default:
             break;
     }
@@ -2132,7 +2146,9 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
         std::string m = MenuKeyName(), keys;
         if (s_menu.capture >= 0) keys = m + ": cancel";
         else if (onMain) keys = "Up/Down: category    Right: open    " + m + ": close";
-        else if (cur.kind == LINK) keys = "Left/Right: back to the categories    " + m + ": close";
+        else if (cur.kind == LINK && cur.section != kMainPage && strncmp(cur.label, "<", 1) != 0)
+            keys = "Right: open    Left: back    " + m + ": close";
+        else if (cur.kind == LINK) keys = "Left/Right: back    " + m + ": close";
         else if (cur.kind == BIND) keys = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " + m + ": close";
         else if (cur.kind == ACTION || cur.kind == RESET) keys = "Right: do it    Left: back    " + m + ": close";
         else keys = "Up/Down: select    Left/Right: change    " + m + ": close";
