@@ -890,10 +890,19 @@ SolidInfo* GetSolid(uint8_t* solid) {
             }
             return &was;
         }
-        if (was.driver || was.wheel) Log("cockpit: %.64s changed or reloaded, preparing it again", was.name);
+        bool sameModel = !memcmp(was.name, now.name, sizeof(now.name)) && was.indices == now.indices && was.plat == now.plat;
+        if (was.driver || was.wheel)
+            Log("cockpit: %.64s changed or reloaded (%s), preparing it again", was.name,
+                sameModel ? "its index order changed" : "another model at its address");
         if (was.driver) s_retired.push_back(was.driver);
         if (was.wheel) s_retiredWheels.push_back(was.wheel);
         if (was.split) s_retiredSplits.push_back(was.split);
+        // Our zero-area triangles are put back first: the wheel and the gauges are found from whole
+        // triangles (prepared over them, the gauges were lost: missing, and not pickable).
+        if (sameModel && !was.hidden.empty()) {
+            now.hidden = was.hidden;
+            RestoreAll(solid, now);
+        }
     }
     now.driver = strstr(name, "_DRIVER") ? Prepare(solid, name) : nullptr;
     now.interior = strstr(name, "_INTERIOR") != nullptr;
