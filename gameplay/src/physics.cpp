@@ -57,7 +57,10 @@
 // surface's LATERAL_GRIP and its drive force by DRIVE_GRIP (0x69E098); grass takes more side grip
 // than drive grip, which is why a car on grass keeps driving and slides sideways. For the player's
 // rear tyres that side grip also takes [Physics] SlideOversteer, so the rear slides under power
-// on the road too, while the front steers and the drive grip is untouched. To stay drivable it is
+// on the road too, while the front steers and the drive grip is untouched.
+// Speed grip loss: every tyre's side grip (the same multiply) also takes 1 - [Physics] SpeedGripLoss
+// * (speed / 300 km/h)^2, so a car pulls away and brakes as before but corners on less and less
+// grip the faster it goes: all of SpeedGripLoss gone at 300 km/h, a quarter of it at 150. To stay drivable it is
 // power oversteer, not a loose rear: the side grip goes with the throttle (lifting off in a front
 // drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
 // degrees, so lifting or countersteering catches the slide instead of the car spinning.
@@ -219,11 +222,20 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f && c.slideOversteer == 1.0f;
+           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f && c.slideOversteer == 1.0f &&
+           c.speedGripLoss == 0.0f;
 }
 
 // Diagnostics: the player's physics step lengths (the game's forces divide by them).
 float s_suspDT = 0.0f;                  // the player's last suspension step
+float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
+
+// Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
+// least a tenth.
+float SpeedGrip(float loss, float speed) {
+    float r = speed / (300.0f / 3.6f);
+    return Clamp(1.0f - loss * r * r, 0.1f, 1.0f);
+}
 struct {
     float rbMin = 1e9f, rbMax = 0.0f, suspMin = 1e9f, suspMax = 0.0f;
     int steps = 0;
@@ -252,7 +264,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    if (g_cfg.slideOversteer != 1.0f) {
+    if (g_cfg.slideOversteer != 1.0f || g_cfg.speedGripLoss > 0.0f) {
         uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
         for (int i = 0; i < 4; i++) s_latTires[i] = iface ? *(uint8_t**)(iface + kSuspIface_Tires + i * 4) : nullptr;
         // How much of it now: with the throttle (rear or all-wheel drive) or lifting off (front
@@ -268,7 +280,8 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         float t = Clamp((angle - 20.0f) / 25.0f, 0.0f, 1.0f);
         float fade = 1.0f - t * t * (3.0f - 2.0f * t);
         float rear = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
-        for (int i = 0; i < 4; i++) s_latMul[i] = i >= 2 ? rear : 1.0f;
+        float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
+        for (int i = 0; i < 4; i++) s_latMul[i] = (i >= 2 ? rear : 1.0f) * fast;
     }
     s_origSusp(susp, dT);
     for (uint8_t*& t : s_latTires) t = nullptr;
@@ -486,6 +499,11 @@ void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     DropIfAsked(rb);
     if (Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) {
+        uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+        if (holder && *holder) {
+            const float* v = (const float*)(*holder + kRV_LinearVel);
+            s_playerSpeed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        }
         s_dt.rbMin = std::min(s_dt.rbMin, dT);
         s_dt.rbMax = std::max(s_dt.rbMax, dT);
         s_dt.steps++;
@@ -605,6 +623,7 @@ const PerCar kPerCar[] = {
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
+    {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 

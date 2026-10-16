@@ -149,6 +149,7 @@ struct Config {
     float slideGrip = 0.85f;        // a sliding tyre's friction compared with its peak grip
     float slideOversteer = 0.8f;    // the rear tyres' side grip, as on grass (drive grip unchanged)
     float rainGrip = 0.9f;          // tyre grip in the rain
+    float speedGripLoss = 0.0f;     // side grip lost at 300 km/h (with the square of the speed)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30
