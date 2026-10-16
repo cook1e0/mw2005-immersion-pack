@@ -27,7 +27,12 @@ constexpr uintptr_t kReturnToPackage = 0x91C270;    // FEAnyMovieScreen::ReturnT
 constexpr uintptr_t kMovieName = 0x8F3750;          // FEAnyMovieScreen::MovieFilename[64]
 constexpr uintptr_t kGameState = 0x925E90;          // the game flow's state (6 = in game)
 constexpr uintptr_t kRaceStatus = 0x91E000;         // GRaceStatus*: +0x1964 the race context (2 = career)
-constexpr uintptr_t kFEDatabase = 0x91CF90;         // cFrontendDatabase*: +0x12C flags (bit 17: post-rival mode)
+constexpr uintptr_t kFEDatabase = 0x91CF90;         // cFrontendDatabase*: +0x12C flags (bit 17: post-rival mode), +0x10 the player's settings
+constexpr uintptr_t kJumpToSafeHouse = 0x6052B0;    // Game_JumpToSafeHouse() (career script): quit to MainMenu_Sub.fng
+constexpr uintptr_t kZoneAction = 0x58C640;         // MenuZoneTrigger::RequestDoAction (driving into a safehouse / car lot / shop)
+constexpr uintptr_t kSkipCareerIntro = 0x612490;    // bool Game_SkipCareerIntro() (career script)
+constexpr uintptr_t kSkipFE = 0x926064;             // SkipFE config
+constexpr uintptr_t kSkipCareerIntroCheat = 0x926125, kSkipDDayCheat = 0x926126;
 
 bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
     const uint8_t* p = (const uint8_t*)at;
@@ -63,6 +68,9 @@ int RaceContext() {
 }
 
 void(__cdecl* s_doSafeHouseIntro)(void*);
+void(__cdecl* s_jumpToSafeHouse)();
+void(__fastcall* s_zoneAction)(void*, void*);
+bool(__cdecl* s_skipCareerIntro)();
 void(__fastcall* s_quitToFE)(void*, void*);
 void(__fastcall* s_queueSwitch)(void*, void*, const char*, int, unsigned, int);
 void(__fastcall* s_queuePop)(void*, void*, int);
@@ -73,12 +81,44 @@ void(__cdecl* s_dismissMovie)();
 // Now() of the dismissal that switched to the movie's next screen, while its screen is still up.
 double s_dismissedAt = -1;
 
+// The career's progress as the career script sees it: the settings' bin (+0xB0: 16 at the start of
+// the blacklist) and flags (+0xAC: bit 5 career intro done, bit 14), the frontend flags.
+void LogCareer(const char* when) {
+    uint8_t* db = *(uint8_t**)kFEDatabase;
+    uint8_t* career = db ? *(uint8_t**)(db + 0x10) : nullptr;
+    Log("flow: %s: career bin %d, flags 0x%X, frontend flags 0x%X, SkipFE %d, cheats %d %d, race context %d", when,
+        career ? career[0xB0] : -1, career ? *(uint32_t*)(career + 0xAC) : 0, db ? *(uint32_t*)(db + 0x12C) : 0,
+        *(int*)kSkipFE, *(uint8_t*)kSkipCareerIntroCheat, *(uint8_t*)kSkipDDayCheat, RaceContext());
+}
+
+void __cdecl Hook_JumpToSafeHouse() {
+    LogCareer("career script jumps to the safehouse menu");
+    s_jumpToSafeHouse();
+}
+
+void __fastcall Hook_ZoneAction(uint8_t* zone, void* edx) {
+    const char* type = *(const char**)(zone + 0x14);
+    LogCareer(type && !IsBadStringPtrA(type, 32) ? type : "menu zone");
+    s_zoneAction(zone, edx);
+}
+
+bool __cdecl Hook_SkipCareerIntro() {
+    bool skip = s_skipCareerIntro();
+    static int logged;
+    if (logged < 20) {
+        logged++;
+        Log("flow: career script asks whether to skip the career intro: %s", skip ? "yes" : "no");
+    }
+    return skip;
+}
+
 void __cdecl Hook_DoSafeHouseIntro(void* instance) {
     Log("flow: first safehouse visit: the intro movie, then SafeHouseRivalBio.fng");
     s_doSafeHouseIntro(instance);
 }
 
 void __fastcall Hook_QuitToFE(uint8_t* ev, void* edx) {
+    LogCareer("quit to the frontend");
     Log("flow: quit to the frontend (garage type %d, package %s, game state %d, race context %d)", *(int*)(ev + 8),
         *(const char**)(ev + 0xC) ? Str(*(const char**)(ev + 0xC)) : "none", *(int*)kGameState, RaceContext());
     s_quitToFE(ev, edx);
@@ -132,8 +172,11 @@ void Flow_Install() {
         {kMovieCtor, {0x6A, 0xFF, 0x68}, (void*)&Hook_MovieCtor, (void**)&s_movieCtor, "movie screen"},
         {kMovieMessage, {0x56, 0x57, 0x8B, 0x7C, 0x24, 0x0C}, (void*)&Hook_MovieMessage, (void**)&s_movieMessage, "movie messages"},
         {kDismissMovie, {0xA0, 0x70, 0xC2, 0x91, 0x00}, (void*)&Hook_DismissMovie, (void**)&s_dismissMovie, "movie dismissal"},
+        {kJumpToSafeHouse, {0x6A, 0xFF, 0x68}, (void*)&Hook_JumpToSafeHouse, (void**)&s_jumpToSafeHouse, "jump to safehouse"},
+        {kZoneAction, {0x6A, 0xFF, 0x68}, (void*)&Hook_ZoneAction, (void**)&s_zoneAction, "menu zone action"},
+        {kSkipCareerIntro, {0xA1, 0x64, 0x60, 0x92, 0x00}, (void*)&Hook_SkipCareerIntro, (void**)&s_skipCareerIntro, "career intro check"},
     };
-    const size_t stolen[] = {6, 7, 7, 6, 7, 6, 5};
+    const size_t stolen[] = {6, 7, 7, 6, 7, 6, 5, 7, 7, 5};
     for (size_t i = 0; i < sizeof(sites) / sizeof(sites[0]); i++) {
         const Site& s = sites[i];
         if (!Expect(s.at, s.bytes)) {

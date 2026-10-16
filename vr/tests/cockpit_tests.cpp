@@ -15,7 +15,7 @@ void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
-static void* moverVtbl[8];
+static void* moverVtbl[16];
 static M4 physicsBody;
 static uint8_t* loadedConn;
 
@@ -23,6 +23,8 @@ static uint8_t* __cdecl FindTestConn(uint32_t id) {
     return loadedConn && At<uint32_t>(loadedConn, kConnWorldId) == id ? loadedConn : nullptr;
 }
 static uint8_t* __fastcall GetTestAnchor(void*, void*) { return anchorData; }
+static bool testDrawsTarget = true;
+static bool __fastcall GetTestDrawsTarget(void*, void*) { return testDrawsTarget; }
 
 static void Check(bool ok, const char* message) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", message); exit(1); }
@@ -381,6 +383,7 @@ int main() {
     At<uint32_t>(anchorData, kAnchorWorldId) = 7;
     At<int16_t>(anchorData, kAnchorPov) = 1;
     moverVtbl[kMoverGetAnchor] = (void*)&GetTestAnchor;
+    moverVtbl[kMoverDrawsTarget] = (void*)&GetTestDrawsTarget;
     At<void**>(moverData, 0) = moverVtbl;
     At<uint8_t*>((void*)kPlayerView, kViewMovers) = moverData + 4;
     g_cfg.hideHead = false;
@@ -426,6 +429,9 @@ int main() {
     At<uint32_t>(anchorData, kAnchorWorldId) = 8;
     Check(!Cockpit_ApplySeat(view), "different anchor releases seat");
     At<uint32_t>(anchorData, kAnchorWorldId) = 7;
+    testDrawsTarget = false;
+    Check(!Cockpit_ApplySeat(view), "a camera that doesn't draw the car releases seat");
+    testDrawsTarget = true;
 
     // Driver LOD changes refresh observations but cannot move an established seat in body space.
     s_frame.dist = 1; s_frame.worldId = 7; s_frame.car = "TEST";

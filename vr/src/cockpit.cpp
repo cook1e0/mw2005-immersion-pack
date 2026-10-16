@@ -53,6 +53,7 @@ constexpr int kConnCog = 0x50;                      // bVector4: centre of mass 
 constexpr int kConnRenderMatrix = 0x330;            // bMatrix4: smoothed render matrix (other cameras)
 constexpr int kViewMovers = 0x44;                   // eView: list of camera movers (node = mover + 4)
 constexpr int kMoverGetAnchor = 0x10 / 4;           // CameraMover vtable: GetAnchor()
+constexpr int kMoverDrawsTarget = 0x28 / 4;         // CameraMover vtable: false = its car isn't drawn (bumper camera)
 constexpr int kAnchorWorldId = 0x94;
 constexpr int kAnchorPov = 0xC8;                    // int16: 1 = in-car (bumper / hood) camera
 
@@ -670,6 +671,17 @@ uint8_t* ViewAnchor(uint8_t* view) {
     uint8_t* mover = node - 4;
     typedef uint8_t*(__thiscall * GetAnchor_t)(uint8_t*);
     return ((GetAnchor_t)(At<void**>(mover, 0)[kMoverGetAnchor]))(mover);
+}
+
+// Whether the view's camera draws the car it follows: CarRenderConn::OnRender skips that car when
+// the first mover's slot 0x28 says no (the bumper camera). The seat is only for a car that is drawn.
+bool DrawsTarget(uint8_t* view) {
+    uint8_t* list = view + kViewMovers;
+    uint8_t* node = At<uint8_t*>(list, 0);
+    if (node == list || !node) return true;
+    uint8_t* mover = node - 4;
+    typedef bool(__thiscall * DrawsTarget_t)(uint8_t*);
+    return ((DrawsTarget_t)(At<void**>(mover, 0)[kMoverDrawsTarget]))(mover);
 }
 
 bool DrawsWithPov(uint8_t* conn, uint8_t* view) {
@@ -1425,6 +1437,15 @@ bool Cockpit_ApplySeat(M4& view) {
     }
     uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
     if (!anchor || At<uint32_t>(anchor, kAnchorWorldId) != s_head.worldId) return false;
+    // A camera that doesn't draw the car (bumper): the game's own view, not a seat in no car.
+    if (!DrawsTarget((uint8_t*)kPlayerView)) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("cockpit: camera without the car drawn (bumper), seat off while it is used");
+        }
+        return false;
+    }
     // The previous car may have unloaded. Resolve the current connection by id, rather than
     // inspecting yesterday's pointer (which may already be freed or reused by a traffic car).
     auto find = (uint8_t*(__cdecl*)(uint32_t))kFindConn;
