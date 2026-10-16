@@ -411,6 +411,12 @@ int main() {
     physicsBody.m[3][0] += 20;
     w = Apply();
     Near(w.m[3][0], 119.7f, "seat follows current frame's body");
+    // Seated, the game's "camera inside the car" test never hides the car (looking down, IS300).
+    {
+        float mn[3] = {-2, -1, 0}, mx[3] = {2, 1, 1.4f}, eye[3] = {0, 0.4f, 1.2f};
+        Check(s_seatedConn != nullptr, "seat applied this frame");
+        Check(hkCarCameraInside(mn, mx, eye, 0) == 0, "seated eyes inside the car keep it drawn");
+    }
 
     // A camera switch must choose the transform used by this draw, not last frame's POV mode.
     At<int16_t>(anchorData, kAnchorPov) = 2;

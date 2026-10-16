@@ -714,6 +714,27 @@ void __fastcall hkOnRender(uint8_t* conn, void* edx, uint8_t* view, int reflecti
     s_curPov = prevPov;
 }
 
+// CarRenderInfo::Render skips a car in the player view when the camera is within 4 m of it and,
+// lifted 0.5 m, inside its bounding box (bBoundingBoxIsInside(min, max, eye + 0.5 up, 0)): the
+// game's way of not drawing your own car around a camera inside it. From the seat the eyes sit at
+// the driver's head, so looking down or leaning brings them low enough for the lifted point to
+// fall under the roof, and the whole car vanished (IS300, low roof). Then the driver wasn't drawn
+// either and the seat dropped to the game camera. While seated the car is always drawn.
+constexpr uintptr_t kCallCarCameraInside = 0x74E68C;
+constexpr uintptr_t kBoxIsInside = 0x45FDE0;        // int bBoundingBoxIsInside(const bVector3* min, max, point, float), cdecl
+
+int __cdecl hkCarCameraInside(const float* mn, const float* mx, const float* point, float extra) {
+    if (s_seatedConn) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("cockpit: car kept drawn with the eyes inside it (seated)");
+        }
+        return 0;
+    }
+    return ((int(__cdecl*)(const float*, const float*, const float*, float))kBoxIsInside)(mn, mx, point, extra);
+}
+
 float Dist(const float* a, const float* b) {
     float d[3] = {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
     return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -1328,6 +1349,7 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 
 void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
+    PatchCall(kCallCarCameraInside, kBoxIsInside, (void*)&hkCarCameraInside);
     void** slot = (void**)kCarRenderConnVtbl + kVtblOnRender;
     if (*slot == (void*)kOnRender) {
         DWORD old;
