@@ -1046,7 +1046,7 @@ void D3D_AddDash(void* indexBuffer, const float corners[12]) {
 float D3D_DashAspect() { return s_dashAspect; }
 
 static void DrawDash() {
-    if (!s_dashTex) return;
+    if (!EnsureDash()) return;
     IDirect3DStateBlock9* saved = nullptr;
     if (FAILED(s_dev->CreateStateBlock(D3DSBT_ALL, &saved)) || !saved) return;
     const float* c = s_dashEye.corners;
