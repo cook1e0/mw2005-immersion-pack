@@ -334,6 +334,7 @@ struct PerCar {
     float lo[20], hi[20];                           // accepted when loading
     int least;                                      // values a line needs (older lines lack the last ones)
     bool nanOk;                                     // NaN accepted (automatic placement)
+    bool always = false;                            // per car whatever HudPerCar says (like the seat)
     std::string car;
     float seen[20] = {};
     bool dirty = false;
@@ -354,6 +355,8 @@ PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                           {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
                           {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true};
 
+PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirrorOffset}, {-0.1f}, {0.1f}, 1, false, true};
+
 void SavePerCar(PerCar& p) {
     char buf[512];
     int len = 0;
@@ -365,7 +368,7 @@ void SavePerCar(PerCar& p) {
 }
 
 void UpdatePerCar(PerCar& p, const std::string& car) {
-    if (g_cfg.hudPerCar < 0.5f || car.empty()) {
+    if ((g_cfg.hudPerCar < 0.5f && !p.always) || car.empty()) {
         if (p.dirty && !p.car.empty()) SavePerCar(p);
         p.car.clear();
         return;
@@ -417,6 +420,7 @@ void UpdateHudCar(const std::string& car) {
     UpdatePerCar(s_hudCar, car);
     UpdatePerCar(s_dashCar, car);
     UpdatePerCar(s_dashLayoutCar, car);
+    UpdatePerCar(s_mirrorCar, car);
 }
 
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
@@ -1420,8 +1424,9 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         // glass shrunk inside it, as if set into the housing.
         std::vector<float> verts, frame;
         float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
-        GlassVertices(d.glass, d.m, frame, 0.006f, 1.0f);
-        GlassVertices(d.glass, d.m, verts, 0.010f, inner);
+        // MirrorOffset (per car, F4 > Menu and testing) moves it toward the driver or back into the glass.
+        GlassVertices(d.glass, d.m, frame, 0.006f + g_cfg.mirrorOffset, 1.0f);
+        GlassVertices(d.glass, d.m, verts, 0.010f + g_cfg.mirrorOffset, inner);
         float u0 = 0.0f, u1 = 1.0f;
         if (g_cfg.mirrorFlip) {
             float a = 1.0f - u1, b = 1.0f - u0;
@@ -1860,8 +1865,10 @@ void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
     if (info.hiddenDash != (int)DashShown()) ApplyHides(solid, info);
     UpdateBlack(solid, info);
-    // In place of the originals (zero-area in the index buffer), a hair toward the eyes.
-    AddColor(ib, info.black, m, 0.0005f, D3DCOLOR_ARGB(255, 0, 0, 0));
+    // In place of the originals (zero-area in the index buffer), 2 mm toward the eyes: clear of the
+    // gauges' thin decal layers (needles, numbers) a fraction of a millimetre in front, which fought
+    // with a copy just above the surface when not picked too.
+    AddColor(ib, info.black, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
     if (!EditorLive() || !s_haveGaze) return;
     if (g_cfg.editPicking > 0.5f && s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
     if (solid != s_pick.solid || SolidName(info) != s_pick.name) return;

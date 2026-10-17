@@ -983,7 +983,7 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard,
 // messages (the middle of the screen: busted, totaled, ...).
 enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_MSG, DASH_PARTS };
-static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar (top middle)", "speedometer",
+static const char* kDashPartName[DASH_PARTS] = {"bottom HUD", "cop radar (top middle)", "speedometer",
                                                 "pursuit info (bottom middle)", "leaderboard (upper side)", "messages"};
 // Room kept per part (share of the HUD's width, height) before it has been seen.
 static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f},
@@ -1180,6 +1180,7 @@ static void DrawDash() {
     float zoom = std::max(0.2f, g_cfg.dashZoom), mpp = MetresPerHudPixel() * zoom;
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
+        if (i == DASH_SPEEDO || i == DASH_UL) continue;   // in the bottom HUD (element 0) now
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
         if (!have && !adjust) continue;
@@ -1347,7 +1348,7 @@ static void OutlineCrops() {
         const float* c = g_cfg.dashCrop[i];
         d.x0 = c[0]; d.y0 = c[1]; d.x1 = c[2]; d.y1 = c[3];
         RECT r = HudRect(d);
-        if (r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
+        if (i == DASH_SPEEDO || i == DASH_UL || r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
         D3DCOLOR col = i == highlight ? D3DCOLOR_ARGB(255, 255, 210, 0) : D3DCOLOR_ARGB(160, 200, 200, 200);
         const RECT edges[4] = {{r.left, r.top, r.right, r.top + t}, {r.left, r.bottom - t, r.right, r.bottom},
                                {r.left, r.top, r.left + t, r.bottom}, {r.right - t, r.top, r.right, r.bottom}};
@@ -1359,7 +1360,7 @@ static void OutlineCrops() {
 // anchor): the cop radar on top, the minimap left and the speedometer right, the pursuit info in
 // the middle below and the leaderboard right below. Never moved after that but by hand.
 static void AutoLayout(const float*, const float*) {
-    static const float kPlace[DASH_PARTS][2] = {{-0.07f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
+    static const float kPlace[DASH_PARTS][2] = {{0.0f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
                                                 {0.0f, 0.12f}};
     for (int i = 0; i < DASH_PARTS; i++) {
         float* e = g_cfg.dashEl[i];
@@ -1388,7 +1389,7 @@ static void ComposeDash() {
     s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
     for (int i = 0; i < DASH_PARTS; i++) {
         s_el[i].ok = false;
-        if (!s_dashBox[i].ok) continue;
+        if (i == DASH_SPEEDO || i == DASH_UL || !s_dashBox[i].ok) continue;
         RECT src = HudRect(s_dashBox[i]);
         w[i] = (float)(src.right - src.left);
         h[i] = (float)(src.bottom - src.top);
@@ -1969,6 +1970,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
     if (!strcmp(name, "DashDepth")) return &g_cfg.dashDepth;
+    if (!strcmp(name, "MirrorOffset")) return &g_cfg.mirrorOffset;
     if (!strcmp(name, "DashAdjust")) return &g_cfg.dashAdjust;
     if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;
     if (!strcmp(name, "EditorOn")) return &g_cfg.editorOn;

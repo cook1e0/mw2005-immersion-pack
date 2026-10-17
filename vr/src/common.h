@@ -67,7 +67,7 @@ struct Config {
     float dashEl[6][3];
     // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture). Keys
     // Dash<Name>Left / Top / Right / Bottom; the same for every car (it's the HUD's own layout).
-    float dashCrop[6][4] = {{0.165f, 0.575f, 0.415f, 0.835f},   // minimap
+    float dashCrop[6][4] = {{0.165f, 0.575f, 0.835f, 0.845f},   // bottom HUD: minimap, pursuit info, speedometer
                             {0.355f, 0.150f, 0.645f, 0.220f},   // cop radar
                             {0.585f, 0.585f, 0.835f, 0.845f},   // speedometer
                             {0.400f, 0.620f, 0.600f, 0.845f},   // pursuit info
@@ -95,6 +95,7 @@ struct Config {
     float mirrorScale = 0.82f;       // the image's size on the glass; the rest is a dark rim (1 = no rim)
     float mirrorBrightness = 1.4f;   // mirror picture brightness (all mirrors; the car's lighting darkens the side mirrors)
     float mirrorContrast = 1.25f;    // mirror picture contrast
+    float mirrorOffset = 0.0f;       // our rear view mirror picture moved toward the driver (+) or back into the glass (m), per car ([MirrorOffset])
     float sideMirrorWidth = 0.6f;    // share of the rear view's width each side mirror shows
     bool  steeringWheel = true;      // the player car's steering wheel turns with the bound wheel (gameplay mod)
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
@@ -104,7 +105,9 @@ struct Config {
 extern Config g_cfg;
 // Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.
 enum { DASH_EL_MAP, DASH_EL_RADAR, DASH_EL_SPEEDO, DASH_EL_PURSUIT, DASH_EL_BOARD, DASH_EL_MSG, DASH_EL_COUNT };
-extern const char* const kDashElKey[6];     // ini key part: Map, Radar, Speedo, Pursuit, Board, Msg (messages)
+// Element 0 is the bottom HUD (minimap, pursuit info and speedometer in one crop); 2 and 3 (the
+// speedometer and pursuit info on their own) are no longer used.
+extern const char* const kDashElKey[6];     // ini key part: Bottom, Radar, Speedo, Pursuit, Board, Msg (messages)
 void LoadConfig();
 
 // Directory containing speed.exe (with trailing backslash).
