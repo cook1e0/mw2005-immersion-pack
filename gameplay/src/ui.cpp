@@ -234,7 +234,7 @@ const struct {
     {"NfsmwFfb_Setting", "nfsmw_ffb.ini", "No FFB mod"},
     {"NfsmwVr_Setting", "nfsmw_vr.ini", "No VR mod"},
 };
-const struct {
+constexpr struct {
     int mod;
     const char* key;
     float def;                  // the mod's default
@@ -275,9 +275,6 @@ const struct {
     {MOD_VR, "EditPicking", 0.0f}, {MOD_VR, "EditLayer", 0.0f},   // live: picking with the menu hidden
     {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
     {MOD_VR, "DashDepth", 0.0f},
-    {MOD_VR, "MirrorOffset", 0.0f},
-    {MOD_VR, "DashBox", 0.85f},
-    {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
     {MOD_VR, "DashMsgX", 0.0f}, {MOD_VR, "DashMsgY", 0.12f}, {MOD_VR, "DashMsgSize", 1.0f},
     {MOD_VR, "DashBottomL", 0.165f}, {MOD_VR, "DashBottomT", 0.600f}, {MOD_VR, "DashBottomR", 0.835f}, {MOD_VR, "DashBottomB", 0.990f},
     {MOD_VR, "DashRadarL", 0.355f}, {MOD_VR, "DashRadarT", 0.000f}, {MOD_VR, "DashRadarR", 0.645f}, {MOD_VR, "DashRadarB", 0.110f},
@@ -285,6 +282,9 @@ const struct {
     {MOD_VR, "DashPursuitL", 0.400f}, {MOD_VR, "DashPursuitT", 0.660f}, {MOD_VR, "DashPursuitR", 0.600f}, {MOD_VR, "DashPursuitB", 0.990f},
     {MOD_VR, "DashBoardL", 0.645f}, {MOD_VR, "DashBoardT", 0.000f}, {MOD_VR, "DashBoardR", 0.950f}, {MOD_VR, "DashBoardB", 0.430f},
     {MOD_VR, "DashMsgL", 0.300f}, {MOD_VR, "DashMsgT", 0.210f}, {MOD_VR, "DashMsgR", 0.700f}, {MOD_VR, "DashMsgB", 0.590f},
+    {MOD_VR, "MirrorOffset", 0.0f},
+    {MOD_VR, "DashBox", 0.85f},
+    {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -305,6 +305,24 @@ enum {
     EXT_COUNT = VR_DASHELBOX + 4
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
+// Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
+// made every dashboard setting move another element).
+constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
+static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
+static_assert(KeyIs(kExt[VR_DASHEL].key, "DashBottomX"), "kExt out of order at VR_DASHEL");
+static_assert(KeyIs(kExt[VR_DASHEL + 14].key, "DashBoardSize"), "kExt out of order at VR_DASHEL + 14");
+static_assert(KeyIs(kExt[VR_DASHADJUST].key, "DashAdjust"), "kExt out of order at VR_DASHADJUST");
+static_assert(KeyIs(kExt[VR_EDITBRUSH].key, "EditBrush"), "kExt out of order at VR_EDITBRUSH");
+static_assert(KeyIs(kExt[VR_EDITPICKED].key, "EditPicked"), "kExt out of order at VR_EDITPICKED");
+static_assert(KeyIs(kExt[VR_DASHDEPTH].key, "DashDepth"), "kExt out of order at VR_DASHDEPTH");
+static_assert(KeyIs(kExt[VR_DASHMSG].key, "DashMsgX"), "kExt out of order at VR_DASHMSG");
+static_assert(KeyIs(kExt[VR_DASHMSG + 2].key, "DashMsgSize"), "kExt out of order at VR_DASHMSG + 2");
+static_assert(KeyIs(kExt[VR_DASHCROP].key, "DashBottomL"), "kExt out of order at VR_DASHCROP");
+static_assert(KeyIs(kExt[VR_DASHCROP + 23].key, "DashMsgB"), "kExt out of order at VR_DASHCROP + 23");
+static_assert(KeyIs(kExt[VR_MIRROROFFSET].key, "MirrorOffset"), "kExt out of order at VR_MIRROROFFSET");
+static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_DASHBOX");
+static_assert(KeyIs(kExt[VR_DASHELBOX].key, "DashBottomBox"), "kExt out of order at VR_DASHELBOX");
+static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of order at VR_DASHELBOX + 3");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
