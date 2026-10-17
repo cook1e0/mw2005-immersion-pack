@@ -1002,6 +1002,7 @@ static struct {
     void* ib;
     float origin[3], right[3], up[3], toEye[3];
     bool added, drawn;
+    IDirect3DSurface9* ds;                     // the scene's depth buffer, from the interior's draw
 } s_dashEye;
 static bool s_dashThisFrame;                   // a panel was drawn in an eye this frame
 
@@ -1026,6 +1027,8 @@ static void ReleaseDash() {
     if (s_probeMem) s_probeMem->Release();
     s_dashSurf = s_probeRT = s_probeMem = nullptr;
     s_dashTex = nullptr;
+    if (s_dashEye.ds) s_dashEye.ds->Release();
+    s_dashEye.ds = nullptr;
     for (DashEl& e : s_el) e.ok = false;
 }
 
@@ -1054,6 +1057,8 @@ void D3D_BeginDashEye(bool on, const float* view, const float* proj) {
     bool menuOk = s_uiMenuOpen < 0.5f || g_cfg.dashAdjust > 0.5f;
     s_dashEye.on = on && menuOk;
     s_dashEye.added = s_dashEye.drawn = false;
+    if (s_dashEye.ds) s_dashEye.ds->Release();
+    s_dashEye.ds = nullptr;
     memcpy(&s_dashEye.view, view, sizeof(s_dashEye.view));
     memcpy(&s_dashEye.proj, proj, sizeof(s_dashEye.proj));
     s_colorTris.clear();
@@ -1219,7 +1224,7 @@ static void DrawDash() {
         float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * i;
         PanelVertex q[6];
         // Behind it: a white box with rounded corners and an orange (NFS MW) outline, for visibility.
-        if (g_cfg.dashBox > 0.01f) {
+        if (g_cfg.dashBox > 0.01f && g_cfg.dashElBox[i] > 0.5f) {
             float pad = 0.0025f * zoom, t = 0.0015f * zoom, r = std::min(hw, hh) * 0.25f + pad;
             BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
             BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
@@ -1318,7 +1323,43 @@ static void AfterModelDrawDash() {
     }
     if (!s_dashEye.on || !s_dashEye.added || s_dashEye.drawn || s_dashEye.ib != s_curIndices || !DrawingPlayerView()) return;
     s_dashEye.drawn = true;
+    if (s_dashEye.ds) s_dashEye.ds->Release();
+    s_dashEye.ds = nullptr;
+    s_dev->GetDepthStencilSurface(&s_dashEye.ds);
+}
+
+// After the eye's scene, post-processing included (drawn mid-scene, the bloom made the boxes glow
+// and the motion blur smeared the scene into them): the panel into the finished eye, depth tested
+// against the scene's depth buffer noted with the interior's draw, so the wheel stays in front.
+void D3D_EndDashEye() {
+    IDirect3DSurface9* ds = s_dashEye.ds;
+    s_dashEye.ds = nullptr;
+    if (!ds) return;
+    IDirect3DSurface9* bb = nullptr;
+    D3DSURFACE_DESC b, d;
+    if (FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb || FAILED(bb->GetDesc(&b)) || FAILED(ds->GetDesc(&d)) ||
+        d.Width < b.Width || d.Height < b.Height || d.MultiSampleType != b.MultiSampleType) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("d3d9: in-car dashboard: the scene's depth buffer doesn't fit the back buffer, drawn without it");
+        }
+        if (bb) bb->Release();
+        ds->Release();
+        return;
+    }
+    IDirect3DSurface9 *rt = nullptr, *curDs = nullptr;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->GetDepthStencilSurface(&curDs);
+    s_dev->SetRenderTarget(0, bb);
+    s_dev->SetDepthStencilSurface(ds);
     DrawDash();
+    s_dev->SetRenderTarget(0, rt);
+    s_dev->SetDepthStencilSurface(curDs);
+    if (rt) rt->Release();
+    if (curDs) curDs->Release();
+    bb->Release();
+    ds->Release();
 }
 
 // The middle of the screen (busted, totaled, ...): the messages element's default crop.
@@ -2027,6 +2068,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
         if (!strcmp(field, "X")) return &g_cfg.dashEl[i][0];
         if (!strcmp(field, "Y")) return &g_cfg.dashEl[i][1];
         if (!strcmp(field, "Size")) return &g_cfg.dashEl[i][2];
+        if (!strcmp(field, "Box")) return &g_cfg.dashElBox[i];
         if (!strcmp(field, "L")) return &g_cfg.dashCrop[i][0];
         if (!strcmp(field, "T")) return &g_cfg.dashCrop[i][1];
         if (!strcmp(field, "R")) return &g_cfg.dashCrop[i][2];

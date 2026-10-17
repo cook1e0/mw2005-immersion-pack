@@ -75,6 +75,7 @@ struct Config {
                             {0.645f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
                             {0.300f, 0.210f, 0.700f, 0.590f}};  // messages
     float dashBox = 0.85f;           // the white box with the orange outline behind each element: its opacity (0 = none)
+    float dashElBox[6] = {1, 1, 1, 1, 1, 0};   // ... per element (Dash<Name>Box): the messages without one
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
     // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command
     // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).

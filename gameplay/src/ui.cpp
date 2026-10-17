@@ -277,6 +277,7 @@ const struct {
     {MOD_VR, "DashDepth", 0.0f},
     {MOD_VR, "MirrorOffset", 0.0f},
     {MOD_VR, "DashBox", 0.85f},
+    {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
     {MOD_VR, "DashMsgX", 0.0f}, {MOD_VR, "DashMsgY", 0.12f}, {MOD_VR, "DashMsgSize", 1.0f},
     {MOD_VR, "DashBottomL", 0.165f}, {MOD_VR, "DashBottomT", 0.600f}, {MOD_VR, "DashBottomR", 0.835f}, {MOD_VR, "DashBottomB", 0.990f},
     {MOD_VR, "DashRadarL", 0.355f}, {MOD_VR, "DashRadarT", 0.000f}, {MOD_VR, "DashRadarR", 0.645f}, {MOD_VR, "DashRadarB", 0.110f},
@@ -300,7 +301,8 @@ enum {
     VR_DASHCROP = VR_DASHMSG + 3,   // 24: each element's crop of the HUD (left, top, right, bottom)
     VR_MIRROROFFSET = VR_DASHCROP + 24,
     VR_DASHBOX,
-    EXT_COUNT
+    VR_DASHELBOX,               // 4: the box behind the bottom HUD, cop radar, leaderboard, messages
+    EXT_COUNT = VR_DASHELBOX + 4
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
@@ -676,6 +678,7 @@ const Item kItems[] = {
     {NUMBER, "Bottom HUD left / right", "VR", "DashBottomX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Bottom HUD up / down", "VR", "DashBottomY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Bottom HUD size", "VR", "DashBottomSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Bottom HUD box", "VR", "DashBottomBox", &s_ext[VR_DASHELBOX + 0], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Bottom HUD crop left", "VR", "DashBottomL", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Bottom HUD crop top", "VR", "DashBottomT", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Bottom HUD crop right", "VR", "DashBottomR", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -684,6 +687,7 @@ const Item kItems[] = {
     {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar size", "VR", "DashRadarSize", &s_ext[VR_DASHEL + 3 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Cop radar box", "VR", "DashRadarBox", &s_ext[VR_DASHELBOX + 1], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Cop radar crop left", "VR", "DashRadarL", &s_ext[VR_DASHCROP + 4], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop top", "VR", "DashRadarT", &s_ext[VR_DASHCROP + 5], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop right", "VR", "DashRadarR", &s_ext[VR_DASHCROP + 6], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -692,6 +696,7 @@ const Item kItems[] = {
     {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard size", "VR", "DashBoardSize", &s_ext[VR_DASHEL + 12 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Leaderboard box", "VR", "DashBoardBox", &s_ext[VR_DASHELBOX + 2], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Leaderboard crop left", "VR", "DashBoardL", &s_ext[VR_DASHCROP + 16], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop top", "VR", "DashBoardT", &s_ext[VR_DASHCROP + 17], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop right", "VR", "DashBoardR", &s_ext[VR_DASHCROP + 18], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -701,6 +706,7 @@ const Item kItems[] = {
     {NUMBER, "Messages left / right", "VR", "DashMsgX", &s_ext[VR_DASHMSG], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Messages up / down", "VR", "DashMsgY", &s_ext[VR_DASHMSG + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Messages size", "VR", "DashMsgSize", &s_ext[VR_DASHMSG + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Messages box", "VR", "DashMsgBox", &s_ext[VR_DASHELBOX + 3], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Messages crop left", "VR", "DashMsgL", &s_ext[VR_DASHCROP + 20], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop top", "VR", "DashMsgT", &s_ext[VR_DASHCROP + 21], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop right", "VR", "DashMsgR", &s_ext[VR_DASHCROP + 22], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -961,6 +967,7 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    if (it.value >= (void*)&s_ext[VR_DASHELBOX] && it.value < (void*)&s_ext[VR_DASHELBOX + 4]) return v > 0.5f ? "On" : "Off";
     for (int el = 0; el < 5; el++)
         if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
     if (it.value == &s_ext[VR_DASHMSG + 2] && v <= 0.001f) return "Hidden";
@@ -1335,6 +1342,9 @@ void UpdateVrPages() {
             if (v == &s_ext[VR_DASHMSG + k]) *highlight = 5;
         for (int k = 0; k < 24 && v; k++)
             if (v == &s_ext[VR_DASHCROP + k]) *highlight = (float)(k / 4);
+        const int boxElement[4] = {0, 1, 4, 5};
+        for (int k = 0; k < 4 && v; k++)
+            if (v == &s_ext[VR_DASHELBOX + k]) *highlight = (float)boxElement[k];
     }
 }
 
@@ -1967,7 +1977,8 @@ void ValueWidget(int i, float w, float k) {
             ImGui::SetNextItemWidth(w);
             std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
             if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[FFB_DEVICE] || it.value == &s_ext[VR_HIDEARMS] ||
-                it.value == &s_ext[VR_WHEELOVERHUD] || it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH]) {
+                it.value == &s_ext[VR_WHEELOVERHUD] || it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH] ||
+                (it.value >= (void*)&s_ext[VR_DASHELBOX] && it.value < (void*)&s_ext[VR_DASHELBOX + 4])) {
                 fmt.clear();   // the text from ValueText, as a format without conversions
                 for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             }

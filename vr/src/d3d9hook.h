@@ -75,6 +75,8 @@ void D3D_EndMirrorEye(void* rearViewSurface);
 // Starting an eye also clears its coloured triangles (D3D_AddColorTris).
 void D3D_BeginDashEye(bool on, const float* view, const float* proj);
 void D3D_AddDash(void* indexBuffer, const float origin[3], const float right[3], const float up[3], const float toEye[3]);
+// After the eye's scene (post-processing done): the panel drawn into it, against the scene's depth.
+void D3D_EndDashEye();
 // Triangles (xyz per vertex, world, already lifted toward the eye) in one colour, drawn right after
 // the game's first draw from that index buffer in the player view this eye: opaque ones write
 // depth (black triangles of the triangle editor, the car's own gauges), translucent ones don't

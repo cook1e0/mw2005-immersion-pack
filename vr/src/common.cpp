@@ -154,6 +154,8 @@ void LoadConfig() {
         c.dashEl[i][1] = ReadFloat(ini, key, NAN);
         snprintf(key, sizeof(key), "Dash%sSize", kDashElKey[i]);
         c.dashEl[i][2] = ReadFloat(ini, key, 1.0f);
+        snprintf(key, sizeof(key), "Dash%sBox", kDashElKey[i]);
+        c.dashElBox[i] = ReadInt(ini, key, c.dashElBox[i] > 0.5f) != 0 ? 1.0f : 0.0f;
         static const char* const kEdge[4] = {"L", "T", "R", "B"};
         for (int k = 0; k < 4; k++) {
             snprintf(key, sizeof(key), "Dash%s%s", kDashElKey[i], kEdge[k]);
