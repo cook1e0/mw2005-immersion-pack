@@ -680,7 +680,7 @@ const Item kItems[] = {
     {NUMBER, "Each car remembers HUD positioning", "VR", "HudPerCar", &s_ext[VR_HUDPERCAR], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     HEADER_("IN-CAR DASHBOARD"),
     {NUMBER, "In-car dashboard", "VR", "Dash", &s_ext[VR_DASH], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
-    {NUMBER, "Dashboard zoom", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Whole dashboard size (this car)", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
@@ -699,6 +699,7 @@ const Item kItems[] = {
 
     PAGE_("ADJUST DASHBOARD"),
     LINK_("< Back", "VR"),
+    {NUMBER, "Whole dashboard size (this car)", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     HEADER_("MINIMAP"),
     {NUMBER, "Minimap left / right", "VR", "DashMapX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Minimap up / down", "VR", "DashMapY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
@@ -740,7 +741,10 @@ const Item kItems[] = {
     {NUMBER, "Leaderboard crop right", "VR", "DashBoardR", &s_ext[VR_DASHCROP + 18], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop bottom", "VR", "DashBoardB", &s_ext[VR_DASHCROP + 19], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
 
-    HEADER_("MESSAGES: FLOAT IN FRONT OF YOU (CROP)"),
+    HEADER_("MESSAGES (BUSTED, TOTALED)"),
+    {NUMBER, "Messages left / right", "VR", "DashMsgX", &s_ext[VR_DASHMSG], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Messages up / down", "VR", "DashMsgY", &s_ext[VR_DASHMSG + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Messages size", "VR", "DashMsgSize", &s_ext[VR_DASHMSG + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Messages crop left", "VR", "DashMsgL", &s_ext[VR_DASHCROP + 20], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop top", "VR", "DashMsgT", &s_ext[VR_DASHCROP + 21], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop right", "VR", "DashMsgR", &s_ext[VR_DASHCROP + 22], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -773,6 +777,8 @@ const Item kItems[] = {
     {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
     {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Rear view mirror forward / back", "VR", "MirrorOffset", &s_ext[VR_MIRROROFFSET], -0.05f, 0.05f, 0.001f, 100, "%+.1f cm", 0},
+    {ACTION, "Recalculate steering wheel centre", nullptr, "EdWheelCentre", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Steering wheel centre: automatic", nullptr, "EdWheelCentreReset", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -1251,7 +1257,8 @@ void Change(int index, int dir) {
             static const struct { const char* key; int cmd; const char* note; } kEd[] = {
                 {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
                 {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
-                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"}};
+                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"},
+                {"EdWheelCentre", 10, "Wheel centre recalculated"}, {"EdWheelCentreReset", 11, "Wheel centre back to automatic"}};
             if (strcmp(it.key, "EdPick") == 0) {
                 StartPicking();
                 return;
@@ -1599,7 +1606,7 @@ const struct {
     {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
     {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance, height and left / right position, and its dashboard zoom and position, like the seat. A car you haven't set yet starts with the last ones you used."},
     {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
-    {&s_ext[VR_DASHZOOM], "Size of the in-car dashboard panel."},
+    {&s_ext[VR_DASHZOOM], "Size of the whole in-car dashboard: the display and everything on it. Each car remembers its own."},
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
     {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},

@@ -1244,7 +1244,6 @@ static void DrawDash() {
     }
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
-        if (i == DASH_MSG) continue;   // the messages float in front of the eyes
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
         if (!have && !adjust) continue;
@@ -1461,7 +1460,7 @@ static void OutlineCrops() {
 // the middle below and the leaderboard right below. Never moved after that but by hand.
 static void AutoLayout(const float*, const float*) {
     static const float kPlace[DASH_PARTS][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
-                                                {0.0f, 0.12f}};
+                                                {0.0f, 0.0f}};
     for (int i = 0; i < DASH_PARTS; i++) {
         float* e = g_cfg.dashEl[i];
         if (e[0] != e[0]) e[0] = kPlace[i][0];
@@ -1505,19 +1504,8 @@ static void ComposeDash() {
                    dst.bottom / (float)kAtlasH, w[i], h[i]};
     }
     AutoLayout(w, h);
-    // The HUD off the headset's HUD layer, but the messages (their crop), which float in front of the
-    // eyes; the parts on the dashboard are painted out where they reach into that crop.
-    const float* m = g_cfg.dashCrop[DASH_MSG];
-    LONG mx0 = (LONG)(m[0] * s_eyeW), my0 = (LONG)(m[1] * s_eyeH), mx1 = (LONG)(m[2] * s_eyeW), my1 = (LONG)(m[3] * s_eyeH);
-    const RECT outside[4] = {{0, 0, (LONG)s_eyeW, my0}, {0, my1, (LONG)s_eyeW, (LONG)s_eyeH}, {0, my0, mx0, my1},
-                             {mx1, my0, (LONG)s_eyeW, my1}};
-    for (const RECT& r : outside)
-        if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
-    for (int i = 0; i < DASH_PARTS; i++)
-        if (i != DASH_MSG && s_dashBox[i].ok) {
-            RECT r = HudRect(s_dashBox[i]);
-            s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
-        }
+    // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the display.
+    s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
