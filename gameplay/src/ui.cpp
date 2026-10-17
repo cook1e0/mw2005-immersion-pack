@@ -285,6 +285,7 @@ constexpr struct {
     {MOD_VR, "MirrorOffset", 0.0f},
     {MOD_VR, "DashBox", 0.85f},
     {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
+    {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -302,7 +303,8 @@ enum {
     VR_MIRROROFFSET = VR_DASHCROP + 24,
     VR_DASHBOX,
     VR_DASHELBOX,               // 4: the box behind the bottom HUD, cop radar, leaderboard, messages
-    EXT_COUNT = VR_DASHELBOX + 4
+    VR_DASHSCREEN = VR_DASHELBOX + 4,   // 2: the display's width, height
+    EXT_COUNT = VR_DASHSCREEN + 2
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 // Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
@@ -323,6 +325,7 @@ static_assert(KeyIs(kExt[VR_MIRROROFFSET].key, "MirrorOffset"), "kExt out of ord
 static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_DASHBOX");
 static_assert(KeyIs(kExt[VR_DASHELBOX].key, "DashBottomBox"), "kExt out of order at VR_DASHELBOX");
 static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of order at VR_DASHELBOX + 3");
+static_assert(KeyIs(kExt[VR_DASHSCREEN].key, "DashScreenW"), "kExt out of order at VR_DASHSCREEN");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
@@ -679,7 +682,9 @@ const Item kItems[] = {
     {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
-    {NUMBER, "Dashboard box opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Display width", "VR", "DashScreenW", &s_ext[VR_DASHSCREEN], 0.04f, 0.8f, 0.005f, 100, "%.1f cm", 0},
+    {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
+    {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
     LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
@@ -696,7 +701,6 @@ const Item kItems[] = {
     {NUMBER, "Bottom HUD left / right", "VR", "DashBottomX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Bottom HUD up / down", "VR", "DashBottomY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Bottom HUD size", "VR", "DashBottomSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Bottom HUD box", "VR", "DashBottomBox", &s_ext[VR_DASHELBOX + 0], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Bottom HUD crop left", "VR", "DashBottomL", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Bottom HUD crop top", "VR", "DashBottomT", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Bottom HUD crop right", "VR", "DashBottomR", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -705,7 +709,6 @@ const Item kItems[] = {
     {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar size", "VR", "DashRadarSize", &s_ext[VR_DASHEL + 3 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Cop radar box", "VR", "DashRadarBox", &s_ext[VR_DASHELBOX + 1], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Cop radar crop left", "VR", "DashRadarL", &s_ext[VR_DASHCROP + 4], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop top", "VR", "DashRadarT", &s_ext[VR_DASHCROP + 5], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop right", "VR", "DashRadarR", &s_ext[VR_DASHCROP + 6], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -714,17 +717,12 @@ const Item kItems[] = {
     {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard size", "VR", "DashBoardSize", &s_ext[VR_DASHEL + 12 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Leaderboard box", "VR", "DashBoardBox", &s_ext[VR_DASHELBOX + 2], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Leaderboard crop left", "VR", "DashBoardL", &s_ext[VR_DASHCROP + 16], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop top", "VR", "DashBoardT", &s_ext[VR_DASHCROP + 17], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop right", "VR", "DashBoardR", &s_ext[VR_DASHCROP + 18], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Leaderboard crop bottom", "VR", "DashBoardB", &s_ext[VR_DASHCROP + 19], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
 
-    HEADER_("MESSAGES (BUSTED, TOTALED)"),
-    {NUMBER, "Messages left / right", "VR", "DashMsgX", &s_ext[VR_DASHMSG], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
-    {NUMBER, "Messages up / down", "VR", "DashMsgY", &s_ext[VR_DASHMSG + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
-    {NUMBER, "Messages size", "VR", "DashMsgSize", &s_ext[VR_DASHMSG + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Messages box", "VR", "DashMsgBox", &s_ext[VR_DASHELBOX + 3], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("MESSAGES: FLOAT IN FRONT OF YOU (CROP)"),
     {NUMBER, "Messages crop left", "VR", "DashMsgL", &s_ext[VR_DASHCROP + 20], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop top", "VR", "DashMsgT", &s_ext[VR_DASHCROP + 21], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Messages crop right", "VR", "DashMsgR", &s_ext[VR_DASHCROP + 22], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
@@ -1587,7 +1585,9 @@ const struct {
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
     {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},
-    {&s_ext[VR_DASHBOX], "The white box with rounded corners and an orange outline behind each dashboard element (0 = none)."},
+    {&s_ext[VR_DASHBOX], "The in-car display: a white screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
+    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
+    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
     {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car remembers it with HUD positioning."},
     {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},

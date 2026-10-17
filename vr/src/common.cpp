@@ -144,6 +144,8 @@ void LoadConfig() {
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
     c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
+    c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
+    c.dashScreenH = ReadFloat(ini, "DashScreenH", c.dashScreenH);
     c.mirrorOffset = ReadFloat(ini, "MirrorOffset", c.mirrorOffset);
     c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
     for (int i = 0; i < 6; i++) {

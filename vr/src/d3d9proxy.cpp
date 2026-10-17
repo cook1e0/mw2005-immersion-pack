@@ -1212,25 +1212,28 @@ static void DrawDash() {
     // The HUD picture is the game's own 4:3 layout (FixHUD off) stretched over the eye texture: at
     // zoom 1 the whole HUD is 36.4 cm wide and 27.3 cm high, whatever the resolution.
     const float kHudW = 0.364f, kHudH = 0.273f;
+    PanelVertex q[6];
+    // The display: a white screen with rounded corners and an orange (NFS MW) outline, centred on the
+    // panel's anchor; the elements sit on it.
+    if (g_cfg.dashBox > 0.01f) {
+        float hw = std::max(0.01f, g_cfg.dashScreenW) * zoom / 2, hh = std::max(0.01f, g_cfg.dashScreenH) * zoom / 2;
+        float t = 0.0015f * zoom, r = std::min(hw, hh) * 0.18f;
+        BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
+        BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
+        PanelRoundedRect(0, 0, hw + t, hh + t, r + t, 0, D3DCOLOR_ARGB(ao, 255, 150, 0));
+        PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, D3DCOLOR_ARGB(a, 255, 255, 255));
+    }
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
-        if (i == DASH_SPEEDO || i == DASH_UL) continue;   // in the bottom HUD (element 0) now
+        // The speedometer and pursuit info are in the bottom HUD (element 0); the messages float.
+        if (i == DASH_SPEEDO || i == DASH_UL || i == DASH_MSG) continue;
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
         if (!have && !adjust) continue;
         const float* crop = g_cfg.dashCrop[i];
         float wPx = have ? s_el[i].wPx : (crop[2] - crop[0]) * s_eyeW, hPx = have ? s_el[i].hPx : (crop[3] - crop[1]) * s_eyeH;
         float hw = wPx / std::max(s_eyeW, 1) * kHudW * zoom * e[2] / 2, hh = hPx / std::max(s_eyeH, 1) * kHudH * zoom * e[2] / 2;
-        float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * i;
-        PanelVertex q[6];
-        // Behind it: a white box with rounded corners and an orange (NFS MW) outline, for visibility.
-        if (g_cfg.dashBox > 0.01f && g_cfg.dashElBox[i] > 0.5f) {
-            float pad = 0.0025f * zoom, t = 0.0015f * zoom, r = std::min(hw, hh) * 0.25f + pad;
-            BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
-            BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
-            PanelRoundedRect(x, y, hw + pad + t, hh + pad + t, r + t, lift, D3DCOLOR_ARGB(ao, 255, 150, 0));
-            PanelRoundedRect(x, y, hw + pad, hh + pad, r, lift + 0.0001f, D3DCOLOR_ARGB(a, 255, 255, 255));
-        }
+        float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * (i + 1);
         if (have) {
             const float uv[4] = {s_el[i].u0, s_el[i].v0, s_el[i].u1, s_el[i].v1};
             PanelQuad(x, y, hw, hh, lift + 0.0002f, uv, q);
@@ -1484,8 +1487,19 @@ static void ComposeDash() {
                    dst.bottom / (float)kAtlasH, w[i], h[i]};
     }
     AutoLayout(w, h);
-    // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the dashboard.
-    s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+    // The HUD off the headset's HUD layer, but the messages (their crop), which float in front of the
+    // eyes; the parts on the dashboard are painted out where they reach into that crop.
+    const float* m = g_cfg.dashCrop[DASH_MSG];
+    LONG mx0 = (LONG)(m[0] * s_eyeW), my0 = (LONG)(m[1] * s_eyeH), mx1 = (LONG)(m[2] * s_eyeW), my1 = (LONG)(m[3] * s_eyeH);
+    const RECT outside[4] = {{0, 0, (LONG)s_eyeW, my0}, {0, my1, (LONG)s_eyeW, (LONG)s_eyeH}, {0, my0, mx0, my1},
+                             {mx1, my0, (LONG)s_eyeW, my1}};
+    for (const RECT& r : outside)
+        if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
+    for (int i = 0; i < DASH_PARTS; i++)
+        if (i != DASH_MSG && i != DASH_SPEEDO && i != DASH_UL && s_dashBox[i].ok) {
+            RECT r = HudRect(s_dashBox[i]);
+            s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
+        }
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).
@@ -2050,6 +2064,8 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
     if (!strcmp(name, "DashDepth")) return &g_cfg.dashDepth;
     if (!strcmp(name, "DashBox")) return &g_cfg.dashBox;
+    if (!strcmp(name, "DashScreenW")) return &g_cfg.dashScreenW;
+    if (!strcmp(name, "DashScreenH")) return &g_cfg.dashScreenH;
     if (!strcmp(name, "MirrorOffset")) return &g_cfg.mirrorOffset;
     if (!strcmp(name, "DashAdjust")) return &g_cfg.dashAdjust;
     if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;

@@ -342,9 +342,10 @@ struct PerCar {
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
-PerCar s_dashCar = {"Dash", "dashboard", 5,
-                    {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover, &g_cfg.dashDepth},
-                    {-1, -1, 0.2f, 1, -0.2f}, {1, 1, 4, 4, 0.3f}, 3, false};
+PerCar s_dashCar = {"Dash", "dashboard", 7,
+                    {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover, &g_cfg.dashDepth,
+                     &g_cfg.dashScreenW, &g_cfg.dashScreenH},
+                    {-1, -1, 0.2f, 1, -0.2f, 0.02f, 0.02f}, {1, 1, 4, 4, 0.3f, 1, 1}, 3, false};
 // Each dashboard element's x, y and size (Config::dashEl), in that order per element.
 PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                           {&g_cfg.dashEl[0][0], &g_cfg.dashEl[0][1], &g_cfg.dashEl[0][2], &g_cfg.dashEl[1][0],
