@@ -78,7 +78,7 @@ void Log(const char* fmt, ...) {
     LeaveCriticalSection(&s_logLock);
 }
 
-const char* const kDashElKey[6] = {"Bottom", "Radar", "Speedo", "Pursuit", "Board", "Msg"};
+const char* const kDashElKey[6] = {"Map", "Radar", "Speedo", "Pursuit", "Board", "Msg"};
 
 static float ReadFloat(const char* ini, const char* key, float def) {
     char buf[64], defs[64];

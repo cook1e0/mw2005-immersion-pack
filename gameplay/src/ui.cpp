@@ -264,7 +264,7 @@ constexpr struct {
     {MOD_FFB, "CarHits", 0.8f},
     {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
     {MOD_VR, "DashCover", 1.3f},
-    {MOD_VR, "DashBottomX", 0.0f}, {MOD_VR, "DashBottomY", 0.0f}, {MOD_VR, "DashBottomSize", 1.0f},
+    {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
     {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
     {MOD_VR, "DashSpeedoX", 0.0f}, {MOD_VR, "DashSpeedoY", 0.0f}, {MOD_VR, "DashSpeedoSize", 1.0f},
     {MOD_VR, "DashPursuitX", 0.0f}, {MOD_VR, "DashPursuitY", 0.0f}, {MOD_VR, "DashPursuitSize", 1.0f},
@@ -276,7 +276,7 @@ constexpr struct {
     {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
     {MOD_VR, "DashDepth", 0.0f},
     {MOD_VR, "DashMsgX", 0.0f}, {MOD_VR, "DashMsgY", 0.12f}, {MOD_VR, "DashMsgSize", 1.0f},
-    {MOD_VR, "DashBottomL", 0.165f}, {MOD_VR, "DashBottomT", 0.600f}, {MOD_VR, "DashBottomR", 0.835f}, {MOD_VR, "DashBottomB", 0.990f},
+    {MOD_VR, "DashMapL", 0.165f}, {MOD_VR, "DashMapT", 0.600f}, {MOD_VR, "DashMapR", 0.415f}, {MOD_VR, "DashMapB", 0.990f},
     {MOD_VR, "DashRadarL", 0.355f}, {MOD_VR, "DashRadarT", 0.000f}, {MOD_VR, "DashRadarR", 0.645f}, {MOD_VR, "DashRadarB", 0.110f},
     {MOD_VR, "DashSpeedoL", 0.585f}, {MOD_VR, "DashSpeedoT", 0.620f}, {MOD_VR, "DashSpeedoR", 0.835f}, {MOD_VR, "DashSpeedoB", 0.990f},
     {MOD_VR, "DashPursuitL", 0.400f}, {MOD_VR, "DashPursuitT", 0.660f}, {MOD_VR, "DashPursuitR", 0.600f}, {MOD_VR, "DashPursuitB", 0.990f},
@@ -311,7 +311,7 @@ static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enu
 // made every dashboard setting move another element).
 constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
 static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
-static_assert(KeyIs(kExt[VR_DASHEL].key, "DashBottomX"), "kExt out of order at VR_DASHEL");
+static_assert(KeyIs(kExt[VR_DASHEL].key, "DashMapX"), "kExt out of order at VR_DASHEL");
 static_assert(KeyIs(kExt[VR_DASHEL + 14].key, "DashBoardSize"), "kExt out of order at VR_DASHEL + 14");
 static_assert(KeyIs(kExt[VR_DASHADJUST].key, "DashAdjust"), "kExt out of order at VR_DASHADJUST");
 static_assert(KeyIs(kExt[VR_EDITBRUSH].key, "EditBrush"), "kExt out of order at VR_EDITBRUSH");
@@ -319,7 +319,9 @@ static_assert(KeyIs(kExt[VR_EDITPICKED].key, "EditPicked"), "kExt out of order a
 static_assert(KeyIs(kExt[VR_DASHDEPTH].key, "DashDepth"), "kExt out of order at VR_DASHDEPTH");
 static_assert(KeyIs(kExt[VR_DASHMSG].key, "DashMsgX"), "kExt out of order at VR_DASHMSG");
 static_assert(KeyIs(kExt[VR_DASHMSG + 2].key, "DashMsgSize"), "kExt out of order at VR_DASHMSG + 2");
-static_assert(KeyIs(kExt[VR_DASHCROP].key, "DashBottomL"), "kExt out of order at VR_DASHCROP");
+static_assert(KeyIs(kExt[VR_DASHCROP].key, "DashMapL"), "kExt out of order at VR_DASHCROP");
+static_assert(KeyIs(kExt[VR_DASHCROP + 8].key, "DashSpeedoL"), "kExt out of order at VR_DASHCROP + 8");
+static_assert(KeyIs(kExt[VR_DASHCROP + 12].key, "DashPursuitL"), "kExt out of order at VR_DASHCROP + 12");
 static_assert(KeyIs(kExt[VR_DASHCROP + 23].key, "DashMsgB"), "kExt out of order at VR_DASHCROP + 23");
 static_assert(KeyIs(kExt[VR_MIRROROFFSET].key, "MirrorOffset"), "kExt out of order at VR_MIRROROFFSET");
 static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_DASHBOX");
@@ -697,14 +699,14 @@ const Item kItems[] = {
 
     PAGE_("ADJUST DASHBOARD"),
     LINK_("< Back", "VR"),
-    HEADER_("BOTTOM HUD (MINIMAP, PURSUIT INFO, SPEEDOMETER)"),
-    {NUMBER, "Bottom HUD left / right", "VR", "DashBottomX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
-    {NUMBER, "Bottom HUD up / down", "VR", "DashBottomY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
-    {NUMBER, "Bottom HUD size", "VR", "DashBottomSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Bottom HUD crop left", "VR", "DashBottomL", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
-    {NUMBER, "Bottom HUD crop top", "VR", "DashBottomT", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
-    {NUMBER, "Bottom HUD crop right", "VR", "DashBottomR", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
-    {NUMBER, "Bottom HUD crop bottom", "VR", "DashBottomB", &s_ext[VR_DASHCROP + 3], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("MINIMAP"),
+    {NUMBER, "Minimap left / right", "VR", "DashMapX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap up / down", "VR", "DashMapY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap size", "VR", "DashMapSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Minimap crop left", "VR", "DashMapL", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop top", "VR", "DashMapT", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop right", "VR", "DashMapR", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop bottom", "VR", "DashMapB", &s_ext[VR_DASHCROP + 3], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("COP RADAR"),
     {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
@@ -713,6 +715,22 @@ const Item kItems[] = {
     {NUMBER, "Cop radar crop top", "VR", "DashRadarT", &s_ext[VR_DASHCROP + 5], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop right", "VR", "DashRadarR", &s_ext[VR_DASHCROP + 6], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     {NUMBER, "Cop radar crop bottom", "VR", "DashRadarB", &s_ext[VR_DASHCROP + 7], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("SPEEDOMETER"),
+    {NUMBER, "Speedometer left / right", "VR", "DashSpeedoX", &s_ext[VR_DASHEL + 6], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer up / down", "VR", "DashSpeedoY", &s_ext[VR_DASHEL + 6 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer size", "VR", "DashSpeedoSize", &s_ext[VR_DASHEL + 6 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speedometer crop left", "VR", "DashSpeedoL", &s_ext[VR_DASHCROP + 8], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop top", "VR", "DashSpeedoT", &s_ext[VR_DASHCROP + 9], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop right", "VR", "DashSpeedoR", &s_ext[VR_DASHCROP + 10], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop bottom", "VR", "DashSpeedoB", &s_ext[VR_DASHCROP + 11], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("PURSUIT INFO"),
+    {NUMBER, "Pursuit info left / right", "VR", "DashPursuitX", &s_ext[VR_DASHEL + 9], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info up / down", "VR", "DashPursuitY", &s_ext[VR_DASHEL + 9 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info size", "VR", "DashPursuitSize", &s_ext[VR_DASHEL + 9 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Pursuit info crop left", "VR", "DashPursuitL", &s_ext[VR_DASHCROP + 12], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop top", "VR", "DashPursuitT", &s_ext[VR_DASHCROP + 13], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop right", "VR", "DashPursuitR", &s_ext[VR_DASHCROP + 14], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop bottom", "VR", "DashPursuitB", &s_ext[VR_DASHCROP + 15], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
     HEADER_("LEADERBOARD"),
     {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},

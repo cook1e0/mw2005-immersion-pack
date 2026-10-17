@@ -983,7 +983,7 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard,
 // messages (the middle of the screen: busted, totaled, ...).
 enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_MSG, DASH_PARTS };
-static const char* kDashPartName[DASH_PARTS] = {"bottom HUD", "cop radar (top middle)", "speedometer",
+static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar (top middle)", "speedometer",
                                                 "pursuit info (bottom middle)", "leaderboard (upper side)", "messages"};
 // Room kept per part (share of the HUD's width, height) before it has been seen.
 static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f},
@@ -1158,14 +1158,33 @@ static void SetPicture() {
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
 }
 
+// How much nearer the eye the panel is for the depth test: each point slid along its line of sight
+// (the picture is the same), so the dashboard's own surfaces near or through the panel's plane (the
+// cluster hood, black triangles) stay behind it instead of fighting it; the wheel and arms, further
+// in front, still cover it.
+static const float kPanelDepthPull = 0.05f;
+
+// The eye's position in the world, from its view matrix.
+static void EyePos(const D3DMATRIX& v, float e[3]) {
+    for (int j = 0; j < 3; j++) e[j] = -(v.m[3][0] * v.m[j][0] + v.m[3][1] * v.m[j][1] + v.m[3][2] * v.m[j][2]);
+}
+
 // A quad on the panel's plane: centre (x, y) and half sizes (m, world), lifted `lift` m toward the eye.
 static void PanelQuad(float x, float y, float hw, float hh, float lift, const float uv[4], PanelVertex out[6]) {
     const float *o = s_dashEye.origin, *r = s_dashEye.right, *u = s_dashEye.up, *t = s_dashEye.toEye;
+    float eye[3];
+    EyePos(s_dashEye.view, eye);
     auto at = [&](float sx, float sy, float tu, float tv) {
         PanelVertex p;
         p.x = o[0] + r[0] * (x + sx) + u[0] * (y + sy) + t[0] * lift;
         p.y = o[1] + r[1] * (x + sx) + u[1] * (y + sy) + t[1] * lift;
         p.z = o[2] + r[2] * (x + sx) + u[2] * (y + sy) + t[2] * lift;
+        float d[3] = {eye[0] - p.x, eye[1] - p.y, eye[2] - p.z};
+        float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        float k = len > 1e-3f ? std::min(kPanelDepthPull, len * 0.5f) / len : 0.0f;
+        p.x += d[0] * k;
+        p.y += d[1] * k;
+        p.z += d[2] * k;
         p.u = tu;
         p.v = tv;
         return p;
@@ -1225,8 +1244,7 @@ static void DrawDash() {
     }
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
-        // The speedometer and pursuit info are in the bottom HUD (element 0); the messages float.
-        if (i == DASH_SPEEDO || i == DASH_UL || i == DASH_MSG) continue;
+        if (i == DASH_MSG) continue;   // the messages float in front of the eyes
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
         if (!have && !adjust) continue;
@@ -1430,7 +1448,7 @@ static void OutlineCrops() {
         const float* c = g_cfg.dashCrop[i];
         d.x0 = c[0]; d.y0 = c[1]; d.x1 = c[2]; d.y1 = c[3];
         RECT r = HudRect(d);
-        if (i == DASH_SPEEDO || i == DASH_UL || r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
+        if (r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
         D3DCOLOR col = i == highlight ? D3DCOLOR_ARGB(255, 255, 210, 0) : D3DCOLOR_ARGB(160, 200, 200, 200);
         const RECT edges[4] = {{r.left, r.top, r.right, r.top + t}, {r.left, r.bottom - t, r.right, r.bottom},
                                {r.left, r.top, r.left + t, r.bottom}, {r.right - t, r.top, r.right, r.bottom}};
@@ -1442,7 +1460,7 @@ static void OutlineCrops() {
 // anchor): the cop radar on top, the minimap left and the speedometer right, the pursuit info in
 // the middle below and the leaderboard right below. Never moved after that but by hand.
 static void AutoLayout(const float*, const float*) {
-    static const float kPlace[DASH_PARTS][2] = {{0.0f, 0.0f}, {0.0f, 0.05f}, {0.07f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
+    static const float kPlace[DASH_PARTS][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
                                                 {0.0f, 0.12f}};
     for (int i = 0; i < DASH_PARTS; i++) {
         float* e = g_cfg.dashEl[i];
@@ -1471,7 +1489,7 @@ static void ComposeDash() {
     s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
     for (int i = 0; i < DASH_PARTS; i++) {
         s_el[i].ok = false;
-        if (i == DASH_SPEEDO || i == DASH_UL || !s_dashBox[i].ok) continue;
+        if (!s_dashBox[i].ok) continue;
         RECT src = HudRect(s_dashBox[i]);
         w[i] = (float)(src.right - src.left);
         h[i] = (float)(src.bottom - src.top);
@@ -1496,7 +1514,7 @@ static void ComposeDash() {
     for (const RECT& r : outside)
         if (r.right > r.left && r.bottom > r.top) s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
     for (int i = 0; i < DASH_PARTS; i++)
-        if (i != DASH_MSG && i != DASH_SPEEDO && i != DASH_UL && s_dashBox[i].ok) {
+        if (i != DASH_MSG && s_dashBox[i].ok) {
             RECT r = HudRect(s_dashBox[i]);
             s_dev->ColorFill(s_eyeSurf[2], &r, D3DCOLOR_ARGB(0, 0, 0, 0));
         }

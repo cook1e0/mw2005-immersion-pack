@@ -68,7 +68,7 @@ struct Config {
     // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture, the game's
     // own 4:3 layout: the widescreen fix's FixHUD off). Keys Dash<Name>L / T / R / B; the same for every
     // car (it's the HUD's layout).
-    float dashCrop[6][4] = {{0.165f, 0.600f, 0.835f, 0.990f},   // bottom HUD: minimap, pursuit info, speedometer
+    float dashCrop[6][4] = {{0.165f, 0.600f, 0.415f, 0.990f},   // minimap
                             {0.355f, 0.000f, 0.645f, 0.110f},   // cop radar
                             {0.585f, 0.620f, 0.835f, 0.990f},   // speedometer
                             {0.400f, 0.660f, 0.600f, 0.990f},   // pursuit info
@@ -109,9 +109,7 @@ struct Config {
 extern Config g_cfg;
 // Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.
 enum { DASH_EL_MAP, DASH_EL_RADAR, DASH_EL_SPEEDO, DASH_EL_PURSUIT, DASH_EL_BOARD, DASH_EL_MSG, DASH_EL_COUNT };
-// Element 0 is the bottom HUD (minimap, pursuit info and speedometer in one crop); 2 and 3 (the
-// speedometer and pursuit info on their own) are no longer used.
-extern const char* const kDashElKey[6];     // ini key part: Bottom, Radar, Speedo, Pursuit, Board, Msg (messages)
+extern const char* const kDashElKey[6];     // ini key part: Map, Radar, Speedo, Pursuit, Board, Msg (messages)
 void LoadConfig();
 
 // Directory containing speed.exe (with trailing backslash).
