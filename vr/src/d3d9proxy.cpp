@@ -1500,6 +1500,28 @@ static void ComposeDash() {
         LONG cx = (LONG)((i % 3) * kCellW), cy = (LONG)((i / 3) * kCellH);
         RECT dst = {cx, cy, cx + (LONG)(w[i] * k), cy + (LONG)(h[i] * k)};
         if (FAILED(s_dev->StretchRect(s_eyeSurf[2], &src, s_dashSurf, &dst, D3DTEXF_LINEAR))) continue;
+        // Where a smaller element's crop reaches into this one, that part is the smaller element's
+        // only: cut out here. (The minimap's and the speedometer's crops reach into the pursuit info
+        // box; their pieces of it met in the middle of the display as a second, squashed copy.)
+        const float* ci = g_cfg.dashCrop[i];
+        float areaI = (ci[2] - ci[0]) * (ci[3] - ci[1]);
+        for (int j = 0; j < DASH_PARTS; j++) {
+            const float* cj = g_cfg.dashCrop[j];
+            float areaJ = (cj[2] - cj[0]) * (cj[3] - cj[1]);
+            if (j == i || areaJ <= 0 || areaJ > areaI || (areaJ == areaI && j > i)) continue;
+            DashBox b = {cj[0], cj[1], cj[2], cj[3], 0, true};
+            RECT o = HudRect(b);
+            o.left = std::max(o.left, src.left);
+            o.top = std::max(o.top, src.top);
+            o.right = std::min(o.right, src.right);
+            o.bottom = std::min(o.bottom, src.bottom);
+            if (o.right <= o.left || o.bottom <= o.top) continue;
+            RECT cut = {dst.left + (LONG)floorf((o.left - src.left) * k), dst.top + (LONG)floorf((o.top - src.top) * k),
+                        dst.left + (LONG)ceilf((o.right - src.left) * k), dst.top + (LONG)ceilf((o.bottom - src.top) * k)};
+            cut.right = std::min(cut.right, dst.right);
+            cut.bottom = std::min(cut.bottom, dst.bottom);
+            if (cut.right > cut.left && cut.bottom > cut.top) s_dev->ColorFill(s_dashSurf, &cut, D3DCOLOR_ARGB(0, 0, 0, 0));
+        }
         s_el[i] = {true, dst.left / (float)kAtlasW, dst.top / (float)kAtlasH, dst.right / (float)kAtlasW,
                    dst.bottom / (float)kAtlasH, w[i], h[i]};
     }
