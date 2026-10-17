@@ -287,6 +287,7 @@ constexpr struct {
     {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
     {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
     {MOD_VR, "DashGlass", 0.35f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
+    {MOD_VR, "DashGlassDepth", 0.01f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -307,7 +308,8 @@ enum {
     VR_DASHSCREEN = VR_DASHELBOX + 4,   // 2: the display's width, height
     VR_DASHGLASS = VR_DASHSCREEN + 2,
     VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
-    EXT_COUNT = VR_WHEELPIVOT + 2
+    VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2,
+    EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 // Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
@@ -333,6 +335,7 @@ static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of orde
 static_assert(KeyIs(kExt[VR_DASHSCREEN].key, "DashScreenW"), "kExt out of order at VR_DASHSCREEN");
 static_assert(KeyIs(kExt[VR_DASHGLASS].key, "DashGlass"), "kExt out of order at VR_DASHGLASS");
 static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of order at VR_WHEELPIVOT + 1");
+static_assert(KeyIs(kExt[VR_DASHGLASSDEPTH].key, "DashGlassDepth"), "kExt out of order at VR_DASHGLASSDEPTH");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
@@ -693,6 +696,7 @@ const Item kItems[] = {
     {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Display glass opacity", "VR", "DashGlass", &s_ext[VR_DASHGLASS], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Display glass depth", "VR", "DashGlassDepth", &s_ext[VR_DASHGLASSDEPTH], 0.005f, 0.06f, 0.0025f, 100, "%.2f cm", 0},
     LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
     LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
@@ -1620,8 +1624,9 @@ const struct {
     {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
     {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},
-    {&s_ext[VR_DASHBOX], "The in-car display: a white screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
+    {&s_ext[VR_DASHBOX], "The in-car display: a gray screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
     {&s_ext[VR_DASHGLASS], "A glass sheen over the in-car display and everything on it (0 = none)."},
+    {&s_ext[VR_DASHGLASSDEPTH], "How far in front of the in-car display its glass is."},
     {&s_ext[VR_WHEELPIVOT], "Moves the point the steering wheel turns about to the right (+) or left (-). Each car remembers it."},
     {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
     {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},

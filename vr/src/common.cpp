@@ -146,10 +146,11 @@ void LoadConfig() {
     c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
     c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
     c.dashGlass = ReadFloat(ini, "DashGlass", c.dashGlass);
+    c.dashGlassDepth = ReadFloat(ini, "DashGlassDepth", c.dashGlassDepth);
     {
-        char tex[32];
-        GetPrivateProfileStringA("VR", "DashTexture", "55A529E0", tex, sizeof(tex), ini);
-        c.dashTexture = (unsigned)strtoul(tex, nullptr, 16);
+        char col[32];
+        GetPrivateProfileStringA("VR", "DashColor", "3C3F44", col, sizeof(col), ini);
+        c.dashColor = (unsigned)strtoul(col, nullptr, 16) & 0xFFFFFF;
     }
     c.dashScreenH = ReadFloat(ini, "DashScreenH", c.dashScreenH);
     c.mirrorOffset = ReadFloat(ini, "MirrorOffset", c.mirrorOffset);

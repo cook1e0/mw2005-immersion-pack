@@ -1020,10 +1020,7 @@ static bool s_colorEye;
 
 static float MetresPerHudPixel() { return 0.24f / (0.66f * (float)std::max(s_eyeW, 1)); }
 
-static IDirect3DTexture9* s_dashBack;          // the display's picture (the game's; not ours to release)
 static IDirect3DTexture9* s_glassTex;          // the glass sheen (white, its alpha the sheen)
-
-void D3D_SetDashTexture(void* texture) { s_dashBack = (IDirect3DTexture9*)texture; }
 
 static void ReleaseDash() {
     if (s_glassTex) s_glassTex->Release();
@@ -1251,12 +1248,19 @@ static void PanelRoundedRect(float x, float y, float hw, float hh, float r, floa
 static IDirect3DTexture9* GlassTexture() {
     if (s_glassTex) return s_glassTex;
     const int n = 256;
-    if (FAILED(s_dev->CreateTexture(n, n, 1, 0, D3DFMT_A8R8G8B8, D3DPOOL_MANAGED, &s_glassTex, nullptr))) {
+    // A dynamic texture in the default pool (the device is D3D9Ex: no managed pool), so made again
+    // after a reset (ReleaseDash).
+    if (FAILED(s_dev->CreateTexture(n, n, 1, D3DUSAGE_DYNAMIC, D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, &s_glassTex, nullptr))) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("d3d9: in-car dashboard: creating the glass texture failed");
+        }
         s_glassTex = nullptr;
         return nullptr;
     }
     D3DLOCKED_RECT lr;
-    if (FAILED(s_glassTex->LockRect(0, &lr, nullptr, 0))) {
+    if (FAILED(s_glassTex->LockRect(0, &lr, nullptr, D3DLOCK_DISCARD))) {
         s_glassTex->Release();
         s_glassTex = nullptr;
         return nullptr;
@@ -1265,10 +1269,10 @@ static IDirect3DTexture9* GlassTexture() {
         uint32_t* row = (uint32_t*)((uint8_t*)lr.pBits + y * lr.Pitch);
         for (int x = 0; x < n; x++) {
             float u = (x + 0.5f) / n, v = (y + 0.5f) / n;
-            float a = 0.10f + 0.22f * (1 - v) * (1 - v);
+            float a = 0.14f + 0.30f * (1 - v) * (1 - v);
             float d1 = u + 0.55f * v - 0.42f, d2 = u + 0.55f * v - 0.66f;
-            a += 0.55f * expf(-d1 * d1 / 0.006f) + 0.25f * expf(-d2 * d2 / 0.0012f);
-            a += 0.45f * expf(-v / 0.02f);
+            a += 0.65f * expf(-d1 * d1 / 0.006f) + 0.35f * expf(-d2 * d2 / 0.0012f);
+            a += 0.55f * expf(-v / 0.02f) + 0.25f * expf(-(1 - v) / 0.015f);
             uint32_t A = (uint32_t)(std::min(1.0f, a) * 255);
             row[x] = (A << 24) | 0xFFFFFF;
         }
@@ -1289,26 +1293,15 @@ static void DrawDash() {
     // zoom 1 the whole HUD is 36.4 cm wide and 27.3 cm high, whatever the resolution.
     const float kHudW = 0.364f, kHudH = 0.273f;
     PanelVertex q[6];
-    // The display: a white screen with rounded corners and an orange (NFS MW) outline, centred on the
-    // panel's anchor; the elements sit on it.
+    // The display: a gray screen (the game's HUD gray, DashColor) with rounded corners and an orange
+    // (NFS MW) outline, centred on the panel's anchor; the elements sit on it.
     if (g_cfg.dashBox > 0.01f) {
         float hw = std::max(0.01f, g_cfg.dashScreenW) * zoom / 2, hh = std::max(0.01f, g_cfg.dashScreenH) * zoom / 2;
         float t = 0.0015f * zoom, r = std::min(hw, hh) * 0.18f;
         BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
         BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
         PanelRoundedRect(0, 0, hw + t, hh + t, r + t, 0, D3DCOLOR_ARGB(ao, 255, 150, 0));
-        // The game's texture across the screen at its own proportions (the middle of it where the
-        // screen is narrower or wider), else plain white.
-        float uv[4] = {0, 0, 1, 1};
-        D3DSURFACE_DESC d;
-        if (s_dashBack && SUCCEEDED(s_dashBack->GetLevelDesc(0, &d)) && d.Width && d.Height) {
-            float screen = hw / hh, tex = (float)d.Width / d.Height;
-            if (screen > tex) uv[1] = 0.5f - 0.5f * tex / screen, uv[3] = 1 - uv[1];
-            else uv[0] = 0.5f - 0.5f * screen / tex, uv[2] = 1 - uv[0];
-            PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, D3DCOLOR_ARGB(a, 255, 255, 255), s_dashBack, uv);
-        } else {
-            PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, D3DCOLOR_ARGB(a, 255, 255, 255));
-        }
+        PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, ((DWORD)a << 24) | (g_cfg.dashColor & 0xFFFFFF));
     }
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
@@ -1340,12 +1333,13 @@ static void DrawDash() {
             }
         }
     }
-    // Glass over the screen and its elements.
+    // Glass in front of the screen and its elements (Display glass depth), blended over them.
     if (g_cfg.dashGlass > 0.01f) {
         if (IDirect3DTexture9* glass = GlassTexture()) {
             float hw = std::max(0.01f, g_cfg.dashScreenW) * zoom / 2, hh = std::max(0.01f, g_cfg.dashScreenH) * zoom / 2;
             BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashGlass) * 255);
-            PanelRoundedRect(0, 0, hw, hh, std::min(hw, hh) * 0.18f, 0.0045f, D3DCOLOR_ARGB(a, 255, 255, 255), glass);
+            float depth = std::max(0.0045f, g_cfg.dashGlassDepth);   // never behind the elements
+            PanelRoundedRect(0, 0, hw, hh, std::min(hw, hh) * 0.18f, depth, D3DCOLOR_ARGB(a, 255, 255, 255), glass);
         }
     }
     saved->Apply();
@@ -2170,6 +2164,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashBox")) return &g_cfg.dashBox;
     if (!strcmp(name, "DashScreenW")) return &g_cfg.dashScreenW;
     if (!strcmp(name, "DashGlass")) return &g_cfg.dashGlass;
+    if (!strcmp(name, "DashGlassDepth")) return &g_cfg.dashGlassDepth;
     if (!strcmp(name, "WheelPivotRight")) return &g_cfg.wheelPivot[0];
     if (!strcmp(name, "WheelPivotUp")) return &g_cfg.wheelPivot[1];
     if (!strcmp(name, "DashScreenH")) return &g_cfg.dashScreenH;

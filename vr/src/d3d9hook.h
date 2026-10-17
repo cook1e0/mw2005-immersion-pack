@@ -77,8 +77,6 @@ void D3D_BeginDashEye(bool on, const float* view, const float* proj);
 void D3D_AddDash(void* indexBuffer, const float origin[3], const float right[3], const float up[3], const float toEye[3]);
 // After the eye's scene (post-processing done): the panel drawn into it, against the scene's depth.
 void D3D_EndDashEye();
-// The game texture the display shows (IDirect3DTexture9*, null = plain white), looked up each eye.
-void D3D_SetDashTexture(void* texture);
 // Triangles (xyz per vertex, world, already lifted toward the eye) in one colour, drawn right after
 // the game's first draw from that index buffer in the player view this eye: opaque ones write
 // depth (black triangles of the triangle editor, the car's own gauges), translucent ones don't

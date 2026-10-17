@@ -499,18 +499,6 @@ void BeginMirrors(void* view) {
 // The in-car dashboard: only from the seat, driving and not paused.
 void BeginDash(void* view, bool seated) {
     void* plat = At<void*>(view, kViewPlatInfo);
-    // The display's picture: a texture of the game's (the 2 player position backing by default) by
-    // its hash, looked up each time (a texture pack can be unloaded).
-    typedef void*(__cdecl * GetTextureInfo_t)(uint32_t hash, int returnDefault, int includeUnloaded);
-    uint8_t* info = g_cfg.dashTexture ? (uint8_t*)((GetTextureInfo_t)0x503400)(g_cfg.dashTexture, 0, 0) : nullptr;
-    uint8_t* texPlat = info ? *(uint8_t**)info : nullptr;
-    void* tex = texPlat ? *(void**)(texPlat + 0x18) : nullptr;
-    static int found = -1;
-    if (found != (tex != nullptr)) {
-        found = tex != nullptr;
-        Log("game: dashboard display texture %08X %s", g_cfg.dashTexture, tex ? "found" : "not loaded (plain white)");
-    }
-    D3D_SetDashTexture(tex);
     D3D_BeginDashEye(seated && g_cfg.dash > 0.5f && DrivingUnpaused(), (const float*)((char*)plat + kPlatView),
                      (const float*)((char*)plat + kPlatProjection));
 }

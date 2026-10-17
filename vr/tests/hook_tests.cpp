@@ -28,7 +28,6 @@ void D3D_BeginWheelEye(bool, const float*, const float*, const float*) {}
 void D3D_EndWheelEye() {}
 void D3D_EndDashEye() {}
 void D3D_BeginDashEye(bool, const float*, const float*) {}
-void D3D_SetDashTexture(void*) {}
 double D3D_ProfNow() { return 0; }
 void D3D_ProfAdd(int, double) {}
 void D3D_HideTextures(void*, void*, void*) {}
