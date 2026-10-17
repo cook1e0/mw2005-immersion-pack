@@ -75,6 +75,9 @@ struct Config {
                             {0.645f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
                             {0.300f, 0.210f, 0.700f, 0.590f}};  // messages
     float dashBox = 0.85f;           // the display: a white screen with an orange outline the elements sit on, its opacity (0 = none)
+    unsigned dashTexture = 0x55A529E0u;   // the display's picture: a game texture by hash (DashTexture, hex; 0 = plain white)
+    float dashGlass = 0.35f;              // the glass sheen over the display and its elements: its opacity (0 = none)
+    float wheelPivot[2] = {0, 0};         // the steering wheel's turning centre moved right, up in its plane (m; per car, [WheelPivot])
     float dashScreenW = 0.30f, dashScreenH = 0.13f;   // ... its size (m, at zoom 1; per car in [Dash]), centred on the panel's anchor
     float dashElBox[6] = {1, 1, 1, 1, 1, 0};   // (no longer used: one display for all)
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,

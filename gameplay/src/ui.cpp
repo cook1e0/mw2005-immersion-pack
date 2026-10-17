@@ -286,6 +286,7 @@ constexpr struct {
     {MOD_VR, "DashBox", 0.85f},
     {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
     {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
+    {MOD_VR, "DashGlass", 0.35f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -304,7 +305,9 @@ enum {
     VR_DASHBOX,
     VR_DASHELBOX,               // 4: the box behind the bottom HUD, cop radar, leaderboard, messages
     VR_DASHSCREEN = VR_DASHELBOX + 4,   // 2: the display's width, height
-    EXT_COUNT = VR_DASHSCREEN + 2
+    VR_DASHGLASS = VR_DASHSCREEN + 2,
+    VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
+    EXT_COUNT = VR_WHEELPIVOT + 2
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 // Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
@@ -328,6 +331,8 @@ static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_D
 static_assert(KeyIs(kExt[VR_DASHELBOX].key, "DashBottomBox"), "kExt out of order at VR_DASHELBOX");
 static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of order at VR_DASHELBOX + 3");
 static_assert(KeyIs(kExt[VR_DASHSCREEN].key, "DashScreenW"), "kExt out of order at VR_DASHSCREEN");
+static_assert(KeyIs(kExt[VR_DASHGLASS].key, "DashGlass"), "kExt out of order at VR_DASHGLASS");
+static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of order at VR_WHEELPIVOT + 1");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
@@ -687,6 +692,7 @@ const Item kItems[] = {
     {NUMBER, "Display width", "VR", "DashScreenW", &s_ext[VR_DASHSCREEN], 0.04f, 0.8f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Display glass opacity", "VR", "DashGlass", &s_ext[VR_DASHGLASS], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
     LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
@@ -777,6 +783,10 @@ const Item kItems[] = {
     {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
     {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Rear view mirror forward / back", "VR", "MirrorOffset", &s_ext[VR_MIRROROFFSET], -0.05f, 0.05f, 0.001f, 100, "%+.1f cm", 0},
+    {ACTION, "Center steering wheel animation", nullptr, "EdWheelPivot", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Steering wheel centre left / right", "VR", "WheelPivotRight", &s_ext[VR_WHEELPIVOT], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
+    {NUMBER, "Steering wheel centre up / down", "VR", "WheelPivotUp", &s_ext[VR_WHEELPIVOT + 1], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
+    {ACTION, "Steering wheel centre: reset", nullptr, "EdWheelPivotReset", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -1255,7 +1265,8 @@ void Change(int index, int dir) {
             static const struct { const char* key; int cmd; const char* note; } kEd[] = {
                 {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
                 {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
-                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"}};
+                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"},
+                {"EdWheelPivot", 10, "Steering wheel animation centred"}, {"EdWheelPivotReset", 11, "Steering wheel centre reset"}};
             if (strcmp(it.key, "EdPick") == 0) {
                 StartPicking();
                 return;
@@ -1371,6 +1382,8 @@ void UpdateVrPages() {
     float* editor = ExtSetting(VR_EDITORON);
     if (adjust) *adjust = strcmp(page, "ADJUST DASHBOARD") == 0 ? 1.0f : 0.0f;
     if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 || s_picking ? 1.0f : 0.0f;
+    for (int k = 0; k < 2 && s_menu.open; k++)
+        if (float* v = ExtSetting(VR_WHEELPIVOT + k)) s_ext[VR_WHEELPIVOT + k] = *v;
     if (highlight) {
         *highlight = -1;
         const void* v = s_menu.open && s_menu.sel >= 0 && s_menu.sel < kNumItems ? kItems[s_menu.sel].value : nullptr;
@@ -1608,6 +1621,9 @@ const struct {
     {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
     {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},
     {&s_ext[VR_DASHBOX], "The in-car display: a white screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
+    {&s_ext[VR_DASHGLASS], "A glass sheen over the in-car display and everything on it (0 = none)."},
+    {&s_ext[VR_WHEELPIVOT], "Moves the point the steering wheel turns about to the right (+) or left (-). Each car remembers it."},
+    {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
     {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
     {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
     {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car remembers it with HUD positioning."},

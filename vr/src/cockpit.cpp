@@ -357,6 +357,9 @@ PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                           {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true};
 
 PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirrorOffset}, {-0.1f}, {0.1f}, 1, false, true};
+// The steering wheel's turning centre moved (right, up; Config::wheelPivot).
+PerCar s_pivotCar = {"WheelPivot", "steering wheel turning centre", 2, {&g_cfg.wheelPivot[0], &g_cfg.wheelPivot[1]},
+                     {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true};
 
 void SavePerCar(PerCar& p) {
     char buf[512];
@@ -422,6 +425,11 @@ void UpdateHudCar(const std::string& car) {
     UpdatePerCar(s_dashCar, car);
     UpdatePerCar(s_dashLayoutCar, car);
     UpdatePerCar(s_mirrorCar, car);
+    if (car != s_pivotCar.car && !car.empty()) {   // a car with none saved: none
+        if (s_pivotCar.dirty && !s_pivotCar.car.empty()) SavePerCar(s_pivotCar);
+        g_cfg.wheelPivot[0] = g_cfg.wheelPivot[1] = 0;
+    }
+    UpdatePerCar(s_pivotCar, car);
 }
 
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
@@ -829,10 +837,16 @@ void TurnedMatrix(const Wheel& w, float degrees, const float* m, float* out) {
     float T[4][4] = {};
     for (int r = 0; r < 3; r++)
         for (int col = 0; col < 3; col++) T[r][col] = R[col][r];
+    // About the found centre moved by the car's pivot offset (right = -y, up in the wheel's plane).
+    float upv[3] = {-k[2], 0, k[0]};
+    float ul = sqrtf(upv[0] * upv[0] + upv[2] * upv[2]);
+    if (ul > 1e-4f) upv[0] /= ul, upv[2] /= ul;
+    float pivot[3] = {w.centre[0] + upv[0] * g_cfg.wheelPivot[1], w.centre[1] - g_cfg.wheelPivot[0],
+                      w.centre[2] + upv[2] * g_cfg.wheelPivot[1]};
     for (int col = 0; col < 3; col++) {
         float cr = 0;
-        for (int r = 0; r < 3; r++) cr += w.centre[r] * T[r][col];
-        T[3][col] = w.centre[col] - cr;
+        for (int r = 0; r < 3; r++) cr += pivot[r] * T[r][col];
+        T[3][col] = pivot[col] - cr;
     }
     T[3][3] = 1;
     for (int r = 0; r < 4; r++)
@@ -1783,6 +1797,98 @@ void ApplyEditsTo(const std::string& name, bool wheel) {
     s_brushFor = 0;
 }
 
+// The current car's steering wheel turning centre fitted to the wheel's triangles as they are now
+// (those put on it by hand too), as the pivot offset (Config::wheelPivot, saved per car); which
+// triangles are on the wheel is left as it is. The outermost wheel vertex in each of 36 directions
+// round the column, a circle through them (least squares; points over 3 cm off the median radius
+// dropped), three times from the new centre.
+void CentreWheelPivot() {
+    std::string car = s_head.valid ? s_head.car : std::string();
+    for (auto& kv : s_solids) {
+        SolidInfo& info = kv.second;
+        std::string name = SolidName(info);
+        if (car.empty() || !info.interior || !info.wheel || !info.wheel->ok || name.compare(0, car.size() + 1, car + "_") != 0)
+            continue;
+        const Wheel& w = *info.wheel;
+        SolidMesh s;
+        if (!ReadMesh(kv.first, s)) continue;
+        std::vector<V3> pts;
+        for (int i = 0; i < s.n && i < (int)w.kept.size(); i++) {
+            if (!w.turned[i]) continue;
+            int first = At<int>(s.entries + i * kEntrySize, kEntryFirstIndex);
+            int a = first + w.kept[i] * 3, b = std::min(s.numIndices, first + (w.kept[i] + w.turned[i]) * 3);
+            for (int k = std::max(0, a); k < b; k++)
+                if (s.indices[k] < s.numVerts) pts.push_back(s.at(s.indices[k]));
+        }
+        V3 k = Norm({w.axis[0], w.axis[1], w.axis[2]}), e1 = {0, 1, 0};   // the column is in the x-z plane
+        V3 e2 = Norm({-k.z, 0, k.x});                                      // up in the wheel's plane
+        V3 c0 = {w.centre[0], w.centre[1], w.centre[2]}, c = c0;
+        bool fitted = false;
+        for (int pass = 0; pass < 3; pass++) {
+            float rmax[36], sa[36] = {}, sb[36] = {};
+            for (float& r : rmax) r = -1;
+            for (const V3& p : pts) {
+                V3 rel = Sub(p, c);
+                if (fabsf(Dot(rel, k)) > 0.08f) continue;
+                float a = Dot(rel, e1), b = Dot(rel, e2), r = sqrtf(a * a + b * b);
+                if (r < 0.06f || r > 0.30f) continue;
+                int sec = (int)((atan2f(b, a) + 3.14159265f) / (2 * 3.14159265f) * 36) % 36;
+                if (r > rmax[sec]) {
+                    rmax[sec] = r;
+                    sa[sec] = a;
+                    sb[sec] = b;
+                }
+            }
+            std::vector<float> radii;
+            for (float r : rmax)
+                if (r > 0) radii.push_back(r);
+            if (radii.size() < 18) break;
+            std::nth_element(radii.begin(), radii.begin() + radii.size() / 2, radii.end());
+            float med = radii[radii.size() / 2];
+            // Circle a^2 + b^2 + D a + E b + F = 0 through the points, least squares (Cramer's rule).
+            double m[3][3] = {}, v[3] = {};
+            int used = 0;
+            for (int i = 0; i < 36; i++) {
+                if (rmax[i] < 0 || fabsf(rmax[i] - med) > 0.03f) continue;
+                double row[3] = {sa[i], sb[i], 1}, rhs = -(sa[i] * (double)sa[i] + sb[i] * (double)sb[i]);
+                for (int r = 0; r < 3; r++) {
+                    for (int q = 0; q < 3; q++) m[r][q] += row[r] * row[q];
+                    v[r] += row[r] * rhs;
+                }
+                used++;
+            }
+            if (used < 12) break;
+            auto det = [](double a[3][3]) {
+                return a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
+                       a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
+            };
+            double d = det(m);
+            if (fabs(d) < 1e-12) break;
+            double sol[2];
+            for (int col = 0; col < 2; col++) {
+                double t[3][3];
+                memcpy(t, m, sizeof(t));
+                for (int r = 0; r < 3; r++) t[r][col] = v[r];
+                sol[col] = det(t) / d;
+            }
+            c = c + e1 * (float)(-sol[0] / 2) + e2 * (float)(-sol[1] / 2);
+            fitted = true;
+        }
+        V3 moved = Sub(c, c0);
+        float right = -Dot(moved, e1), up = Dot(moved, e2);
+        if (!fitted || fabsf(right) > 0.1f || fabsf(up) > 0.1f) {
+            Log("cockpit: %s: steering wheel turning centre: no fit (%u wheel vertices)", name.c_str(), (unsigned)pts.size());
+            return;
+        }
+        g_cfg.wheelPivot[0] = right;
+        g_cfg.wheelPivot[1] = up;
+        Log("cockpit: %s: steering wheel turns about a centre %.1f mm right, %.1f mm up of the found one (%u wheel vertices)",
+            name.c_str(), right * 1000, up * 1000, (unsigned)pts.size());
+        return;
+    }
+    Log("cockpit: steering wheel turning centre: no steering wheel for %s", car.c_str());
+}
+
 // The F4 page's command for the selection (see Config::editCommand).
 void RunEditCommand(int cmd) {
     if (cmd == 6) {
@@ -2188,6 +2294,8 @@ void Cockpit_EndFrame() {
     if (cmd) {
         g_cfg.editCommand = 0;
         if (cmd >= 1 && cmd <= 8) RunEditCommand(cmd);
+        if (cmd == 10) CentreWheelPivot();                             // F4 > Menu and testing
+        if (cmd == 11) g_cfg.wheelPivot[0] = g_cfg.wheelPivot[1] = 0;
         if (cmd == 9) {   // picking cancelled: no selection
             s_pick = Pick();
             s_brush.clear();
