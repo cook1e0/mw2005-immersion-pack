@@ -777,8 +777,6 @@ const Item kItems[] = {
     {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
     {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Rear view mirror forward / back", "VR", "MirrorOffset", &s_ext[VR_MIRROROFFSET], -0.05f, 0.05f, 0.001f, 100, "%+.1f cm", 0},
-    {ACTION, "Recalculate steering wheel centre", nullptr, "EdWheelCentre", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {ACTION, "Steering wheel centre: automatic", nullptr, "EdWheelCentreReset", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -1257,8 +1255,7 @@ void Change(int index, int dir) {
             static const struct { const char* key; int cmd; const char* note; } kEd[] = {
                 {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
                 {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
-                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"},
-                {"EdWheelCentre", 10, "Wheel centre recalculated"}, {"EdWheelCentreReset", 11, "Wheel centre back to automatic"}};
+                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"}};
             if (strcmp(it.key, "EdPick") == 0) {
                 StartPicking();
                 return;

@@ -144,8 +144,6 @@ struct TriRef {
 struct EditSet {
     std::map<uint64_t, std::array<uint16_t, 3>> hide;   // with the original winding, to put it back
     std::set<uint64_t> black, wheel, noWheel, noAuto, dash;   // dash: added to the dashboard blackout
-    bool hasCentre = false;                         // the wheel's centre fitted again (WheelCentre, model space)
-    float centre[3] = {};
     bool loaded = false;
 };
 std::unordered_map<std::string, EditSet> s_edits;
@@ -206,9 +204,6 @@ EditSet& EditsFor(const std::string& solidName) {
     const char* keys[5] = {"Black", "Wheel", "NoWheel", "NoAuto", "Dash"};
     for (int k = 0; k < 5; k++)
         for (auto& t : read(keys[k])) sets[k]->insert(TriId(t[0], t[1], t[2]));
-    buf[0] = 0;
-    GetPrivateProfileStringA(solidName.c_str(), "WheelCentre", "", buf.data(), (DWORD)buf.size(), EditsPath());
-    e.hasCentre = sscanf(buf.data(), "%f,%f,%f", &e.centre[0], &e.centre[1], &e.centre[2]) == 3;
     size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size() + e.noAuto.size() + e.dash.size();
     if (n) Log("editor: %s: %u edited triangles loaded", solidName.c_str(), (unsigned)n);
     return e;
@@ -226,9 +221,6 @@ void SaveEdits(const std::string& solidName) {
         for (uint64_t id : *sets[k]) v.push_back(IdTri(id));
         WritePrivateProfileStringA(solidName.c_str(), keys[k], v.empty() ? nullptr : TrisText(v).c_str(), EditsPath());
     }
-    char c[96];
-    snprintf(c, sizeof(c), "%.4f,%.4f,%.4f", e.centre[0], e.centre[1], e.centre[2]);
-    WritePrivateProfileStringA(solidName.c_str(), "WheelCentre", e.hasCentre ? c : nullptr, EditsPath());
 }
 
 // Solids are streamed: a traffic car's or a reloaded car's model can be freed and another loaded
@@ -770,10 +762,6 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
     w->parts.assign(n * 2 * kEntrySize, 0);
     std::vector<TriRef> rest;                       // the interior's other triangles
     const EditSet& edits = EditsFor(name);          // triangles put on or taken off the wheel by hand
-    if (edits.hasCentre) {                          // fitted again to the wheel's triangles (RecentreWheels)
-        memcpy(w->centre, edits.centre, sizeof(w->centre));
-        Log("cockpit: %s: steering wheel centre as saved, %.3f %.3f %.3f", name, w->centre[0], w->centre[1], w->centre[2]);
-    }
     int total = 0;
     std::vector<std::vector<uint16_t>> orders(n);
     for (int i = 0; i < n; i++) {
@@ -1795,118 +1783,6 @@ void ApplyEditsTo(const std::string& name, bool wheel) {
     s_brushFor = 0;
 }
 
-// The current car's steering wheel centre fitted again to the wheel's own triangles (those put on
-// it by hand too), or (reset) back to the automatic one. The automatic centre is the mean of the rim
-// vertices, which a rim with more vertices on one side pulls off centre. Here: the outermost vertex
-// in each of 36 directions about the column, a circle through them (least squares; points off the
-// median radius by over 3 cm dropped), three times from the new centre. Saved per interior in
-// nfsmw_vr_edits.ini (WheelCentre), then the wheel is prepared again around it.
-void RecentreWheels(bool reset) {
-    std::string car = s_head.valid ? s_head.car : std::string();
-    if (car.empty()) {
-        Log("cockpit: wheel centre: not in a car");
-        return;
-    }
-    std::set<std::string> names;
-    for (auto& kv : s_solids) {
-        SolidInfo& info = kv.second;
-        std::string name = SolidName(info);
-        if (!info.interior || !info.wheel || !info.wheel->ok || name.compare(0, car.size() + 1, car + "_") != 0 ||
-            names.count(name))
-            continue;
-        EditSet& e = EditsFor(name);
-        if (reset) {
-            if (!e.hasCentre) continue;
-            s_undo.push_back({name, e});
-            e.hasCentre = false;
-            SaveEdits(name);
-            names.insert(name);
-            Log("cockpit: %s: steering wheel centre back to the automatic one", name.c_str());
-            continue;
-        }
-        const Wheel& w = *info.wheel;
-        SolidMesh s;
-        if (!ReadMesh(kv.first, s)) continue;
-        std::vector<V3> pts;
-        for (int i = 0; i < s.n && i < (int)w.kept.size(); i++) {
-            if (!w.turned[i]) continue;
-            int first = At<int>(s.entries + i * kEntrySize, kEntryFirstIndex);
-            int a = first + w.kept[i] * 3, b = std::min(s.numIndices, first + (w.kept[i] + w.turned[i]) * 3);
-            for (int k = std::max(0, a); k < b; k++)
-                if (s.indices[k] < s.numVerts) pts.push_back(s.at(s.indices[k]));
-        }
-        V3 k = Norm({w.axis[0], w.axis[1], w.axis[2]}), e1 = {0, 1, 0};   // the column is in the x-z plane
-        V3 e2 = Norm(Cross(k, e1));
-        V3 c = {w.centre[0], w.centre[1], w.centre[2]}, start = c;
-        bool fitted = false;
-        for (int pass = 0; pass < 3; pass++) {
-            float rmax[36], sa[36] = {}, sb[36] = {};
-            for (float& r : rmax) r = -1;
-            for (const V3& p : pts) {
-                V3 rel = Sub(p, c);
-                if (fabsf(Dot(rel, k)) > 0.08f) continue;
-                float a = Dot(rel, e1), b = Dot(rel, e2), r = sqrtf(a * a + b * b);
-                if (r < 0.08f || r > 0.30f) continue;
-                int sec = (int)((atan2f(b, a) + 3.14159265f) / (2 * 3.14159265f) * 36) % 36;
-                if (r > rmax[sec]) {
-                    rmax[sec] = r;
-                    sa[sec] = a;
-                    sb[sec] = b;
-                }
-            }
-            std::vector<float> radii;
-            for (float r : rmax)
-                if (r > 0) radii.push_back(r);
-            if (radii.size() < 18) break;
-            std::nth_element(radii.begin(), radii.begin() + radii.size() / 2, radii.end());
-            float med = radii[radii.size() / 2];
-            // Circle a^2 + b^2 + D a + E b + F = 0 through the points, least squares (Cramer's rule).
-            double m[3][3] = {}, v[3] = {};
-            int used = 0;
-            for (int i = 0; i < 36; i++) {
-                if (rmax[i] < 0 || fabsf(rmax[i] - med) > 0.03f) continue;
-                double row[3] = {sa[i], sb[i], 1}, rhs = -(sa[i] * (double)sa[i] + sb[i] * (double)sb[i]);
-                for (int r = 0; r < 3; r++) {
-                    for (int q = 0; q < 3; q++) m[r][q] += row[r] * row[q];
-                    v[r] += row[r] * rhs;
-                }
-                used++;
-            }
-            if (used < 12) break;
-            auto det = [](double a[3][3]) {
-                return a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1]) - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0]) +
-                       a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0]);
-            };
-            double d = det(m);
-            if (fabs(d) < 1e-12) break;
-            double sol[2];
-            for (int col = 0; col < 2; col++) {
-                double t[3][3];
-                memcpy(t, m, sizeof(t));
-                for (int r = 0; r < 3; r++) t[r][col] = v[r];
-                sol[col] = det(t) / d;
-            }
-            float da = (float)(-sol[0] / 2), db = (float)(-sol[1] / 2);
-            c = c + e1 * da + e2 * db;
-            fitted = true;
-        }
-        V3 moved = Sub(c, start);
-        if (!fitted || sqrtf(Dot(moved, moved)) > 0.1f) {
-            Log("cockpit: %s: steering wheel centre: no fit (%u wheel vertices)", name.c_str(), (unsigned)pts.size());
-            continue;
-        }
-        s_undo.push_back({name, e});
-        e.centre[0] = c.x; e.centre[1] = c.y; e.centre[2] = c.z;
-        e.hasCentre = true;
-        SaveEdits(name);
-        names.insert(name);
-        Log("cockpit: %s: steering wheel centre fitted again: %.3f %.3f %.3f (moved %.1f mm sideways, %.1f mm up)",
-            name.c_str(), c.x, c.y, c.z, Dot(moved, e1) * 1000, Dot(moved, e2) * 1000);
-    }
-    if (names.empty()) Log("cockpit: wheel centre: nothing to change for %s", car.c_str());
-    for (const std::string& n : names) ApplyEditsTo(n, true);
-}
-
 // The F4 page's command for the selection (see Config::editCommand).
 void RunEditCommand(int cmd) {
     if (cmd == 6) {
@@ -1917,8 +1793,7 @@ void RunEditCommand(int cmd) {
         Undo u = s_undo.back();
         s_undo.pop_back();
         EditSet& cur = EditsFor(u.name);
-        bool wheel = cur.wheel != u.set.wheel || cur.noWheel != u.set.noWheel || cur.hasCentre != u.set.hasCentre ||
-                     memcmp(cur.centre, u.set.centre, sizeof(cur.centre)) != 0;
+        bool wheel = cur.wheel != u.set.wheel || cur.noWheel != u.set.noWheel;
         cur = u.set;
         cur.loaded = true;
         SaveEdits(u.name);
@@ -2313,7 +2188,6 @@ void Cockpit_EndFrame() {
     if (cmd) {
         g_cfg.editCommand = 0;
         if (cmd >= 1 && cmd <= 8) RunEditCommand(cmd);
-        if (cmd == 10 || cmd == 11) RecentreWheels(cmd == 11);   // F4 > Menu and testing
         if (cmd == 9) {   // picking cancelled: no selection
             s_pick = Pick();
             s_brush.clear();
