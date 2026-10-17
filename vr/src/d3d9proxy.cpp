@@ -1170,6 +1170,32 @@ static void PanelQuad(float x, float y, float hw, float hh, float lift, const fl
     out[0] = a; out[1] = b; out[2] = c; out[3] = a; out[4] = c; out[5] = d;
 }
 
+// A rounded rectangle on the panel's plane (centre, half sizes, corner radius, m), lifted `lift`
+// toward the eye: a fan of triangles from the centre.
+static void PanelRoundedRect(float x, float y, float hw, float hh, float r, float lift, D3DCOLOR argb) {
+    r = std::max(0.0f, std::min(r, std::min(hw, hh)));
+    const int seg = 6;
+    std::vector<PanelVertex> rim;
+    const float corner[4][2] = {{hw - r, hh - r}, {-(hw - r), hh - r}, {-(hw - r), -(hh - r)}, {hw - r, -(hh - r)}};
+    for (int c = 0; c < 4; c++)
+        for (int k = 0; k <= seg; k++) {
+            float a = (c * 90.0f + k * 90.0f / seg) * 3.14159265f / 180.0f;
+            PanelVertex q[6];
+            PanelQuad(x + corner[c][0] + r * cosf(a), y + corner[c][1] + r * sinf(a), 0, 0, lift, nullptr, q);
+            rim.push_back(q[0]);
+        }
+    PanelVertex mid[6];
+    PanelQuad(x, y, 0, 0, lift, nullptr, mid);
+    std::vector<PanelVertex> tris;
+    for (size_t i = 0; i < rim.size(); i++) {
+        tris.push_back(mid[0]);
+        tris.push_back(rim[i]);
+        tris.push_back(rim[(i + 1) % rim.size()]);
+    }
+    SetColor(argb);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(tris.size() / 3), tris.data(), sizeof(PanelVertex));
+}
+
 static void DrawDash() {
     if (!EnsureDash()) return;
     IDirect3DStateBlock9* saved = nullptr;
@@ -1177,7 +1203,10 @@ static void DrawDash() {
     SetPanelState(s_dashEye.view, s_dashEye.proj);
     bool adjust = g_cfg.dashAdjust > 0.5f;
     int highlight = (int)lrintf(g_cfg.dashHighlight);
-    float zoom = std::max(0.2f, g_cfg.dashZoom), mpp = MetresPerHudPixel() * zoom;
+    float zoom = std::max(0.2f, g_cfg.dashZoom);
+    // The HUD picture is the game's own 4:3 layout (FixHUD off) stretched over the eye texture: at
+    // zoom 1 the whole HUD is 36.4 cm wide and 27.3 cm high, whatever the resolution.
+    const float kHudW = 0.364f, kHudH = 0.273f;
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
         if (i == DASH_SPEEDO || i == DASH_UL) continue;   // in the bottom HUD (element 0) now
@@ -1186,14 +1215,23 @@ static void DrawDash() {
         if (!have && !adjust) continue;
         const float* crop = g_cfg.dashCrop[i];
         float wPx = have ? s_el[i].wPx : (crop[2] - crop[0]) * s_eyeW, hPx = have ? s_el[i].hPx : (crop[3] - crop[1]) * s_eyeH;
-        float hw = wPx * mpp * e[2] / 2, hh = hPx * mpp * e[2] / 2, x = e[0] * zoom, y = e[1] * zoom;
+        float hw = wPx / std::max(s_eyeW, 1) * kHudW * zoom * e[2] / 2, hh = hPx / std::max(s_eyeH, 1) * kHudH * zoom * e[2] / 2;
+        float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * i;
         PanelVertex q[6];
+        // Behind it: a white box with rounded corners and an orange (NFS MW) outline, for visibility.
+        if (g_cfg.dashBox > 0.01f) {
+            float pad = 0.0025f * zoom, t = 0.0015f * zoom, r = std::min(hw, hh) * 0.25f + pad;
+            BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
+            BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
+            PanelRoundedRect(x, y, hw + pad + t, hh + pad + t, r + t, lift, D3DCOLOR_ARGB(ao, 255, 150, 0));
+            PanelRoundedRect(x, y, hw + pad, hh + pad, r, lift + 0.0001f, D3DCOLOR_ARGB(a, 255, 255, 255));
+        }
         if (have) {
             const float uv[4] = {s_el[i].u0, s_el[i].v0, s_el[i].u1, s_el[i].v1};
-            PanelQuad(x, y, hw, hh, 0.0003f * i, uv, q);
+            PanelQuad(x, y, hw, hh, lift + 0.0002f, uv, q);
             SetPicture();
         } else {
-            PanelQuad(x, y, hw, hh, 0.0003f * i, nullptr, q);   // not on the HUD now: where it will go
+            PanelQuad(x, y, hw, hh, lift + 0.0002f, nullptr, q);   // not on the HUD now: where it will go
             SetColor(D3DCOLOR_ARGB(110, 70, 70, 70));
         }
         s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, q, sizeof(PanelVertex));
@@ -1204,7 +1242,7 @@ static void DrawDash() {
             const float strips[4][4] = {{x, y + hh, hw + t, t / 2}, {x, y - hh, hw + t, t / 2}, {x - hw, y, t / 2, hh},
                                         {x + hw, y, t / 2, hh}};
             for (const auto& s : strips) {
-                PanelQuad(s[0], s[1], s[2], s[3], 0.0003f * i + 0.0005f, nullptr, q);
+                PanelQuad(s[0], s[1], s[2], s[3], lift + 0.0004f, nullptr, q);
                 s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, q, sizeof(PanelVertex));
             }
         }
@@ -1970,6 +2008,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;
     if (!strcmp(name, "DashDepth")) return &g_cfg.dashDepth;
+    if (!strcmp(name, "DashBox")) return &g_cfg.dashBox;
     if (!strcmp(name, "MirrorOffset")) return &g_cfg.mirrorOffset;
     if (!strcmp(name, "DashAdjust")) return &g_cfg.dashAdjust;
     if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;
@@ -1988,10 +2027,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
         if (!strcmp(field, "X")) return &g_cfg.dashEl[i][0];
         if (!strcmp(field, "Y")) return &g_cfg.dashEl[i][1];
         if (!strcmp(field, "Size")) return &g_cfg.dashEl[i][2];
-        if (!strcmp(field, "Left")) return &g_cfg.dashCrop[i][0];
-        if (!strcmp(field, "Top")) return &g_cfg.dashCrop[i][1];
-        if (!strcmp(field, "Right")) return &g_cfg.dashCrop[i][2];
-        if (!strcmp(field, "Bottom")) return &g_cfg.dashCrop[i][3];
+        if (!strcmp(field, "L")) return &g_cfg.dashCrop[i][0];
+        if (!strcmp(field, "T")) return &g_cfg.dashCrop[i][1];
+        if (!strcmp(field, "R")) return &g_cfg.dashCrop[i][2];
+        if (!strcmp(field, "B")) return &g_cfg.dashCrop[i][3];
     }
     if (!strcmp(name, "MenuOpen")) return &s_uiMenuOpen;
     if (!strcmp(name, "MirrorBrightness")) return &g_cfg.mirrorBrightness;

@@ -143,6 +143,7 @@ void LoadConfig() {
     c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
+    c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
     c.mirrorOffset = ReadFloat(ini, "MirrorOffset", c.mirrorOffset);
     c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
     for (int i = 0; i < 6; i++) {
@@ -153,7 +154,7 @@ void LoadConfig() {
         c.dashEl[i][1] = ReadFloat(ini, key, NAN);
         snprintf(key, sizeof(key), "Dash%sSize", kDashElKey[i]);
         c.dashEl[i][2] = ReadFloat(ini, key, 1.0f);
-        static const char* const kEdge[4] = {"Left", "Top", "Right", "Bottom"};
+        static const char* const kEdge[4] = {"L", "T", "R", "B"};
         for (int k = 0; k < 4; k++) {
             snprintf(key, sizeof(key), "Dash%s%s", kDashElKey[i], kEdge[k]);
             c.dashCrop[i][k] = ReadFloat(ini, key, c.dashCrop[i][k]);
