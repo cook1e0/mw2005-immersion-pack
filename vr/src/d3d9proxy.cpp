@@ -1198,33 +1198,55 @@ static void PanelQuad(float x, float y, float hw, float hh, float lift, const fl
     out[0] = a; out[1] = b; out[2] = c; out[3] = a; out[4] = c; out[5] = d;
 }
 
-// A rounded rectangle on the panel's plane (centre, half sizes, corner radius, m), lifted `lift`
-// toward the eye: a fan of triangles from the centre.
-// With `tex`, the texture across it (uv: its part shown, left, top, right, bottom), times argb's alpha.
-static void PanelRoundedRect(float x, float y, float hw, float hh, float r, float lift, D3DCOLOR argb,
-                             IDirect3DTexture9* tex = nullptr, const float* uv = nullptr) {
+// A rounded rectangle's rim on the panel's plane (centre, half sizes, corner radius, m), lifted
+// `lift` toward the eye, UVs 0..1 across it; the same number of points whatever the size.
+static std::vector<PanelVertex> RoundedRim(float x, float y, float hw, float hh, float r, float lift) {
     r = std::max(0.0f, std::min(r, std::min(hw, hh)));
     const int seg = 6;
-    const float full[4] = {0, 0, 1, 1};
-    if (!uv) uv = full;
-    auto point = [&](float px, float py) {   // px, py: from the rect's centre
-        PanelVertex q[6];
-        PanelQuad(x + px, y + py, 0, 0, lift, nullptr, q);
-        q[0].u = uv[0] + (uv[2] - uv[0]) * (px + hw) / (2 * hw);
-        q[0].v = uv[1] + (uv[3] - uv[1]) * (hh - py) / (2 * hh);
-        return q[0];
-    };
     std::vector<PanelVertex> rim;
     const float corner[4][2] = {{hw - r, hh - r}, {-(hw - r), hh - r}, {-(hw - r), -(hh - r)}, {hw - r, -(hh - r)}};
     for (int c = 0; c < 4; c++)
         for (int k = 0; k <= seg; k++) {
             float a = (c * 90.0f + k * 90.0f / seg) * 3.14159265f / 180.0f;
-            rim.push_back(point(corner[c][0] + r * cosf(a), corner[c][1] + r * sinf(a)));
+            float px = corner[c][0] + r * cosf(a), py = corner[c][1] + r * sinf(a);
+            PanelVertex q[6];
+            PanelQuad(x + px, y + py, 0, 0, lift, nullptr, q);
+            q[0].u = (px + hw) / (2 * hw);
+            q[0].v = (hh - py) / (2 * hh);
+            rim.push_back(q[0]);
         }
-    PanelVertex mid = point(0, 0);
+    return rim;
+}
+
+// The rounded rectangle's outline only: a band `t` wide outside it (the NFS MW orange rim). Drawn
+// filled under the screen, it showed through a see-through screen as a beige wash.
+static void PanelRoundedRing(float x, float y, float hw, float hh, float r, float t, float lift, D3DCOLOR argb) {
+    std::vector<PanelVertex> in = RoundedRim(x, y, hw, hh, r, lift), out = RoundedRim(x, y, hw + t, hh + t, r + t, lift);
+    std::vector<PanelVertex> tris;
+    for (size_t i = 0; i < in.size(); i++) {
+        size_t j = (i + 1) % in.size();
+        tris.insert(tris.end(), {in[i], out[i], out[j], in[i], out[j], in[j]});
+    }
+    SetColor(argb);
+    s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(tris.size() / 3), tris.data(), sizeof(PanelVertex));
+}
+
+// A rounded rectangle on the panel's plane (centre, half sizes, corner radius, m), lifted `lift`
+// toward the eye: a fan of triangles from the centre.
+// With `tex`, the texture across it, times argb's alpha; `mapUv` sets each point's texture place.
+static void PanelRoundedRect(float x, float y, float hw, float hh, float r, float lift, D3DCOLOR argb,
+                             IDirect3DTexture9* tex = nullptr, void (*mapUv)(PanelVertex&) = nullptr) {
+    std::vector<PanelVertex> rim = RoundedRim(x, y, hw, hh, r, lift);
+    PanelVertex mid[6];
+    PanelQuad(x, y, 0, 0, lift, nullptr, mid);
+    mid[0].u = mid[0].v = 0.5f;
+    if (mapUv) {
+        for (PanelVertex& p : rim) mapUv(p);
+        mapUv(mid[0]);
+    }
     std::vector<PanelVertex> tris;
     for (size_t i = 0; i < rim.size(); i++) {
-        tris.push_back(mid);
+        tris.push_back(mid[0]);
         tris.push_back(rim[i]);
         tris.push_back(rim[(i + 1) % rim.size()]);
     }
@@ -1238,6 +1260,8 @@ static void PanelRoundedRect(float x, float y, float hw, float hh, float r, floa
         s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_MODULATE);
         s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
         s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG2, D3DTA_TFACTOR);
+        // A picture (the reflection) has no alpha of its own to go by: argb's alone.
+        if (mapUv) s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG2);
     }
     s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(tris.size() / 3), tris.data(), sizeof(PanelVertex));
     if (tex) s_dev->SetTexture(0, nullptr);
@@ -1281,6 +1305,24 @@ static IDirect3DTexture9* GlassTexture() {
     return s_glassTex;
 }
 
+// The glass's reflection: what is behind the driver, taken from the rear view picture (the world
+// behind the car, as a mirror shows it). Each point of the glass looks up the picture along the
+// eye's ray reflected off the glass (normal: toward the driver), so it moves as the head moves.
+static float s_reflEye[3], s_reflScale[2];
+static void ReflectionUv(PanelVertex& p) {
+    const float *r = s_dashEye.right, *u = s_dashEye.up, *n = s_dashEye.toEye;
+    float d[3] = {p.x - s_reflEye[0], p.y - s_reflEye[1], p.z - s_reflEye[2]};
+    float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < 1e-4f) return;
+    float dn = (d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / len;
+    float R[3];
+    for (int i = 0; i < 3; i++) R[i] = d[i] / len - 2 * dn * n[i];
+    float x = R[0] * r[0] + R[1] * r[1] + R[2] * r[2], y = R[0] * u[0] + R[1] * u[1] + R[2] * u[2];
+    float z = std::max(0.2f, R[0] * n[0] + R[1] * n[1] + R[2] * n[2]);
+    p.u = 0.5f + 0.5f * x * s_reflScale[0] / z;
+    p.v = 0.5f - 0.5f * y * s_reflScale[1] / z;
+}
+
 static void DrawDash() {
     if (!EnsureDash()) return;
     IDirect3DStateBlock9* saved = nullptr;
@@ -1300,8 +1342,8 @@ static void DrawDash() {
         float t = 0.0015f * zoom, r = std::min(hw, hh) * 0.18f;
         BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashBox) * 255);
         BYTE ao = (BYTE)(std::min(1.0f, g_cfg.dashBox * 1.2f) * 255);
-        PanelRoundedRect(0, 0, hw + t, hh + t, r + t, 0, D3DCOLOR_ARGB(ao, 255, 150, 0));
         PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, ((DWORD)a << 24) | (g_cfg.dashColor & 0xFFFFFF));
+        PanelRoundedRing(0, 0, hw, hh, r, t, 0.0001f, D3DCOLOR_ARGB(ao, 255, 150, 0));
     }
     for (int i = 0; i < DASH_PARTS; i++) {
         const float* e = g_cfg.dashEl[i];
@@ -1333,13 +1375,24 @@ static void DrawDash() {
             }
         }
     }
-    // Glass in front of the screen and its elements (Display glass depth), blended over them.
-    if (g_cfg.dashGlass > 0.01f) {
-        if (IDirect3DTexture9* glass = GlassTexture()) {
-            float hw = std::max(0.01f, g_cfg.dashScreenW) * zoom / 2, hh = std::max(0.01f, g_cfg.dashScreenH) * zoom / 2;
+    // Glass in front of the screen and its elements (Display glass depth), blended over them: the
+    // world reflected in it (Display glass reflection), then its sheen (Display glass opacity).
+    {
+        float hw = std::max(0.01f, g_cfg.dashScreenW) * zoom / 2, hh = std::max(0.01f, g_cfg.dashScreenH) * zoom / 2;
+        float r = std::min(hw, hh) * 0.18f;
+        float depth = std::max(0.0045f, g_cfg.dashGlassDepth);   // never behind the elements
+        D3DSURFACE_DESC d;
+        if (g_cfg.dashReflect > 0.01f && s_mirrorTex && SUCCEEDED(s_mirrorTex->GetLevelDesc(0, &d)) && d.Height) {
+            EyePos(s_dashEye.view, s_reflEye);
+            s_reflScale[0] = 1.4f;                                   // about 70 degrees across
+            s_reflScale[1] = 1.4f * (float)d.Width / d.Height;
+            BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashReflect) * 255);
+            PanelRoundedRect(0, 0, hw, hh, r, depth - 0.0002f, D3DCOLOR_ARGB(a, 255, 255, 255), s_mirrorTex, ReflectionUv);
+        }
+        IDirect3DTexture9* glass = g_cfg.dashGlass > 0.01f ? GlassTexture() : nullptr;
+        if (glass) {
             BYTE a = (BYTE)(std::min(1.0f, g_cfg.dashGlass) * 255);
-            float depth = std::max(0.0045f, g_cfg.dashGlassDepth);   // never behind the elements
-            PanelRoundedRect(0, 0, hw, hh, std::min(hw, hh) * 0.18f, depth, D3DCOLOR_ARGB(a, 255, 255, 255), glass);
+            PanelRoundedRect(0, 0, hw, hh, r, depth, D3DCOLOR_ARGB(a, 255, 255, 255), glass);
         }
     }
     saved->Apply();
@@ -2165,6 +2218,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashScreenW")) return &g_cfg.dashScreenW;
     if (!strcmp(name, "DashGlass")) return &g_cfg.dashGlass;
     if (!strcmp(name, "DashGlassDepth")) return &g_cfg.dashGlassDepth;
+    if (!strcmp(name, "DashReflect")) return &g_cfg.dashReflect;
     if (!strcmp(name, "WheelPivotRight")) return &g_cfg.wheelPivot[0];
     if (!strcmp(name, "WheelPivotUp")) return &g_cfg.wheelPivot[1];
     if (!strcmp(name, "DashScreenH")) return &g_cfg.dashScreenH;

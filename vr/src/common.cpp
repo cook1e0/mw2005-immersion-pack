@@ -147,6 +147,7 @@ void LoadConfig() {
     c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
     c.dashGlass = ReadFloat(ini, "DashGlass", c.dashGlass);
     c.dashGlassDepth = ReadFloat(ini, "DashGlassDepth", c.dashGlassDepth);
+    c.dashReflect = ReadFloat(ini, "DashReflect", c.dashReflect);
     {
         char col[32];
         GetPrivateProfileStringA("VR", "DashColor", "3C3F44", col, sizeof(col), ini);

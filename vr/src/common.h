@@ -78,6 +78,7 @@ struct Config {
     unsigned dashColor = 0x3C3F44u;       // the display's colour (DashColor, hex RRGGBB): the game's HUD gray
     float dashGlass = 0.35f;              // the glass sheen over the display and its elements: its opacity (0 = none)
     float dashGlassDepth = 0.01f;         // ... how far in front of the display (m)
+    float dashReflect = 0.3f;             // ... the world (the rear view picture) reflected in it: strength (0 = none)
     float wheelPivot[2] = {0, 0};         // the steering wheel's turning centre moved right, up in its plane (m; per car, [WheelPivot])
     float dashScreenW = 0.30f, dashScreenH = 0.13f;   // ... its size (m, at zoom 1; per car in [Dash]), centred on the panel's anchor
     float dashElBox[6] = {1, 1, 1, 1, 1, 0};   // (no longer used: one display for all)
