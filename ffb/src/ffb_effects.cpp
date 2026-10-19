@@ -167,6 +167,7 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
             float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
             float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
             e.carHit = carAmp_ * (carDir_ * kick + shake) * drive;
+            e.carHitLevel = carAmp_ * expf(-tau / 0.1f) * drive;
         }
     }
 

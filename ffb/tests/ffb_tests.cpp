@@ -418,6 +418,19 @@ static void TestEffects() {
 // --- engine safety chain ----------------------------------------------------------------------------
 static void TestEngine() {
     g_cfg = Config();
+    {
+        EffectParts effects;
+        effects.engine = 0.4f;
+        effects.carHit = 0.6f;
+        effects.carHitLevel = 0.125f;
+        float priority = 0;
+        assert(fabsf(PrioritizedEffectSum(effects, &priority) - 0.8f) < 1e-6f);
+        assert(fabsf(priority - 0.5f) < 1e-6f);
+        effects.carHitLevel = 0.25f;
+        assert(fabsf(PrioritizedEffectSum(effects) - effects.carHit) < 1e-6f);
+        effects.carHitLevel = 0;
+        assert(fabsf(PrioritizedEffectSum(effects) - effects.Sum()) < 1e-6f);
+    }
     Engine e;
     double now = 10;
     float lastOut = 0;

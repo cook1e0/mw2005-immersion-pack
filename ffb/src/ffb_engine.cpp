@@ -30,6 +30,13 @@ struct Step {
     float aligningSmoothed = 0, guard = 0, raw = 0, limited = 0, out = 0;
 };
 
+float PrioritizedEffectSum(const EffectParts& effects, float* priorityOut = nullptr) {
+    float priority = Clampf(effects.carHitLevel * 4.0f, 0.0f, 1.0f);
+    if (priorityOut) *priorityOut = priority;
+    float otherEffects = effects.Sum() - effects.carHit;
+    return effects.carHit + otherEffects * (1.0f - priority);
+}
+
 // The engine's state. One instance runs on the FFB thread; the tests make their own.
 class Engine {
 public:
@@ -87,7 +94,8 @@ public:
         ep.carHits = c.carHits;
         ep.offroad = c.offroadVibration;
         s.effects = effects_.Step(t, drive_, now, dt, ep);
-        float fx = s.effects.Sum();
+        float hitPriority;
+        float fx = PrioritizedEffectSum(s.effects, &hitPriority);
 
         // The aligning torque follows the game's physics steps: smooth it. The other parts follow
         // the wheel itself at full rate.
@@ -208,13 +216,16 @@ DWORD WINAPI FfbThread(LPVOID) {
 
         if (g_cfg.logTelemetry && now - logTime > 0.1) {
             logTime = now;
+            float hitPriority;
+            ffb::PrioritizedEffectSum(s.effects, &hitPriority);
             Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) "
                 "rpm=%.0f bump=%.2f/%.2f surf=%.2f@%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
-                "fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f break=%.3f | guard=%.2f raw=%.3f out=%.3f",
+                "fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
                 engine.RoadLock(), t.maxSteerDeg, t.steerDeg, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
-                s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable, s.guard, s.raw, s.out);
+                s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable,
+                s.effects.carHit, hitPriority, s.guard, s.raw, s.out);
         }
         if (now - statTime > 30.0) {
             if (engine.Limiting() > engine.Ticks() / 10)

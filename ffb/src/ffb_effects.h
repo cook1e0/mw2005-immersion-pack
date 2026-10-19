@@ -35,6 +35,7 @@ struct EffectParams {
 
 struct EffectParts {
     float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
+    float carHitLevel = 0;
     float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit; }
 };
 
