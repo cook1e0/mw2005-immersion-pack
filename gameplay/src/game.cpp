@@ -547,8 +547,8 @@ bool InRace() {
 }
 
 // A destroyed car ends a race with the game's "Totaled" screen. Free roam has no such screen, so
-// the car is made undrivable (engine marked blown, controls blocked) and a HUD message says how
-// to get going again, until the game repairs it (safehouse).
+// the car is made undrivable (engine marked blown, controls blocked) and a HUD message marks it
+// until the game repairs it (safehouse).
 void UpdateTotaled(uint8_t* eng) {
     void* damage = PlayerDamageable(eng);
     bool totaled = damage && ((Float_t)Vtbl(damage)[5])(damage) <= 0.0f;   // GetHealth
@@ -569,12 +569,13 @@ void UpdateTotaled(uint8_t* eng) {
             s.totaledBlocked = true;
         }
     }
-    if (Now() - s.totaledMsg > 6.0 && Hud_Message("TOTALED - JUMP TO SAFE HOUSE")) s.totaledMsg = Now();
+    if (Now() - s.totaledMsg > 6.0 && Hud_Message("TOTALED")) s.totaledMsg = Now();
 }
 
 // Runs every step for the player's engine, also while blown (input blocked, so no FetchInput).
 void PlayerEngineStep(uint8_t* eng) {
     s.simSeen = Now();
+    Flow_PlayerStep();
     UpdateMenuBlock(eng);
     InputSnapshot in = Input_Get();
     if (in.repairs != s.repairs) {

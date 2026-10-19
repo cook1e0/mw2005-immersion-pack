@@ -1,4 +1,4 @@
-// Career flow: the first safehouse visit.
+// Career flow: the first safehouse visit (and, further down, the car handed back at a race start).
 //
 // After the prologue (D-Day) and the first car from the car lot, the career runs the gameplay
 // script "drive_to_target": GPS to the safehouse, and on arrival (its trigger) at_target calls
@@ -19,6 +19,9 @@
 // plain menu is dropped instead, so it can't replace the intro's.
 #include "flow.h"
 #include "common.h"
+#include "game.h"
+#include "input.h"
+#include <math.h>
 #include <cstring>
 #include <cwchar>
 #include <initializer_list>
@@ -204,9 +207,8 @@ const std::set<uint32_t>& HiddenTexts() {
 void NoteText(uint8_t* obj, const wchar_t* text) {
     static std::set<uint64_t> seen;
     if (seen.size() >= 400 || !text[0]) return;
-    uint32_t name = *(uint32_t*)(obj + kObjNameHash), label = *(uint32_t*)(obj + kStringLabel), h = 2166136261u;
-    for (const wchar_t* c = text; *c; c++) h = (h ^ (uint32_t)*c) * 16777619u;
-    if (!seen.insert(((uint64_t)name << 32) | h).second) return;
+    uint32_t name = *(uint32_t*)(obj + kObjNameHash), label = *(uint32_t*)(obj + kStringLabel);
+    if (!seen.insert(((uint64_t)name << 32) | label).second) return;
     char narrow[96];
     int n = 0;
     for (const wchar_t* c = text; *c && n < 90; c++) narrow[n++] = *c >= 32 && *c < 127 ? (char)*c : '?';
@@ -243,10 +245,171 @@ void HideSongBanner() {
     Log("flow: song banner (EA Trax now playing) hidden");
 }
 
+// Race start: the car handed back after the countdown.
+//
+// Rolling starts hand the player's car to the AI at the start: the event EBecomeAiCar or the
+// script's Game.ForceAIControl sets IHumanAI::SetAiControl(true). With a countdown, GO (the HUD's
+// MCountdownDone) is answered by Game.StartRaceTimers and the event EBecomePlayerCar, which clears
+// the AI control and gives the controls back. The Challenge Series' time trials (toll booths) have
+// no countdown: the script calls ForceAIControl and StartRaceTimers in the same frame, and nothing
+// ever clears the AI control, so the AI drove the whole race (seen in the log, never a
+// ClearAIControl or EBecomePlayerCar). The game stops reading the player's input meanwhile.
+// So when the AI took the car within kAiAroundGo of GO (either side), EBecomePlayerCar's own handler
+// is run here as soon as the player presses a pedal or steers, and kHandBackAfter after GO at
+// the latest. A car the AI takes over later (a finished race) is left alone.
+// Every step of the hand-over is logged.
+constexpr uintptr_t kBecomeAiCar = 0x640120;          // EBecomeAiCar's handler (its destructor), thiscall
+constexpr uintptr_t kCallBecomeAiCar = 0x643A73;
+constexpr uintptr_t kBecomePlayerCar = 0x640250;      // EBecomePlayerCar's handler, thiscall; reads nothing of the event
+constexpr uintptr_t kCallBecomePlayerCar = 0x643AA3;
+constexpr uintptr_t kCountdownDoneMsg = 0x567970;     // MCountdownDone::MCountdownDone(), thiscall
+constexpr uintptr_t kCallsCountdownDone[] = {0x567A94, 0x567CBE};   // the HUD countdown at GO (two clocks)
+constexpr uintptr_t kStartRaceTimers = 0x604EF0;      // Lua Game.StartRaceTimers, cdecl
+constexpr uintptr_t kForceAIControl = 0x6123B0;       // Lua Game.ForceAIControl(player), cdecl
+constexpr uintptr_t kClearAIControl = 0x612420;       // Lua Game.ClearAIControl(player), cdecl
+constexpr uintptr_t kIHumanAIHandle = 0x403770;       // IHumanAI::_IHandle; vtbl+0xC GetAiControl, +0x10 SetAiControl
+constexpr uintptr_t kIInputPlayerHandle = 0x403F80;   // IInputPlayer::_IHandle; vtbl+4 BlockInput(bool), +8 IsBlocked
+constexpr uintptr_t kSimTime = 0x9885D8;              // float: game time (Sim::GetTime), stops while paused
+constexpr uintptr_t kRaceStatus = 0x91E000;           // GRaceStatus*: +0x1960 mPlayMode (0 = roaming)
+constexpr float kHandBackAfter = 3.0f;                // seconds after GO at the latest
+constexpr float kHandBackUntil = 30.0f;
+constexpr float kAiAroundGo = 2.0f;                   // AI take-over this close to GO is the race start's
+
+int(__cdecl* s_startRaceTimers)(void*);
+void(__cdecl* s_forceAIControl)(int);
+void(__cdecl* s_clearAIControl)(int);
+
+struct {
+    float goAt = -1;        // game time of the last GO (MCountdownDone or StartRaceTimers), -1 = none pending
+    bool ai = false;        // the player's car was AI-driven at the last step
+    float aiSince = 0;      // ... since this game time
+} s_start;
+
+float SimTime() { return *(float*)kSimTime; }
+
+const char* RaceState() {
+    uint8_t* race = *(uint8_t**)kRaceStatus;
+    return !race ? "no race status" : *(int*)(race + 0x1960) ? "racing" : "roaming";
+}
+
+void* PlayerHumanAI() { return Game_PlayerInterface((void*)kIHumanAIHandle); }
+
+bool AiControl(void* ai) {
+    return ((bool(__fastcall*)(void*, void*))(*(void***)ai)[3])(ai, nullptr);
+}
+
+void NoteGo(const char* by) {
+    void* ai = PlayerHumanAI();
+    Log("race start: GO (%s) at %.2f, %s, the player's car %s", by, SimTime(), RaceState(),
+        !ai ? "not found" : AiControl(ai) ? "still AI-driven" : "under your control");
+    s_start.goAt = SimTime();
+}
+
+void __fastcall Hook_BecomeAiCar(void* ev, void* edx) {
+    Log("race start: EBecomeAiCar at %.2f (%s): the AI drives the player's car", SimTime(), RaceState());
+    s_start.goAt = -1;
+    ((void(__fastcall*)(void*, void*))kBecomeAiCar)(ev, edx);
+}
+
+void __fastcall Hook_BecomePlayerCar(void* ev, void* edx) {
+    Log("race start: EBecomePlayerCar at %.2f (%s): the car back to the player", SimTime(), RaceState());
+    ((void(__fastcall*)(void*, void*))kBecomePlayerCar)(ev, edx);
+}
+
+void* __fastcall Hook_CountdownDoneMsg(void* msg, void* edx) {
+    NoteGo("HUD countdown");
+    return ((void*(__fastcall*)(void*, void*))kCountdownDoneMsg)(msg, edx);
+}
+
+int __cdecl Hook_StartRaceTimers(void* L) {
+    NoteGo("race script starts the timers");
+    return s_startRaceTimers(L);
+}
+
+void __cdecl Hook_ForceAIControl(int player) {
+    Log("race start: script Game.ForceAIControl(%d) at %.2f (%s)", player, SimTime(), RaceState());
+    s_forceAIControl(player);
+}
+
+void __cdecl Hook_ClearAIControl(int player) {
+    Log("race start: script Game.ClearAIControl(%d) at %.2f (%s)", player, SimTime(), RaceState());
+    s_clearAIControl(player);
+}
+
+// Retargets the call at `site` to `hook` if it still calls `target`.
+bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
+    if (*(uint8_t*)site != 0xE8 || site + 5 + *(int32_t*)(site + 1) != target) return false;
+    int32_t rel = (int32_t)((uintptr_t)hook - (site + 5));
+    DWORD old;
+    VirtualProtect((void*)(site + 1), 4, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)(site + 1), &rel, 4);
+    VirtualProtect((void*)(site + 1), 4, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)site, 5);
+    return true;
+}
+
+void RaceStart_Install() {
+    // Hand-back first: without it the logging alone would be no fix.
+    if (!Expect(kBecomePlayerCar, {0x6A, 0xFF, 0x68}) || !RetargetCall(kCallBecomePlayerCar, kBecomePlayerCar, (void*)&Hook_BecomePlayerCar)) {
+        Log("flow: EBecomePlayerCar code not as expected, race start hand-back unavailable");
+        return;
+    }
+    if (!RetargetCall(kCallBecomeAiCar, kBecomeAiCar, (void*)&Hook_BecomeAiCar))
+        Log("flow: EBecomeAiCar call not as expected, not logged");
+    int go = 0;
+    for (uintptr_t site : kCallsCountdownDone) go += RetargetCall(site, kCountdownDoneMsg, (void*)&Hook_CountdownDoneMsg);
+    // mov ecx, [GRaceStatus::fObj]: an absolute address, moves as it is.
+    if (Expect(kStartRaceTimers, {0x8B, 0x0D, 0x00, 0xE0, 0x91, 0x00}) &&
+        (s_startRaceTimers = (int(__cdecl*)(void*))Detour(kStartRaceTimers, 6, (void*)&Hook_StartRaceTimers)))
+        go++;
+    // mov eax, [esp+4]; test eax, eax
+    if (Expect(kForceAIControl, {0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0}))
+        s_forceAIControl = (void(__cdecl*)(int))Detour(kForceAIControl, 6, (void*)&Hook_ForceAIControl);
+    if (Expect(kClearAIControl, {0x8B, 0x44, 0x24, 0x04, 0x85, 0xC0}))
+        s_clearAIControl = (void(__cdecl*)(int))Detour(kClearAIControl, 6, (void*)&Hook_ClearAIControl);
+    Log("flow: race start hand-back installed (%d of 3 GO signals)", go);
+}
+
 }  // namespace
+
+void Flow_PlayerStep() {
+    void* ai = PlayerHumanAI();
+    bool on = ai && AiControl(ai);
+    float now = SimTime();
+    if (on != s_start.ai) {
+        s_start.ai = on;
+        s_start.aiSince = now;
+        Log("race start: the player's car %s at %.2f (%s)", on ? "AI-driven" : "under your control", now, RaceState());
+    }
+    if (!on || s_start.goAt < 0) return;
+    if (s_start.aiSince > s_start.goAt + kAiAroundGo) {   // the AI took over well after GO: a finished race
+        s_start.goAt = -1;
+        return;
+    }
+    float late = now - s_start.goAt;
+    if (late < 0.0f) return;
+    InputSnapshot in = Input_Get();
+    bool touched = (in.pedalBound[0] && in.pedal[0] > 0.2f) || (in.pedalBound[1] && in.pedal[1] > 0.2f) ||
+                   (in.steerBound && fabsf(in.steer) > 0.15f);
+    if (!touched && late < kHandBackAfter) return;
+    s_start.goAt = -1;
+    if (late > kHandBackUntil) return;
+    Log("race start: still AI-driven %.1f s after GO (%s), the game didn't hand it back: EBecomePlayerCar run here",
+        late, touched ? "you took the controls" : "time");
+    uint8_t event[16] = {};
+    ((void(__fastcall*)(void*, void*))kBecomePlayerCar)(event, nullptr);
+    if (AiControl(ai)) Log("race start: the car is still AI-driven (game mode flag set?)");
+    // The player's input left blocked would keep the car still: unblocked too (vtbl+4 BlockInput, +8 IsBlocked).
+    void* input = Game_PlayerInterface((void*)kIInputPlayerHandle);
+    if (input && ((bool(__fastcall*)(void*, void*))(*(void***)input)[2])(input, nullptr)) {
+        Log("race start: the player's input was blocked, unblocked");
+        ((void(__fastcall*)(void*, void*, bool))(*(void***)input)[1])(input, nullptr, false);
+    }
+}
 
 void Flow_Install() {
     HideSongBanner();
+    RaceStart_Install();
     if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
         void* p = (void*)&Hook_RenderObject;
         DWORD old;
