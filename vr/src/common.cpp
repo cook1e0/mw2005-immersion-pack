@@ -190,6 +190,11 @@ void LoadConfig() {
     c.envMapFacesPerFrame = ReadInt(ini, "EnvMapFacesPerFrame", c.envMapFacesPerFrame);
     if (c.envMapFacesPerFrame < 1) c.envMapFacesPerFrame = 1;
     if (c.envMapFacesPerFrame > 6) c.envMapFacesPerFrame = 6;
+    c.sharedShadows = ReadInt(ini, "SharedShadows", c.sharedShadows) != 0;
+    c.shadowArea = ReadFloat(ini, "ShadowArea", c.shadowArea);
+    if (!(c.shadowArea >= 0.3f)) c.shadowArea = 0.3f;
+    if (c.shadowArea > 1.0f) c.shadowArea = 1.0f;
+    c.asyncSubmit = ReadInt(ini, "AsyncSubmit", c.asyncSubmit) != 0;
     c.rearViewEvery = ReadInt(ini, "RearViewEvery", c.rearViewEvery);
     if (c.rearViewEvery < 1) c.rearViewEvery = 1;
     if (c.rearViewEvery > 4) c.rearViewEvery = 4;

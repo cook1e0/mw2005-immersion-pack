@@ -96,3 +96,6 @@ void D3D_DrawOverlay(const float* xyz, int triangles, uint32_t argb);
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.
 void D3D_BeginHudPhase();
+// While set, draws and clears are dropped (the second eye's pass of a shared shadow map: the game
+// still runs it, so its state is as usual, but the map keeps the first eye's image).
+void D3D_DropDraws(bool on);

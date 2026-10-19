@@ -9,6 +9,20 @@
   unblocked with it. A car the AI takes over later (a finished race) is left alone. Every step is
   logged as `race start:` lines in `nfsmw_gameplay.log`.
 
+- **VR: the sun shadow map is drawn once a frame:** it was the biggest pass by far - up to 6,800 of
+  10,200 draws a frame in traffic, because the game draws every caster in a ~350 m square and the
+  mod ran it for each eye. Shadows are the same for both eyes, so both eyes now run the shadow pass
+  (`sub_6E44C0`, through `sub_6E54E0` at 0x6DEC72) with the seat's position instead of the eye's, which
+  makes its matrices identical, and the second eye's pass keeps all its game state but has its
+  draws and clears dropped, so it reuses the first eye's map. Every frame the second eye's shadow
+  matrices (views 15/16 and the shadow texture matrix) are compared with the first eye's; any
+  difference turns sharing off with a line in the log. `[VR] SharedShadows`.
+- **VR: smaller shadow map area:** `[VR] ShadowArea` scales the shadow camera's 10 degree FOV
+  (0x8FAEE0); 0.75 by default (~260 m), so fewer objects cast shadows into it and they are sharper.
+- **VR: frames handed to the headset without waiting:** with the 64-bit bridge (SteamVR) the
+  EndFrame is posted and the next frame's BeginFrame takes its reply, so the game no longer waits
+  about a millisecond a frame for the hand-over. `[VR] AsyncSubmit`.
+
 - **VR: no more z-fighting far away with a low near plane:** the cockpit needs a near plane of
   ~0.05-0.1 m (`NearZ`), and with one that low a 24-bit depth buffer runs out of precision a few
   hundred metres out, so distant surfaces flickered through each other. In the driver's seat the

@@ -103,6 +103,9 @@ struct Config {
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     int   envMapFacesPerFrame = 2;   // environment map cube faces refreshed per VR frame (1..6, 6 = every face every frame)
     int   rearViewEvery = 1;         // the rear view is rendered every Nth VR frame (1 = every frame)
+    bool  sharedShadows = true;      // the sun shadow map drawn for the first eye only; the second eye reuses it
+    float shadowArea = 0.75f;        // the sun shadow map's coverage around you (1 = the game's ~350 m square)
+    bool  asyncSubmit = true;        // hand the finished frame to the XR bridge without waiting for it
     bool  logGlassShader = false;    // debug: disassemble the game's glass vertex shader into the log (one-off cost)
     bool  logPasses = false;         // debug: list how often the game binds each render target per frame (per-eye vs shared passes)
     bool  eyeCameraShared = false;   // debug: render both eyes from the seat camera (no eye offset), so a difference

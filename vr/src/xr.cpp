@@ -426,6 +426,7 @@ struct Bridge {
     HANDLE mapping, request, reply, process;
     BridgeShared* shm;
     bool dead;
+    bool pending;   // an EndFrame was posted and its reply not yet taken ([VR] AsyncSubmit)
 };
 Bridge b;
 
@@ -457,10 +458,7 @@ bool WantBridge() {
     return rt32.empty() || _stricmp(DirOf(rt64).c_str(), DirOf(rt32).c_str()) != 0;
 }
 
-bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
-    if (!b.shm || b.dead) return false;
-    b.shm->cmd = cmd;
-    SetEvent(b.request);
+bool BridgeWaitReply(DWORD timeoutMs) {
     HANDLE wait[2] = {b.reply, b.process};
     DWORD r = WaitForMultipleObjects(2, wait, FALSE, timeoutMs);
     if (r == WAIT_OBJECT_0) return true;
@@ -469,9 +467,35 @@ bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
     return false;
 }
 
+// The previous posted command's reply first: the shared memory and the eye textures are the
+// host's until it answers.
+bool BridgeTakePending(DWORD timeoutMs) {
+    if (!b.pending) return true;
+    b.pending = false;
+    return BridgeWaitReply(timeoutMs);
+}
+
+bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
+    if (!b.shm || b.dead || !BridgeTakePending(timeoutMs)) return false;
+    b.shm->cmd = cmd;
+    SetEvent(b.request);
+    return BridgeWaitReply(timeoutMs);
+}
+
+// Posts the command and returns; the next BridgeCall (the next frame's BeginFrame, before any eye
+// is drawn again) waits for its reply.
+bool BridgePost(BridgeCmd cmd) {
+    if (!b.shm || b.dead || !BridgeTakePending(INFINITE)) return false;
+    b.shm->cmd = cmd;
+    SetEvent(b.request);
+    b.pending = true;
+    return true;
+}
+
 void BridgeStop() {
     if (b.process) {
         if (!b.dead) BridgeCall(kBridgeShutdown, 5000);
+        b.pending = false;
         if (WaitForSingleObject(b.process, 2000) != WAIT_OBJECT_0) TerminateProcess(b.process, 1);
         CloseHandle(b.process);
     }
@@ -846,7 +870,8 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         b.shm->hudRight = g_cfg.hudRight;
         b.shm->screenDistance = g_cfg.screenDistance;
         b.shm->screenWidth = g_cfg.screenWidth;
-        BridgeCall(kBridgeEndFrame);
+        if (g_cfg.asyncSubmit) BridgePost(kBridgeEndFrame);
+        else BridgeCall(kBridgeEndFrame);
         return;
     }
 #endif

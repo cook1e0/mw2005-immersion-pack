@@ -150,6 +150,25 @@ constexpr uintptr_t kFlarePoolCount = 0x916018;    // ActivePoolIndex
 constexpr int kFlareSize = 48, kFlareMax = 50;
 constexpr int kFlareTypeOffset = 0x2C;
 constexpr uint8_t kSunLensFlareType = 0x15;
+// The sun's shadow map: ___eDisplayFrame calls sub_6E54E0(player view, ctx) at kCallShadowPass,
+// which sets the depth bias and runs the shadow pass (sub_6E44C0) when shadows are on. The pass
+// places the shadow camera 2000 m up the light direction from the player camera's position
+// (Camera +0x40) with the FOV at kShadowFov (degrees, the game's 10: a ~350 m square), sets view 15
+// up (sub_6D7950) and draws every caster in it - in a busy street more draws than the eye itself.
+// It also writes the shadow texture matrix (view 15's eViewPlatInfo +0x40, kShadowTexMatrix) and
+// the light (kShadowLight) that the scene pass reads.
+// Shared ([VR] SharedShadows): both eyes run the pass with the seat's position (the head-free
+// camera) instead of the eye's, so its inputs are the same; the second eye's pass runs as usual -
+// every global and matrix it writes is written - but its draws and clears are dropped, so the map
+// keeps the first eye's image, which then matches those matrices exactly. Every frame the second
+// eye's shadow matrices are compared with the first eye's; any difference turns sharing off.
+constexpr uintptr_t kCallShadowPass = 0x6DEC72;
+constexpr uintptr_t kShadowPass = 0x6E54E0;        // cdecl (view, ctx)
+constexpr uintptr_t kShadowFov = 0x8FAEE0;         // float, degrees; read by sub_6D7950 only
+constexpr uintptr_t kShadowTexMatrix = 0x983E00;   // 16 floats
+constexpr uintptr_t kShadowLight = 0x988000;       // 3 floats
+constexpr int kShadowViews[] = {15, 16};
+constexpr int kPlatMatricesSize = 0x140;           // view, projection, viewProj and the alternates
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 // eDisplayFrame's own view loop runs eViews[0..23] (cmp esi, 0x17 at 0x6E73BE), so the PC table has
 // 24 slots; the console decompilation's 22 is a different build.
@@ -572,6 +591,86 @@ void FixGameMirrors() {
 }
 
 bool s_secondEye = false;
+
+struct ShadowState {
+    float plat[2][kPlatMatricesSize / 4];
+    float tex[16], light[3];
+};
+ShadowState s_shadowFirstEye;
+bool s_shadowFirstEyeSet = false, s_shadowShareFailed = false;
+int s_shadowShared = 0;
+
+void CaptureShadowState(ShadowState& s) {
+    memset(&s, 0, sizeof(s));
+    for (int k = 0; k < 2; k++) {
+        const uint8_t* plat = At<const uint8_t*>((void*)(kViews + kShadowViews[k] * kViewStride), kViewPlatInfo);
+        if (plat) memcpy(s.plat[k], plat, kPlatMatricesSize);
+    }
+    memcpy(s.tex, (const void*)kShadowTexMatrix, sizeof(s.tex));
+    memcpy(s.light, (const void*)kShadowLight, sizeof(s.light));
+}
+
+// Largest difference, relative to the value's size; NaNs count as different.
+float ShadowStateDiff(const ShadowState& a, const ShadowState& b) {
+    const float* x = (const float*)&a;
+    const float* y = (const float*)&b;
+    float worst = 0;
+    for (size_t i = 0; i < sizeof(ShadowState) / 4; i++) {
+        if (x[i] != x[i] || y[i] != y[i]) {
+            if ((x[i] != x[i]) != (y[i] != y[i])) return 1e30f;
+            continue;
+        }
+        float d = fabsf(x[i] - y[i]) / (fabsf(x[i]) + 1.0f);
+        if (d > worst) worst = d;
+    }
+    return worst;
+}
+
+// The shadow map's coverage: the game's FOV times [VR] ShadowArea.
+void ApplyShadowArea() {
+    static float original = 0;
+    static float applied = -1;
+    if (original == 0) original = *(float*)kShadowFov;
+    if (!(original > 1.0f && original < 60.0f) || g_cfg.shadowArea == applied) return;
+    applied = g_cfg.shadowArea;
+    *(float*)kShadowFov = original * g_cfg.shadowArea;
+    Log("game: shadow map FOV %.2f degrees (game's %.2f, ShadowArea %.2f)", original * g_cfg.shadowArea, original,
+        g_cfg.shadowArea);
+}
+
+void __cdecl hkShadowPass(void* view, void* ctx) {
+    auto pass = (void(__cdecl*)(void*, void*))kShadowPass;
+    bool share = g_cfg.sharedShadows && !s_shadowShareFailed && s_envPosSet;
+    void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
+    if (!share || !cam) {
+        pass(view, ctx);
+        return;
+    }
+    float* pos = &At<float>(cam, kCamPosition);
+    float saved[3];
+    memcpy(saved, pos, sizeof(saved));
+    memcpy(pos, s_envPos, sizeof(saved));
+    bool drop = s_secondEye && s_shadowFirstEyeSet;
+    if (drop) D3D_DropDraws(true);
+    pass(view, ctx);
+    if (drop) D3D_DropDraws(false);
+    memcpy(pos, saved, sizeof(saved));
+    if (!s_secondEye) {
+        CaptureShadowState(s_shadowFirstEye);
+        s_shadowFirstEyeSet = true;
+        return;
+    }
+    if (!drop) return;
+    ShadowState now;
+    CaptureShadowState(now);
+    float d = ShadowStateDiff(s_shadowFirstEye, now);
+    if (d > 1e-4f) {
+        s_shadowShareFailed = true;
+        Log("game: shared shadow map off - the second eye's shadow matrices differ from the first's by %g", d);
+        return;
+    }
+    if (s_shadowShared++ == 0) Log("game: shadow map rendered once a frame, both eyes' shadow matrices identical");
+}
 // The flare pool as ePreDisplay left it (before any view was culled) and, for the log, the pool
 // size after each eye collected its own flares.
 static uint8_t s_flareKeep[kFlareMax * kFlareSize];
@@ -780,6 +879,7 @@ void LogSharedViews(const int* index, int count) {
 
 void __cdecl hkRenderScene() {
     s_stereoFrame = false;
+    ApplyShadowArea();
     FixGameMirrors();
     UpdateMirrorPatch();
     UpdateHiddenTextures();
@@ -865,6 +965,7 @@ void __cdecl hkRenderScene() {
     float gazePos[3] = {}, gazeDir[3] = {};
     LogViewTableOnChange();
     PickViewsThisFrame();
+    s_shadowFirstEyeSet = false;
     s_depthSplit = seated && g_cfg.depthSplit && g_cfg.nearZ > 0.0f && !s_depthSplitFailed;
     s_carProjSet = false;
     int carHitsFrame = 0, carMatricesFrame = 0;
@@ -1273,6 +1374,7 @@ bool Game_InstallHooks() {
         Log("game: unexpected sun set name, sun glare left as it is");
     PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
     PatchCall(kCallWorldViewProj, kMatrixMultiply, (void*)&hkWorldViewProjMultiply, "depth split (WorldViewProj)");
+    PatchCall(kCallShadowPass, kShadowPass, (void*)&hkShadowPass, "shared shadow map");
     PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");
     for (uintptr_t site : kCallsCloneLightContext)
         PatchCall(site, kCloneLightContext, (void*)&hkCloneLightContext, "car reflections");

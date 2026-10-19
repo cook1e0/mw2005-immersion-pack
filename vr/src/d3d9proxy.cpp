@@ -1873,6 +1873,9 @@ void D3D_EyeRenderProfile(int eye, double seconds) {
     if (seconds > s_eyeSceneMax[eye]) s_eyeSceneMax[eye] = seconds;
 }
 
+static bool s_dropDraws = false;
+void D3D_DropDraws(bool on) { s_dropDraws = on; }
+
 static inline void CountEyeDrawCall() {
     if (s_tallyEye >= 0 && s_tallyEye < 2) s_eyeDrawCalls[s_tallyEye]++;
     if (s_passColor >= 0) s_passTally[s_passColor].draws++;
@@ -2227,6 +2230,7 @@ public:
     // 1px black lines along the screen edges, which framed the HUD panel).
     HRESULT STDMETHODCALLTYPE Clear(DWORD count, CONST D3DRECT* rects, DWORD flags, D3DCOLOR color, float z,
                                     DWORD stencil) override {
+        if (s_dropDraws) return D3D_OK;
         if (s_hudPhase && (flags & D3DCLEAR_TARGET) && !FromGame(_ReturnAddress())) {
             static bool logged;
             if (!logged) Log("d3d9: skipping another mod's clear of the HUD layer (e.g. widescreen fix HideAABug)");
@@ -2249,7 +2253,7 @@ public:
         return real->SetTexture(stage, tex);
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE type, UINT start, UINT count) override {
-        if (s_skipPostPass || s_texHidden) return D3D_OK;
+        if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
         return real->DrawPrimitive(type, start, count);
     }
@@ -2259,7 +2263,7 @@ public:
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitive(D3DPRIMITIVETYPE type, INT base, UINT minIndex, UINT verts, UINT start,
                                                    UINT count) override {
-        if (s_skipPostPass || s_texHidden) return D3D_OK;
+        if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
         bool mirrorJobs = s_mirrorEye && (!s_pendingMirrors.empty() || (!s_glassJobs.empty() && s_mirrorTex));
         bool wheelJobs = s_wheelEye.active && !s_wheelDraws.empty();
@@ -2274,14 +2278,14 @@ public:
         return hr;
     }
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
-        if (s_skipPostPass || s_texHidden) return D3D_OK;
+        if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
         return real->DrawPrimitiveUP(type, count, data, stride);
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT minIndex, UINT verts, UINT count,
                                                      CONST void* indices, D3DFORMAT fmt, CONST void* data,
                                                      UINT stride) override {
-        if (s_skipPostPass || s_texHidden) return D3D_OK;
+        if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
         return real->DrawIndexedPrimitiveUP(type, minIndex, verts, count, indices, fmt, data, stride);
     }
