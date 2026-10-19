@@ -1,3 +1,112 @@
+### Unreleased
+
+- **Challenge Series: the car is handed back at the start:** time trials (toll booths) give the
+  player's car to the AI at the start (`Game.ForceAIControl`) in the same frame as the race timers
+  start, and nothing ever hands it back, so the AI drove the whole race. Rolling starts with a
+  countdown are meant to hand it back at GO (`EBecomePlayerCar`). The gameplay mod now runs the
+  game's own `EBecomePlayerCar` when the AI took the car within 2 s of the start: as soon as you
+  press a pedal or steer, and 3 s after the start at the latest. Player input left blocked is
+  unblocked with it. A car the AI takes over later (a finished race) is left alone. Every step is
+  logged as `race start:` lines in `nfsmw_gameplay.log`.
+
+- **VR: no more z-fighting far away with a low near plane:** the cockpit needs a near plane of
+  ~0.05-0.1 m (`NearZ`), and with one that low a 24-bit depth buffer runs out of precision a few
+  hundred metres out, so distant surfaces flickered through each other. In the driver's seat the
+  depth buffer is now split: the player view's own matrices get `[VR] WorldNearZ` (0.3 m) and the
+  far 98% of the depth range, which every game drawing path reads; your own car's objects (body,
+  interior, driver, steering wheel, recognised by the matrices they are queued with) get a
+  WorldViewProj of their own with `NearZ` and a 20 m far plane in the near 2% (hook on the
+  per-object WorldViewProj multiply at 0x6C81CA). The mod's dashboard, wheel and mirror drawing use
+  the car's projection. Your car is always drawn in front of the world, which only shows when
+  something gets inside it. If the car's draws are not recognised the split turns itself off and
+  says so in the log. `[VR] DepthSplit=0` restores one near plane.
+
+- **VR: fewer draws per frame from the reflections' environment map:** the last session's log was
+  CPU-bound on draw calls - up to about 6,000 for the left eye and 4,000 for the right in traffic and
+  pursuits, 12-17 ms of eye rendering against a 13.9 ms frame, so the headset fell to 36 fps. The
+  environment map's six cube faces (scene renders around the car, the same for both eyes) were all
+  redrawn every frame; now 2 a frame are, in turn, so each face refreshes about 24 times a second
+  (`[VR] EnvMapFacesPerFrame`, 6 = as before). Both eyes always sample the same map, so stereo is
+  unaffected. `[VR] RearViewEvery=2` optionally renders the mirrors' rear view every other frame (off
+  by default). With `LogPasses=1` the `passes per frame` line now gives each pass's draws.
+
+- **VR: reflections sit still when you move your head, again:** a debug key added with the eye-rule
+  checks (`KeyToggleRefl`, F12 in the installed ini - also Steam's screenshot key) switched the
+  seat-view reflections (`[VR] StableReflections`) off for the rest of the session; the log showed
+  `seat-view reflections off` two seconds after start, so car paint and glass reflections turned
+  with the head. The key is gone: StableReflections is only set in the ini, on by default.
+
+- **VR: no more stutter when the HUD, the in-car dashboard or the mirrors first appear:** the mirror
+  shaders (which loaded d3dcompiler_47 and compiled three pixel shaders on first use), the dashboard's
+  textures and the reused state block were all built inside a race frame, at the exact moment the mirrors
+  or the dashboard showed up - the frame they landed in took over a second (a `game` spike with nothing
+  in the measured phases to explain it). They are built when the device is created (and again after a
+  reset), while the game is still loading; the log's `warm-up` line says what that cost.
+- **VR: the dashboard's HUD probe no longer waits for the GPU:** finding which dashboard elements are
+  showing means copying the HUD into a system-memory surface and reading it back, and both the copy and
+  the lock waited for the frame's eye renders to finish - again at the moment the HUD pops up. The copy
+  is issued a few times a second and locked with D3DLOCK_DONOTWAIT, retried on the next frame when it
+  isn't ready yet (so an element is still picked up a frame or two after it appears); if a driver never
+  reports it ready the probe falls back to waiting, once, with a line in the log.
+- **VR: less work per frame:** the rear view is copied and graded once a frame instead of once per eye
+  (it is the same picture for both), one D3D state block is captured and applied instead of a new one
+  created per draw (twice an eye with the dashboard, plus once per coloured-triangle batch), the
+  player-car anchor is checked once per car render and reused by its draw entries, and the glass
+  vertex shader dump (a shader disassembly and twenty log lines at the first mirror) is off unless
+  `[VR] LogGlassShader=1`.
+- **VR: hitches are named in the log:** the `perf:` lines now give the frame's time outside the measured
+  phases as `game avg/max ms` (it was an average only, which is where a spike without a matching phase
+  hid), a `perf worst frame` line breaks the window's longest frame into its phases, and a `hitch:` line
+  is written - at most once a second - for a frame more than half again as long as the average.
+- **VR: each eye now collects its own light flares (fixes lights that differed between the eyes):**
+  the world's light flares - street lamps, warning lights, the sun - are collected while each view's
+  scenery is culled and drawn from that pool per view, but the pool was emptied once a frame, in the
+  game's post-display step after both eyes, so the second eye found the first eye's flares still in
+  it and drew them again: doubled where the pool had room and dropped where it ran into its fifty.
+  Each eye now collects its own; `flares: pool N entries after eye 1, M after eye 2` in
+  nfsmw_vr.log shows the two counts.
+- **VR: only known eye-independent views are reused between the eyes:** the rear view and the six
+  environment-map faces are rendered for the first eye only. Other offscreen views, including
+  shadow maps, remain active for both eyes; using a camera other than the player's does not by itself
+  prove that a view's output can be shared. Views using the player's camera (such as bloom and
+  specular) are rebuilt for each eye. The PC build's view table is written to the log once per
+  session (`view NN: id ... active ... playerCam ... rt WxH`) to check the view setup.
+- **VR: per-car dashboard/HUD defaults:** each car's HUD size, distance, height and side are kept
+  per car model; a car whose line is missing or unreadable falls back to the mod's own defaults
+  instead of keeping the previous car's values.
+- **VR: one dashboard layout for every car:** Adjust dashboard element positions and sizes are
+  shared in `[DashLayout] Default`; an existing `[DashLayout] SUPRA` entry is used as the initial
+  shared layout. Panel placement, depth and size remain independently saved per car in `[Dash]`.
+- **VR: less work per draw entry:** the check that tells a streamed-in model from the one last seen
+  at the same address hashed the model's whole index buffer for every draw entry of every car; it
+  is taken once a frame per model now (the pointers are still compared every time). The D3D9 hooks
+  also look up mirror-glass and dashboard overlay jobs by index buffer instead of scanning every
+  registered job on every draw.
+- **VR: no repeated steering-wheel discovery on streamed car models:** once an interior model's
+  wheel has been found, its index ordering and wheel split are reused when that model is streamed
+  back in. Triangle-editor changes to wheel membership explicitly rebuild the cache. The eye draw
+  hook also takes a direct pass-through when there are no per-eye mirror, wheel or dashboard jobs;
+  active wheel stencil draws are looked up by index buffer and start index.
+- **VR: faster first-time steering-wheel discovery:** the wheel search scans a coarse set of wheel
+  heights, then refines around the best candidate instead of testing every height at full precision.
+  This reduces the CPU hitch when a race first streams multiple car interiors without skipping
+  either eye or any shadow views.
+- **Gameplay: HUD text diagnostics log once per object/label:** changing timer and score text no
+  longer generates a new synchronous log entry for each value while a HUD object is rendered.
+- **Force feedback: car hits come through clearly:** while the kick and shake of hitting another
+  vehicle plays, the other short effects (engine, kerbs, surface, crashes, scrapes, breakables,
+  landings) are ducked in proportion to the hit's strength, so the impact isn't buried under them.
+  The telemetry log line (`[FFB] LogTelemetry`) shows the hit (`car=`) and how much it ducks the rest
+  (`priority=`).
+- **Gameplay: steering never reads past full lock:** a wheel axis reporting values outside its range
+  is clamped, so the wheel angle handed to the game and the VR steering wheel stop at half the
+  wheel's rotation instead of turning further. Covered by a new regression test.
+- **Gameplay: free roam totaled message shortened:** a car totaled in free roam now shows "TOTALED"
+  (it said "TOTALED - JUMP TO SAFE HOUSE").
+- **VR: debug key for the shared views:** `[VR] KeyToggleShared` (e.g. 122 = F11, off by default)
+  flips live which views the second eye reuses instead of rendering, to tell a view that differs
+  between the eyes from one that doesn't.
+
 ### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
 
 - **VR: the car's own mirrors show what's behind you:** the game's rear view is drawn on the
