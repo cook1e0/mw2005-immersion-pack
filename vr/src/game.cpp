@@ -37,6 +37,22 @@ constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
 // in a headset. The pass returns at once when the player view's rain has no drops on screen.
 constexpr uintptr_t kCallScreenRain = 0x6DF7EC;   // call sub_6D4620 in ___eDisplayFrame
 constexpr uintptr_t kScreenRain = 0x6D4620;       // cdecl, 1 arg
+// The direction aid: a spinning arrow model (MARKER_DIRECTION_AID) floated above the player's car
+// (its class in the AI code loads it at 0x41A671 and draws it at 0x41ACBE, then marks it drawn).
+// Right in front of your face from the cockpit in a headset. Only this call is retargeted; the
+// renderer itself (eViewPlatInterface::Render, thiscall, 5 args) draws every other model.
+constexpr uintptr_t kCallDirectionArrow = 0x41ACBE;
+constexpr uintptr_t kRenderModel = 0x6DA9B0;
+// The sun glare: ___eDisplayFrame calls a pass (0x6D04E0, thiscall on 0x93E018 with the player view,
+// ret 4) that selects the "E3DEMO" sun set (SetCurrentSun 0x4FD370 with its bStringHash) and draws
+// a white quad (WHITE16X16_NOALPHA) at the sun's position on the screen. A screen-space overlay sits
+// flat on each eye in a headset, a blinding blob instead of a sun in the sky. In VR only the sun set
+// is selected, as the pass does; the drawing is skipped.
+constexpr uintptr_t kCallSunGlare = 0x6DF585;
+constexpr uintptr_t kSunGlare = 0x6D04E0;
+constexpr uintptr_t kSetCurrentSun = 0x4FD370;     // cdecl, the sun set's name hash
+constexpr uintptr_t kBStringHash = 0x460BF0;       // cdecl
+constexpr uintptr_t kSunGlareSetName = 0x8AF998;   // "E3DEMO" in speed.exe
 // Reflections: elSetupEnvMap puts the reflection "eye" 2.78 m from the car (or model) toward the
 // camera position it is given. In the cockpit the camera sits next to the car's centre, so a few
 // centimetres of head movement swung that direction, and every car and window reflection with
@@ -1115,6 +1131,25 @@ int __cdecl hkSetupLightContext(void* ctx, void* rig, void* local, void* worldVi
         ctx, rig, local, worldView, EnvPos(pos), view);
 }
 
+void __fastcall hkDirectionArrow(void* view, void* edx, void* model, void* matrix, void* light, int flags, int extra) {
+    if (Xr_Available() && !g_cfg.directionArrow) return;
+    ((void(__fastcall*)(void*, void*, void*, void*, void*, int, int))kRenderModel)(view, edx, model, matrix, light, flags, extra);
+}
+
+void __fastcall hkSunGlare(void* self, void* edx, void* view) {
+    if (Xr_Available() && !g_cfg.sunGlare) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("game: sun glare (screen-space white quad at the sun) skipped (VR)");
+        }
+        uint32_t hash = ((uint32_t(__cdecl*)(const char*))kBStringHash)((const char*)kSunGlareSetName);
+        ((void(__cdecl*)(uint32_t))kSetCurrentSun)(hash);
+        return;
+    }
+    ((void(__fastcall*)(void*, void*, void*))kSunGlare)(self, edx, view);
+}
+
 void __cdecl hkScreenRain(int arg) {
     if (Xr_Available() && !g_cfg.screenRain) return;
     ((void(__cdecl*)(int))kScreenRain)(arg);
@@ -1231,6 +1266,11 @@ bool Game_InstallHooks() {
     PatchCall(kCallNisOverlay, kNisOverlay, (void*)&hkNisOverlay, "busted overlay");
     PatchCall(kCallTriggerMomentNis, kTriggerMomentNis, (void*)&hkTriggerMomentNis, "pursuit breaker cutscene");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
+    PatchCall(kCallDirectionArrow, kRenderModel, (void*)&hkDirectionArrow, "direction arrow");
+    if (strcmp((const char*)kSunGlareSetName, "E3DEMO") == 0)
+        PatchCall(kCallSunGlare, kSunGlare, (void*)&hkSunGlare, "sun glare");
+    else
+        Log("game: unexpected sun set name, sun glare left as it is");
     PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
     PatchCall(kCallWorldViewProj, kMatrixMultiply, (void*)&hkWorldViewProjMultiply, "depth split (WorldViewProj)");
     PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");

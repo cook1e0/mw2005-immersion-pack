@@ -149,6 +149,8 @@ void LoadConfig() {
     c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
     c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
     c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
+    c.dashYaw = ReadFloat(ini, "DashYaw", c.dashYaw);
+    c.dashPitch = ReadFloat(ini, "DashPitch", c.dashPitch);
     c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
     c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
     c.dashGlass = ReadFloat(ini, "DashGlass", c.dashGlass);
@@ -182,6 +184,8 @@ void LoadConfig() {
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
+    c.directionArrow = ReadInt(ini, "DirectionArrow", c.directionArrow) != 0;
+    c.sunGlare = ReadInt(ini, "SunGlare", c.sunGlare) != 0;
     c.sharedViewsOnce = ReadInt(ini, "SharedViewsOnce", c.sharedViewsOnce) != 0;
     c.envMapFacesPerFrame = ReadInt(ini, "EnvMapFacesPerFrame", c.envMapFacesPerFrame);
     if (c.envMapFacesPerFrame < 1) c.envMapFacesPerFrame = 1;

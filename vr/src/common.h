@@ -59,10 +59,12 @@ struct Config {
     float hudPerCar = 0.0f;          // 1 = each car remembers its HUD size, distance and height ([Hud] per car; live from F4)
     float wheelOverHud = 0.0f;       // 1 = the car's steering wheel in front of the HUD panel while driving (live from F4)
     float dash = 1.0f;               // 1 = minimap, pursuit meter and speedometer on the car's dashboard, not on the HUD (live from F4)
-    float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash] per car with HudPerCar)
+    float dashRight = 0.0f;          // dashboard panel moved right (m) from the gauge cluster ([Dash], always per car model)
     float dashUp = 0.0f;             // ... and up (m)
     float dashZoom = 1.0f;           // its size
     float dashDepth = 0.0f;          // ... and toward the driver (m) from 3 cm off the gauge cluster
+    float dashYaw = 0.0f;            // ... turned to the right (+) / left (-) about its own up axis, degrees
+    float dashPitch = 0.0f;          // ... tilted to face up (+) / down (-) about its own right axis, degrees
     float dashCover = 1.3f;          // (old rectangle cover, no longer drawn: the gauges' own triangles are black)
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard;
@@ -106,6 +108,8 @@ struct Config {
     bool  eyeCameraShared = false;   // debug: render both eyes from the seat camera (no eye offset), so a difference
                                      // between the two images is per-eye state (a pool, a counter, a matrix) instead of the eye's viewpoint
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
+    bool  directionArrow = false;    // the direction arrow above the car in the headset (always shown on a flat screen)
+    bool  sunGlare = false;          // the screen-space sun glare in the headset (always shown on a flat screen)
     bool  stableReflections = true; // reflections use the seat's view, not the head's (they sit still as the head moves)
     bool  mirrors = true;            // the game's rear view on the interior rear view mirror (VR), no HUD mirror
     bool  gameMirrors = false;       // the game's side mirror glass shows the rear view (VR); off = vanilla side mirrors

@@ -473,6 +473,18 @@ static void TestDash() {
           "plane origin in the world, moved right (the car's -y)");
     Near(r[1], w.dashRight.y, "plane right in the world");
     g_cfg.dashRight = 0;
+    // Turned 90 degrees about its up axis: right becomes away from the driver, the face points right.
+    g_cfg.dashYaw = 90;
+    DashBasis(w, m, o, r, u, t);
+    Near(r[0], -w.dashN.x, "yawed plane right = the old toward-driver reversed");
+    Near(t[1], w.dashRight.y, "yawed plane faces the driver's right");
+    Near(u[2], w.dashUp.z, "yaw keeps up");
+    g_cfg.dashYaw = 0;
+    g_cfg.dashPitch = 90;
+    DashBasis(w, m, o, r, u, t);
+    Near(t[2], w.dashUp.z, "pitched plane faces up");
+    Near(r[1], w.dashRight.y, "pitch keeps right");
+    g_cfg.dashPitch = 0;
 }
 
 // The HUD and dashboard panel placement stay per car, while the dashboard element layout is shared.
