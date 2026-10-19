@@ -106,6 +106,53 @@
 - **VR: debug key for the shared views:** `[VR] KeyToggleShared` (e.g. 122 = F11, off by default)
   flips live which views the second eye reuses instead of rendering, to tell a view that differs
   between the eyes from one that doesn't.
+- **VR: no direction arrow above the car:** the spinning direction-aid arrow the game floats above
+  the player's car sat right in front of your face from the cockpit. It is hidden in the headset;
+  `[VR] DirectionArrow=1` brings it back. A flat screen always shows it.
+- **VR: no blinding sun glare:** besides the sun's lens flare (already off in VR), the game draws a
+  white blob on the screen where the sun is. In a headset it sat flat on your eyes instead of in the
+  sky. It is skipped in the headset (the sun set the pass selects is still selected);
+  `[VR] SunGlare=1` brings it back. A flat screen always shows it.
+- **Gameplay: SUV cops are back; only the head-on rammers are gone:** "No SUV cops" removed every
+  SUV (heavy support skipped, SUV patrols and roadblock SUVs swapped for other cars). It is now
+  **No head-on ramming SUVs** (`[Traffic] NoHeavySupport=1`, on by default): only heavy support, the
+  SUVs a pursuit sends to ram you head-on out of oncoming traffic, is dropped; SUV patrols and SUVs
+  in roadblocks come as the game sends them. `NoSuvCops` is no longer read. The log notes each
+  heavy support request it drops.
+- **Gameplay HUD: engine warning icon:** above the car icon, where the spike strip icon was (which
+  moves to its left, same spacing), the drag HUD's engine icon (`ENGINE_HEAT_ICON`) flashes red like
+  the spike icon while the engine heat is at `[HUD] HeatIconFrom` (50%) or above, or once the engine is blown.
+  Otherwise it is invisible. Its texture pack (HUDTEXDRAG.BIN) is loaded with the race HUD's and
+  freed with it; until it is there the in-game `HEAT_ICON` stands in. `[HUD] HeatIcon` lists the
+  textures to try; the log says which one is used.
+- **Gameplay HUD: the damage / heat bar fills all the way to the arrow:** filling up (`[HUD] FillUp`,
+  the default) turned the mask only to -5 degrees at 100%, so the last stretch of the arc, up to the
+  arrow at its end, never filled. It now turns to 0, the game's own full position.
+- **F4 help texts for the in-car dashboard corrected:** the display's size and position are always
+  saved per car model (not only with "Each car remembers HUD positioning", which is for the floating
+  HUD), and the element layout and HUD crops are the same for every car. The saving itself was
+  already like that.
+- **Gameplay: drag races with the normal race HUD:** with the drag mechanics already off for your
+  car, drag races now show the normal race HUD (tachometer, speedometer, minimap, damage meter and
+  the mod's icons) instead of the drag HUD. `[Races] NormalDragHud=1`, on by default, also in F4.
+  The HUD type the game asks for (2, drag) becomes the normal one (1), which picks the package,
+  its elements and its texture pack together. Applies from the next race.
+  The turbo dial, shared by both HUDs, picked its needle's angle range by the race type, so in a
+  drag race the needle sat in the wrong place on the race HUD's dial; it now uses the race range there.
+- **Gameplay HUD: the meter's arrow glows with the car icon, and the icons sit clear of it:** the
+  small arrow at the damage / heat meter's end takes the car icon's colour (grey, beige once damaged,
+  the same red pulse from 75%), in step with it. The car icon and the warning icons above it are moved
+  a little to the right (`[HUD] IconShift`, 4 HUD units) so the car icon no longer overlaps the arrow.
+- **VR: the in-car dashboard can be angled per car:** F4 > VR > *Dashboard angle left / right* and
+  *up / down* turn the whole display (glass and elements with it) about its centre, saved per car
+  model with its size and position (`[Dash]` lines gain two values; older lines start at 0). A
+  value missing from an older `[Dash]` or `[Hud]` line now starts from the mod's built-in default,
+  never from the car driven before.
+- **Gameplay HUD: no infractions, cost to state or area name popups:** the infractions list, the
+  cost to state counter and the area name shown on entering a neighbourhood ("Ocean View") are left
+  out of the HUD (`[HUD] Infractions=0`, `CostToState=0`, `LocationNames=0`; 1 shows them again).
+  The pursuit itself and the rap sheet still count them. The log notes how many HUD objects each
+  hidden popup has.
 
 ### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
 
