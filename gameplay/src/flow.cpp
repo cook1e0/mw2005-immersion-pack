@@ -216,7 +216,53 @@ void NoteText(uint8_t* obj, const wchar_t* text) {
     Log("flow: HUD text object %08X label %08X: \"%s\"", name, label, narrow);
 }
 
+// HUD popups left out ([HUD] Infractions / CostToState / LocationNames = 0): the infractions list
+// (Hud_Infractions, built at 0x5A1380) and the cost to state counter (Hud_CostToState, CTS_GROUP,
+// built at 0x59D0C0) are HUD elements: each keeps the FE objects it drives in a list at +8
+// (node: next, prev, object at +8). Once one is built, those objects and everything inside them
+// are noted, and RenderObject leaves them out. The area name shown on entering a neighbourhood
+// ("Ocean View") is the generic message's text object DA768EA6, left out by its name.
+constexpr uintptr_t kBuildInfractions = 0x5A1380, kCallBuildInfractions = 0x5A6B73;   // thiscall, 3 args
+constexpr uintptr_t kBuildCostToState = 0x59D0C0, kCallBuildCostToState = 0x5A6A69;   // thiscall, 3 args
+constexpr uint32_t kLocationText = 0xDA768EA6;
+constexpr int kElemObjects = 0x08, kNodeObj = 0x08;
+constexpr int kGroupChildren = 0x5C, kListHead = 0x08;
+
+std::set<uint8_t*> s_hiddenInfractions, s_hiddenCts;
+
+void NoteTree(std::set<uint8_t*>& out, uint8_t* obj, int depth) {
+    if (!obj || depth > 8 || IsBadReadPtr(obj, 0x60) || !out.insert(obj).second) return;
+    if (*(int*)(obj + kObjType) != 5) return;   // FE_Group: its children too
+    for (uint8_t* c = *(uint8_t**)(obj + kGroupChildren + kListHead); c && out.size() < 512; c = *(uint8_t**)(c + 4))
+        NoteTree(out, c, depth + 1);
+}
+
+void NoteElement(std::set<uint8_t*>& out, uint8_t* elem, const char* what) {
+    out.clear();
+    uint8_t* sentinel = elem + kElemObjects;
+    int n = 0;
+    for (uint8_t* node = *(uint8_t**)sentinel; node && node != sentinel && n < 64; node = *(uint8_t**)node, n++)
+        NoteTree(out, *(uint8_t**)(node + kNodeObj), 0);
+    Log("flow: %s hidden (%u HUD objects)", what, (unsigned)out.size());
+}
+
+void* __fastcall Hook_BuildInfractions(uint8_t* elem, void* edx, void* a, void* b, void* c) {
+    void* r = ((void*(__fastcall*)(void*, void*, void*, void*, void*))kBuildInfractions)(elem, edx, a, b, c);
+    if (g_cfg.hideInfractions) NoteElement(s_hiddenInfractions, elem, "infractions popup");
+    else s_hiddenInfractions.clear();
+    return r;
+}
+
+void* __fastcall Hook_BuildCostToState(uint8_t* elem, void* edx, void* a, void* b, void* c) {
+    void* r = ((void*(__fastcall*)(void*, void*, void*, void*, void*))kBuildCostToState)(elem, edx, a, b, c);
+    if (g_cfg.hideCostToState) NoteElement(s_hiddenCts, elem, "cost to state popup");
+    else s_hiddenCts.clear();
+    return r;
+}
+
 void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
+    if (obj && (s_hiddenInfractions.count(obj) || s_hiddenCts.count(obj))) return;
+    if (obj && g_cfg.hideLocationNames && *(uint32_t*)(obj + kObjNameHash) == kLocationText) return;
     if (obj && *(int*)(obj + kObjType) == 2) {
         const wchar_t* text = *(const wchar_t**)(obj + kStringText);
         if (text && !IsBadReadPtr(text, 2)) {
@@ -409,6 +455,10 @@ void Flow_PlayerStep() {
 
 void Flow_Install() {
     HideSongBanner();
+    if (!RetargetCall(kCallBuildInfractions, kBuildInfractions, (void*)&Hook_BuildInfractions))
+        Log("flow: unexpected HUD code, infractions popup left");
+    if (!RetargetCall(kCallBuildCostToState, kBuildCostToState, (void*)&Hook_BuildCostToState))
+        Log("flow: unexpected HUD code, cost to state popup left");
     RaceStart_Install();
     if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
         void* p = (void*)&Hook_RenderObject;

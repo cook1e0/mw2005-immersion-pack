@@ -1,36 +1,30 @@
-// No SUV cops ([Traffic] NoSuvCops): every cop car comes from
-// AICopManager::GetAvailableCopVehicleByName (reuses an idle cop of that name or creates one),
-// so its calls are redirected. Heavy support asks for copsuv / copsuvl by name and gets nothing
-// (the game drops the request); other spawns asking for an SUV (copsuvpatrol from the heat
-// level's cop list) re-roll GetRandomValidCopCar, else copmidsize.
+// No heavy support ([Traffic] NoHeavySupport): heavy support is the game's ramming SUVs (copsuv /
+// copsuvl, "Rhinos") that a pursuit sends at you head-on out of oncoming traffic. They are asked for
+// by name in GetHeavySupportVehicles, through AICopManager::GetAvailableCopVehicleByName (reuses an
+// idle cop of that name or creates one); that one call is redirected and gets nothing, so the
+// game drops the request. Every other cop spawn is left alone: SUV patrols and SUVs in roadblocks
+// still come.
 #include "traffic.h"
 #include "common.h"
 
 namespace {
 
 constexpr uintptr_t kCopByName = 0x41ECD0;          // IVehicle* AICopManager::GetAvailableCopVehicleByName(const char*)
-constexpr uintptr_t kRandomCopCar = 0x419AE0;       // const char* GetRandomValidCopCar()
 constexpr uintptr_t kHeavySupportCall = 0x41F1CD;   // GetHeavySupportVehicles: copsuv / copsuvl
-constexpr uintptr_t kCopByNameCalls[] = {kHeavySupportCall, 0x41F588, 0x4266E9, 0x426726,
-                                         0x42E729, 0x431495, 0x43EBCB};
 
 typedef void*(__thiscall* CopByName_t)(void* mgr, const char* name);
-typedef const char*(__cdecl* RandomCopCar_t)();
 
-bool IsSuv(const char* name) { return name && _strnicmp(name, "copsuv", 6) == 0; }
-
-void* CopByName(void* mgr, const char* name, bool heavy) {
-    if (g_cfg.noSuvCops && IsSuv(name)) {
-        if (heavy) return nullptr;
-        const char* alt = nullptr;
-        for (int i = 0; i < 8 && (!alt || IsSuv(alt)); i++) alt = ((RandomCopCar_t)kRandomCopCar)();
-        name = alt && !IsSuv(alt) ? alt : "copmidsize";
+void* __fastcall HeavySupportByName(void* mgr, void*, const char* name) {
+    if (g_cfg.noHeavySupport) {
+        static int logged;
+        if (logged < 5) {
+            logged++;
+            Log("traffic: heavy support (%s, head-on ramming SUV) not sent", name ? name : "?");
+        }
+        return nullptr;
     }
     return ((CopByName_t)kCopByName)(mgr, name);
 }
-
-void* __fastcall CopByNameHeavy(void* mgr, void*, const char* name) { return CopByName(mgr, name, true); }
-void* __fastcall CopByNameOther(void* mgr, void*, const char* name) { return CopByName(mgr, name, false); }
 
 void PatchCall(uintptr_t at, void* fn) {
     DWORD old;
@@ -42,14 +36,13 @@ void PatchCall(uintptr_t at, void* fn) {
 }
 
 void Cops_Install() {
-    for (auto at : kCopByNameCalls)
-        if (*(uint8_t*)at != 0xE8 || at + 5 + *(int32_t*)(at + 1) != kCopByName) {
-            Log("traffic: unexpected cop spawn code at %08X, SUV cops stay", (unsigned)at);
-            return;
-        }
-    for (auto at : kCopByNameCalls)
-        PatchCall(at, at == kHeavySupportCall ? (void*)&CopByNameHeavy : (void*)&CopByNameOther);
-    Log("traffic: SUV cops %s", g_cfg.noSuvCops ? "off" : "on");
+    if (*(uint8_t*)kHeavySupportCall != 0xE8 || kHeavySupportCall + 5 + *(int32_t*)(kHeavySupportCall + 1) != kCopByName) {
+        Log("traffic: unexpected heavy support code, heavy support stays");
+        return;
+    }
+    PatchCall(kHeavySupportCall, (void*)&HeavySupportByName);
+    Log("traffic: heavy support (head-on ramming SUVs) %s; SUV patrols and roadblocks as the game's",
+        g_cfg.noHeavySupport ? "off" : "on");
 }
 
 }  // namespace
@@ -74,7 +67,61 @@ static void __attribute__((thiscall)) HkSetDriverStyle(uint8_t* vehicle, int sty
     ((void(__attribute__((thiscall))*)(uint8_t*, int))kSetDriverStyle)(vehicle, style);
 }
 
+// The drag HUD: the local player's SetHud(type) (0x6E99C0, thiscall, ret 4; slot 9 of both
+// LocalPlayer vtables) builds the FEngHud for a HUD type, and the type picks everything: the package
+// (0x5694E0: 2 = HUD_Drag.fng, else HUD_SingleRace.fng for 1), the elements the FEngHud constructor
+// (0x5A6600) creates, and the texture pack it loads (0x5A6540: 2 = HUDTEXDRAG.BIN, 1 = HUDTEXRACE).
+// With [Races] NormalDragHud a drag race's type 2 becomes 1, the normal race HUD (tachometer,
+// speedometer, minimap, damage meter), as fits a drag race the player drives normally.
+constexpr uintptr_t kSetHud = 0x6E99C0;
+constexpr uintptr_t kSlotsSetHud[] = {0x8B0B34, 0x8B0BF4};
+constexpr int kHudStandard = 1, kHudDrag = 2;
+
+static void __fastcall HkSetHud(void* player, void* edx, int type) {
+    if (type == kHudDrag && g_cfg.normalDragHud) {
+        Log("traffic: drag race - the normal race HUD instead of the drag HUD");
+        type = kHudStandard;
+    }
+    ((void(__fastcall*)(void*, void*, int))kSetHud)(player, edx, type);
+}
+
+// The turbo dial (its update at 0x57BB40) is shared by the race and drag HUDs and picks its needle's
+// angle range by the race type (GRaceParameters::GetRaceType, 0x5FAA20; 2 = drag) at 0x57BB62. With
+// the normal HUD in a drag race the drag range put the needle in the wrong place on the race HUD's
+// dial: there it is told the race isn't a drag.
+constexpr uintptr_t kGetRaceType = 0x5FAA20;          // int GRaceParameters::GetRaceType(), thiscall
+constexpr uintptr_t kCallTurboRaceType = 0x57BB62;
+constexpr int kRaceDrag = 2;
+
+static int __fastcall HkTurboRaceType(void* parms, void* edx) {
+    int type = ((int(__fastcall*)(void*, void*))kGetRaceType)(parms, edx);
+    return type == kRaceDrag && g_cfg.normalDragHud ? 0 : type;
+}
+
 void Traffic_Install() {
+    if (*(uint8_t*)kCallTurboRaceType == 0xE8 && kCallTurboRaceType + 5 + *(int32_t*)(kCallTurboRaceType + 1) == kGetRaceType) {
+        int32_t rel = (int32_t)((uintptr_t)&HkTurboRaceType - (kCallTurboRaceType + 5));
+        DWORD old;
+        VirtualProtect((void*)(kCallTurboRaceType + 1), 4, PAGE_EXECUTE_READWRITE, &old);
+        memcpy((void*)(kCallTurboRaceType + 1), &rel, 4);
+        VirtualProtect((void*)(kCallTurboRaceType + 1), 4, old, &old);
+        FlushInstructionCache(GetCurrentProcess(), (void*)kCallTurboRaceType, 5);
+    } else {
+        Log("traffic: unexpected turbo dial code, its needle keeps the drag range in drag races");
+    }
+    bool hudOk = true;
+    for (uintptr_t slot : kSlotsSetHud) hudOk = hudOk && *(uintptr_t*)slot == kSetHud;
+    if (hudOk) {
+        for (uintptr_t slot : kSlotsSetHud) {
+            DWORD old;
+            VirtualProtect((void*)slot, 4, PAGE_READWRITE, &old);
+            *(void**)slot = (void*)&HkSetHud;
+            VirtualProtect((void*)slot, 4, old, &old);
+        }
+        Log("traffic: drag races with the %s HUD", g_cfg.normalDragHud ? "normal race" : "drag");
+    } else {
+        Log("traffic: unexpected player code, NormalDragHud unavailable");
+    }
     if (*(uintptr_t*)kSlotSetDriverStyle == kSetDriverStyle) {
         DWORD old;
         VirtualProtect((void*)kSlotSetDriverStyle, 4, PAGE_READWRITE, &old);

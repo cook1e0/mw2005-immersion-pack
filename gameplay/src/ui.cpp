@@ -288,6 +288,7 @@ constexpr struct {
     {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
     {MOD_VR, "DashGlass", 0.35f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
     {MOD_VR, "DashGlassDepth", 0.01f}, {MOD_VR, "DashReflect", 0.3f},
+    {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -309,7 +310,8 @@ enum {
     VR_DASHGLASS = VR_DASHSCREEN + 2,
     VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
     VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
-    EXT_COUNT
+    VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
+    EXT_COUNT = VR_DASHANGLE + 2
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 // Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
@@ -337,6 +339,7 @@ static_assert(KeyIs(kExt[VR_DASHGLASS].key, "DashGlass"), "kExt out of order at 
 static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of order at VR_WHEELPIVOT + 1");
 static_assert(KeyIs(kExt[VR_DASHGLASSDEPTH].key, "DashGlassDepth"), "kExt out of order at VR_DASHGLASSDEPTH");
 static_assert(KeyIs(kExt[VR_DASHREFLECT].key, "DashReflect"), "kExt out of order at VR_DASHREFLECT");
+static_assert(KeyIs(kExt[VR_DASHANGLE + 1].key, "DashPitch"), "kExt out of order at VR_DASHANGLE + 1");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
@@ -670,8 +673,9 @@ const Item kItems[] = {
     PAGE_("TRAFFIC AND HUD"),
     BACK_,
     HEADER_("TRAFFIC"),
-    {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "No head-on ramming SUVs", "Traffic", "NoHeavySupport", &g_cfg.noHeavySupport, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Drive drag races normally", "Races", "NormalDragRaces", &g_cfg.normalDragRaces, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Normal HUD in drag races", "Races", "NormalDragHud", &g_cfg.normalDragHud, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
@@ -693,6 +697,8 @@ const Item kItems[] = {
     {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
     {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
+    {NUMBER, "Dashboard angle left / right", "VR", "DashYaw", &s_ext[VR_DASHANGLE], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
+    {NUMBER, "Dashboard angle up / down", "VR", "DashPitch", &s_ext[VR_DASHANGLE + 1], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
     {NUMBER, "Display width", "VR", "DashScreenW", &s_ext[VR_DASHSCREEN], 0.04f, 0.8f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
@@ -933,7 +939,7 @@ std::string LinkSummary(const char* page) {
     if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() && Physics_OwnSettings() ? "This car's own" : "On";
-    if (p == "TRAFFIC AND HUD") return g_cfg.noSuvCops ? "No SUV cops" : "SUV cops";
+    if (p == "TRAFFIC AND HUD") return g_cfg.noHeavySupport ? "No ramming SUVs" : "Ramming SUVs";
     if (p == "VR") {
         if (!ExtSetting(VR_HUDWIDTH)) return kExtMods[MOD_VR].missing;
         snprintf(buf, sizeof(buf), "HUD %.0f%%", *ExtSetting(VR_HUDWIDTH) / kExt[VR_HUDWIDTH].def * 100.0f);
@@ -1150,7 +1156,7 @@ const struct {
     {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.drivetrain, 1}, {&g_cfg.rearGrip, 1}, {&g_cfg.offroadGrip, 1},
     {&g_cfg.slideGrip, 1}, {&g_cfg.slideOversteer, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.speedGripLoss, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
     {&g_cfg.maxSpin, 0},
-    {&g_cfg.noSuvCops, 0}, {&g_cfg.normalDragRaces, 0},
+    {&g_cfg.noHeavySupport, 0}, {&g_cfg.normalDragRaces, 0}, {&g_cfg.normalDragHud, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
@@ -1620,11 +1626,11 @@ const struct {
     {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
-    {&s_ext[VR_HUDPERCAR], "On: each car remembers its own HUD size, distance, height and left / right position, and its dashboard zoom and position, like the seat. The dashboard and its layout are saved per car model; a model you haven't set yet starts from the mod's built-in defaults, not from the last car you used."},
+    {&s_ext[VR_HUDPERCAR], "On: each car model remembers its own floating HUD size, distance, height and left / right position, like the seat. A model you haven't set yet starts from the mod's built-in defaults, not from the last car you used. The in-car dashboard display's size and position are always per car model, whatever this says; the element layout and the HUD crops are the same for every car."},
     {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
-    {&s_ext[VR_DASHZOOM], "Size of the whole in-car dashboard: the display and everything on it. Each car remembers its own."},
-    {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster."},
-    {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+)."},
+    {&s_ext[VR_DASHZOOM], "Size of the whole in-car dashboard: the display and everything on it. Each car model remembers its own."},
+    {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster. Each car model remembers its own."},
+    {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+). Each car model remembers its own."},
     {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},
     {&s_ext[VR_DASHBOX], "The in-car display: a gray screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
     {&s_ext[VR_DASHGLASS], "A glass sheen over the in-car display and everything on it (0 = none)."},
@@ -1632,9 +1638,11 @@ const struct {
     {&s_ext[VR_DASHREFLECT], "How strongly the display's glass reflects the world behind you (from the rear view mirror's picture: needs the rear view mirror on)."},
     {&s_ext[VR_WHEELPIVOT], "Moves the point the steering wheel turns about to the right (+) or left (-). Each car remembers it."},
     {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
-    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
-    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car remembers it with HUD positioning."},
-    {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car remembers it with HUD positioning."},
+    {&s_ext[VR_DASHANGLE], "Turns the whole in-car display (with its glass and elements) about its centre: its face to your right (+) or left (-). Each car model remembers its own."},
+    {&s_ext[VR_DASHANGLE + 1], "Tilts the whole in-car display (with its glass and elements) about its centre: its face up (+) or down (-). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
+    {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car model remembers its own."},
     {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
@@ -1695,7 +1703,8 @@ const struct {
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
     {&g_cfg.maxSpin, "The fastest your car may rotate (8 rad/s is over one turn a second). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
-    {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
+    {&g_cfg.noHeavySupport, "No heavy support: the SUVs a pursuit sends to ram you head-on out of oncoming traffic don't come. SUV patrols and SUVs in roadblocks still do."},
+    {&g_cfg.normalDragHud, "Drag races show the normal race HUD (tachometer, speedometer, minimap, damage meter) instead of the drag HUD. Applies from the next race."},
     {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
     {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},

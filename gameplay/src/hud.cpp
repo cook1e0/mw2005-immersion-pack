@@ -18,7 +18,9 @@
 // IconRedFrom (75%) up. Above it a clone of it shows the spike strip milestone icon
 // (MILESTONE_SPIKESTRIPS), only while a tire is popped, flashing red. It stays opaque (it sits
 // over the arc, so a translucent one takes on the arc's colour): it flashes by brightness, in
-// the car icon's rhythm. Neither icon has an outline. The HUD package owns the clones and frees them with the
+// the car icon's rhythm. Neither icon has an outline. Left of the spike strip icon, at the same
+// spacing, an engine warning icon ([HUD] HeatIcon) shows the same way, only while the engine heat
+// is at HeatIconFrom (50%) or above or the engine is blown. The HUD package owns the clones and frees them with the
 // rest of the package; a new HUD (or a clone that is gone from its list) gets new ones.
 #include "hud.h"
 #include "common.h"
@@ -166,8 +168,13 @@ struct {
     uint8_t* clone = nullptr;
     uint32_t barColor = 0;          // bar's own colour, restored after flashing
     std::vector<IconImage> icon;
+    IconImage arrow = {};           // the small arrow at the arc's end (in the icon group), coloured like the car icon
     uint8_t* iconList = nullptr;    // the list holding the car icon image and the spike icon
     uint8_t* spike = nullptr;       // spike strip icon (a clone of the car icon)
+    uint8_t* heatIcon = nullptr;    // engine warning icon (a clone of the car icon), left of the spike icon
+    uint32_t heatTex = 0;           // its texture hash, 0 = none loaded
+    int heatPick = -1;              // which [HUD] HeatIcon name it is (0 = the first), -1 = none
+    double heatLooked = -1e9;       // when a better one was last looked for
     std::vector<uint8_t*> carOutline, spikeOutline;
     uint32_t spikeTex = 0;          // texture hash, 0 = not loaded
     bool spikeLooked = false;
@@ -180,12 +187,13 @@ struct {
 } s;
 
 // Mask rotation for a level 0..1. The game turns the mask from minAngle (empty) to 0 (full);
-// filling up turns it from the opposite side, minAngle - 180 (full) to -180 (empty).
+// filling up turns it from the opposite side, from -180 (empty) to 0 (full) as well. (It used to
+// stop at minAngle - 180, -5: the last 5 degrees, up to the arrow at the arc's end, never filled.)
 float Angle(float level) {
     level = Clamp(level, 0.0f, 1.0f);
     if (!g_cfg.hudFillUp) return s.minAngle * (1.0f - level);
     float flip = s.minAngle > 0.0f ? -180.0f : 180.0f;
-    return flip + s.minAngle * level;
+    return flip * (1.0f - level);
 }
 
 uint32_t PickIcon() {
@@ -210,10 +218,30 @@ void CollectIcon(uint8_t* list, int depth) {
     }
 }
 
+// The engine warning icon's texture: the first loaded one of [HUD] HeatIcon. ENGINE_HEAT_ICON comes
+// from the drag HUD's pack, loaded alongside the race HUD's (LoadDragPack) but only after the HUD is
+// built, so until it is there a later name stands in and the first is looked for again each second.
+void PickHeatIcon() {
+    s.heatLooked = Now();
+    std::string names = g_cfg.hudHeatIcon;
+    int i = 0;
+    for (char* n = strtok(&names[0], ", "); n && (s.heatPick < 0 || i < s.heatPick); n = strtok(nullptr, ", "), i++) {
+        uint32_t h = ((StringHash_t)kStringHash)(n);
+        if (!((GetTextureInfo_t)kGetTextureInfo)(h, 0, 0)) continue;
+        s.heatTex = h;
+        s.heatPick = i;
+        if (s.heatIcon && InList(s.iconList, s.heatIcon)) ((SetTextureHash_t)kSetTextureHash)(s.heatIcon, h);
+        Log("hud: engine warning icon %s", n);
+        return;
+    }
+    if (s.heatPick < 0) Log("hud: engine warning icon: none of %s loaded (yet)", g_cfg.hudHeatIcon.c_str());
+}
+
 void Setup(uint8_t* meter) {
     s.meter = meter;
     s.bar = Field<uint8_t*>(meter, kSB_Bar);
-    s.list = s.clone = s.iconList = s.spike = nullptr;
+    s.list = s.clone = s.iconList = s.spike = s.heatIcon = nullptr;
+    s.arrow = {};
     s.icon.clear();
     s.carOutline.clear();
     s.spikeOutline.clear();
@@ -249,10 +277,22 @@ void Setup(uint8_t* meter) {
             Log("hud: icon image %p size %.1f", s.icon[i].img, area);
             if (area > bigArea) bigArea = area, big = i;
         }
+        // The smallest other image is the arrow at the arc's end: it glows with the car icon.
+        size_t small = big;
+        float smallArea = 1e30f;
+        for (size_t i = 0; i < s.icon.size(); i++) {
+            uint8_t* d = Field<uint8_t*>(s.icon[i].img, kFO_Data);
+            float area = d ? fabsf(Field<float>(d, kOD_SizeX) * Field<float>(d, kOD_SizeY)) : 0.0f;
+            if (i != big && area < smallArea) smallArea = area, small = i;
+        }
+        s.arrow = small != big ? s.icon[small] : IconImage{};
         if (!s.icon.empty()) s.icon = {s.icon[big]};
         if (!s.icon.empty()) s.iconList = FindList(icon + kFG_Children, s.icon[0].img);
     }
     if (!s.carIcon) s.carIcon = PickIcon();
+    s.heatTex = 0;
+    s.heatPick = -1;
+    PickHeatIcon();
     if (!s.spikeLooked) {
         s.spikeLooked = true;
         uint32_t h = ((StringHash_t)kStringHash)("MILESTONE_SPIKESTRIPS");
@@ -323,11 +363,36 @@ bool UpdateOutline(std::vector<uint8_t*>& out, float dy, uint32_t tex, bool show
     return true;
 }
 
+// The spike strip icon sits left of the engine warning icon (above the car icon) by its width plus
+// the same gap.
+float SideOffsetX() {
+    uint8_t* d = Field<uint8_t*>(s.icon[0].img, kFO_Data);
+    return d ? -fabsf(Field<float>(d, kOD_SizeX)) * (1.0f + kSpikeGap) : 0.0f;
+}
+
+void UpdateHeatIcon(bool show, float flash) {
+    if (s.heatPick != 0 && Now() - s.heatLooked > 1.0) PickHeatIcon();
+    if (!s.heatTex || !s.iconList || s.icon.empty()) return;
+    if (!s.heatIcon || !InList(s.iconList, s.heatIcon)) {
+        s.heatIcon = CloneIcon(0.0f, SpikeOffset(), 0.0f, s.heatTex);
+        if (!s.heatIcon) {
+            s.heatTex = 0;
+            return;
+        }
+        Log("hud: engine warning icon %p added (y offset %.1f)", s.heatIcon, SpikeOffset());
+    }
+    SetColor(s.heatIcon, Bright(kHeatColor, flash));
+    // Bit 0 = invisible: shown with the car icon, and only while the engine is hot or blown.
+    uint32_t& flags = Field<uint32_t>(s.heatIcon, kFO_Flags);
+    uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (show ? 0u : 1u);
+    if (vis != flags) flags = vis | kDirty;
+}
+
 bool MakeSpike() {
-    uint8_t* c = CloneIcon(0.0f, SpikeOffset(), 0.0f, s.spikeTex);
+    uint8_t* c = CloneIcon(SideOffsetX(), SpikeOffset(), 0.0f, s.spikeTex);
     if (!c) return false;
     s.spike = c;
-    Log("hud: spike strip icon %p added (y offset %.1f)", c, SpikeOffset());
+    Log("hud: spike strip icon %p added (x offset %.1f, y offset %.1f)", c, SideOffsetX(), SpikeOffset());
     return true;
 }
 
@@ -346,7 +411,7 @@ void UpdateSpike(int popped, float flash) {
     uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (popped ? 0u : 1u);
     if (vis != flags) flags = vis | kDirty;
     if (!s.spikeOutline.empty() && InList(s.iconList, s.spikeOutline[0]))
-        UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, false);
+        UpdateOutline(s.spikeOutline, SpikeOffset(), s.spikeTex, false);   // (unused: no outline)
 }
 
 void Apply() {
@@ -368,12 +433,14 @@ void Restore() {
         ((SetTextureHash_t)kSetTextureHash)(i.img, i.tex);
         SetColor(i.img, i.color);
     }
+    if (s.arrow.img) SetColor(s.arrow.img, s.arrow.color);
     if (s.bar) {
         SetColor(s.bar, s.barColor);
         SetRotation(s.bar, s.minAngle * (1.0f - Field<float>(s.meter, kSB_Iface + 8)));   // the game's level
     }
     if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, WithAlpha(kHeatColor, 0.0f));
     if (s.spike && InList(s.iconList, s.spike)) SetColor(s.spike, 0);
+    if (s.heatIcon && InList(s.iconList, s.heatIcon)) SetColor(s.heatIcon, 0);
     for (auto* out : {&s.carOutline, &s.spikeOutline})
         if (!out->empty() && InList(s.iconList, (*out)[0]))
             for (uint8_t* c : *out) SetColor(c, 0);
@@ -403,9 +470,11 @@ void Update(uint8_t* meter, const HudStatus& h) {
                          : kIconGray;
     for (auto& i : s.icon)
         SetColor(i.img, iconColor);
+    if (s.arrow.img) SetColor(s.arrow.img, iconColor);   // the arc's arrow glows with the car icon
     if (!s.carOutline.empty() && InList(s.iconList, s.carOutline[0]))
         UpdateOutline(s.carOutline, 0.0f, Field<uint32_t>(s.icon[0].img, kFO_Handle), false);
     UpdateSpike(h.poppedTires, flash);
+    UpdateHeatIcon(h.heat >= g_cfg.hudHeatIconFrom || h.engineBlown, flash);
     // Visible whenever the arc is (bit 0 = invisible, FEngSetInvisible); the clone keeps the
     // flag the arc had when it was cloned and the game never touches it again.
     uint32_t& flags = Field<uint32_t>(s.clone, kFO_Flags);
@@ -449,6 +518,64 @@ void __fastcall Hook_MeterUpdate(uint8_t* meter, void*, void* player) {
         SetRotation(s.bar, Angle(s.h.damage));
 }
 
+// The drag HUD's texture pack next to the race HUD's, for ENGINE_HEAT_ICON. The HUD's texture
+// loader (a global at 0x8F5118) loads one pack per HUD type: Load(type, x) at 0x5A6540 (thiscall,
+// ret 8; 2 = HUDTEXDRAG.BIN, else HUDTEXRACE.BIN for 1) through the game's resource files:
+// CreateResourceFile(path, 3, 0, 0, 0), SetAllocationParams(0x2000, path), BeginLoading(callback,
+// param). Unload(type) at 0x57C530 (thiscall, ret 4) unloads every HUD pack's textures by path,
+// HUDTEXDRAG.BIN included, and frees its own file. So with a normal HUD (type 1) the drag pack
+// is loaded too, with a callback that does nothing (the loader's own one counts its packs and
+// builds the HUD on the first), and its file is freed after the loader's Unload.
+constexpr uintptr_t kLoaderLoad = 0x5A6540, kCallLoaderLoad = 0x5A6742;
+constexpr uintptr_t kLoaderUnload = 0x57C530, kCallLoaderUnload = 0x5A0BB5;
+constexpr uintptr_t kDragPackPath = 0x8F7ED8;       // const char* "GLOBAL\HUDTEXDRAG.BIN"
+constexpr uintptr_t kCreateResourceFile = 0x65FD30; // ResourceFile* (cdecl: path, type, flags, ?, ?)
+constexpr uintptr_t kSetAllocationParams = 0x64ABE0; // thiscall (flags, debug name)
+constexpr uintptr_t kBeginLoading = 0x6616F0;       // thiscall (callback(param), param)
+constexpr uintptr_t kUnloadResourceFile = 0x663F00; // cdecl (ResourceFile*)
+constexpr int kHudStandard = 1;
+
+void* s_dragPack = nullptr;
+
+void __cdecl DragPackLoaded(void*) { Log("hud: drag HUD textures loaded (engine warning icon)"); }
+
+void FreeDragPack() {
+    if (!s_dragPack) return;
+    ((void(__cdecl*)(void*))kUnloadResourceFile)(s_dragPack);
+    s_dragPack = nullptr;
+}
+
+void __fastcall Hook_LoaderLoad(void* loader, void* edx, int type, int extra) {
+    ((void(__fastcall*)(void*, void*, int, int))kLoaderLoad)(loader, edx, type, extra);
+    if (type != kHudStandard || !g_cfg.hudMeter || g_cfg.hudHeatIcon.find("ENGINE_HEAT_ICON") == std::string::npos) return;
+    if (s_dragPack) return;   // still loaded (its textures may be in use): kept, never freed under them
+    const char* path = *(const char**)kDragPackPath;
+    void* file = ((void*(__cdecl*)(const char*, int, int, int, int))kCreateResourceFile)(path, 3, 0, 0, 0);
+    if (!file) {
+        Log("hud: drag HUD textures not loaded (no resource file)");
+        return;
+    }
+    ((void(__fastcall*)(void*, void*, int, const char*))kSetAllocationParams)(file, nullptr, 0x2000, path);
+    ((void(__fastcall*)(void*, void*, void*, void*))kBeginLoading)(file, nullptr, (void*)&DragPackLoaded, nullptr);
+    s_dragPack = file;
+}
+
+void __fastcall Hook_LoaderUnload(void* loader, void* edx, int type) {
+    ((void(__fastcall*)(void*, void*, int))kLoaderUnload)(loader, edx, type);
+    FreeDragPack();
+}
+
+bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
+    if (*(uint8_t*)site != 0xE8 || site + 5 + *(int32_t*)(site + 1) != target) return false;
+    int32_t rel = (int32_t)((uintptr_t)hook - (site + 5));
+    DWORD old;
+    VirtualProtect((void*)(site + 1), 4, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)(site + 1), &rel, 4);
+    VirtualProtect((void*)(site + 1), 4, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)site, 5);
+    return true;
+}
+
 }  // namespace
 
 bool Hud_Message(const char* text) {
@@ -476,4 +603,12 @@ void Hud_Install() {
         VirtualProtect((void*)slot.first, 4, old, &old);
     }
     Log("hud: speedbreaker meter shows damage and heat (%s)", g_cfg.hudMeter ? "on" : "off");
+    const char* path = *(const char**)kDragPackPath;
+    if (path && !IsBadStringPtrA(path, 32) && strstr(path, "HUDTEXDRAG") &&
+        RetargetCall(kCallLoaderUnload, kLoaderUnload, (void*)&Hook_LoaderUnload)) {
+        if (RetargetCall(kCallLoaderLoad, kLoaderLoad, (void*)&Hook_LoaderLoad))
+            Log("hud: drag HUD textures loaded with the race HUD's (engine warning icon)");
+    } else {
+        Log("hud: unexpected HUD texture loader, ENGINE_HEAT_ICON only in drag races");
+    }
 }

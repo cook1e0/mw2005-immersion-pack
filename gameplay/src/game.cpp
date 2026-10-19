@@ -899,6 +899,7 @@ HudStatus Game_Hud() {
     }
     h.heat = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine) ? s.heat : 0.0f;
     h.poppedTires = PoppedTires(s.engine);
+    h.engineBlown = s.blown;
     return h;
 }
 

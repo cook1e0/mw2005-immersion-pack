@@ -198,8 +198,9 @@ void LoadConfig() {
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
-    c.noSuvCops = ReadInt("Traffic", "NoSuvCops", 1) != 0;
+    c.noHeavySupport = ReadInt("Traffic", "NoHeavySupport", 1) != 0;   // replaces NoSuvCops (which also removed SUV patrols)
     c.normalDragRaces = ReadInt("Races", "NormalDragRaces", 1) != 0;
+    c.normalDragHud = ReadInt("Races", "NormalDragHud", 1) != 0;
     c.heatSmokeFrom = Clamp(ReadFloat("Engine", "SmokeFrom", c.heatSmokeFrom), 0.1f, 1.0f);
     c.smokeTrail = Clamp(ReadFloat("Damage", "SmokeTrail", c.smokeTrail), 0.0f, 1.0f);
     c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
@@ -214,6 +215,11 @@ void LoadConfig() {
     c.hudMeter = ReadInt("HUD", "Meter", 1) != 0;
     c.speedbreaker = ReadInt("HUD", "Speedbreaker", 0) != 0;
     c.hudIcon = ReadStr("HUD", "Icon", c.hudIcon.c_str());
+    c.hudHeatIcon = ReadStr("HUD", "HeatIcon", c.hudHeatIcon.c_str());
+    c.hideInfractions = ReadInt("HUD", "Infractions", 0) == 0;
+    c.hideCostToState = ReadInt("HUD", "CostToState", 0) == 0;
+    c.hideLocationNames = ReadInt("HUD", "LocationNames", 0) == 0;
+    c.hudHeatIconFrom = Clamp(ReadFloat("HUD", "HeatIconFrom", c.hudHeatIconFrom), 0.0f, 1.0f);
     c.hudHeatFrom = Clamp(ReadFloat("HUD", "HeatFrom", c.hudHeatFrom), 0.0f, 0.95f);
     c.hudWarn = Clamp(ReadFloat("HUD", "Warn", c.hudWarn), 0.0f, 1.0f);
     c.hudDepth = ReadFloat("HUD", "Depth", c.hudDepth);

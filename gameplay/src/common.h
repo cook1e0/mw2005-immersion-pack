@@ -112,8 +112,9 @@ struct Config {
     float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
-    bool  noSuvCops = true;         // no SUV cops (heavy support, SUV patrols, roadblocks)
+    bool  noHeavySupport = true;    // no heavy support: the ramming SUVs sent head-on at you (SUV patrols stay)
     bool  normalDragRaces = true;   // the player drives drag races normally (no auto lane steering, normal engine and damage)
+    bool  normalDragHud = true;     // drag races show the normal race HUD, not the drag HUD (from the next race)
     float heatSmokeFrom = 0.5f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep
     float damageLossStart = 0.3f;   // damage where the engine starts losing power
@@ -130,6 +131,11 @@ struct Config {
     bool  hudMeter = true;
     bool  speedbreaker = false;     // the game's speedbreaker (its meter is taken over)
     std::string hudIcon = "INGAME_ICON_PLAYERCAR"; // texture replacing the speedbreaker clock
+    bool  hideInfractions = true;   // no infractions popup on the HUD
+    bool  hideCostToState = true;   // no cost to state popup on the HUD
+    bool  hideLocationNames = true; // no area name ("Ocean View") on entering a neighbourhood
+    float hudHeatIconFrom = 0.5f;   // engine heat from which the engine warning icon flashes
+    std::string hudHeatIcon = "ENGINE_HEAT_ICON,HEAT_ICON"; // engine warning icon: first loaded texture of these
     float hudHeatFrom = 0.5f;       // heat where the red overlay starts filling
     float hudWarn = 0.75f;          // heat or damage at which the meter and car icon flash
     bool  hudFillUp = true;         // the meter fills from the bottom up (the game's arc fills downwards)
