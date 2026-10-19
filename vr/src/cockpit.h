@@ -4,6 +4,10 @@
 #include "vrmath.h"
 #include <vector>
 
+// Captures the values a car model with no saved per-car settings starts from: the mod's built-in
+// defaults (Config's own), not the [VR] values. Call once before LoadConfig, so a model you have
+// never set up never inherits the last car's HUD or dashboard placement.
+void Cockpit_PerCarDefaults();
 void Cockpit_Install();
 // Called with the game camera's world->view matrix before the eyes are placed; moves it to the
 // driver's seat in the bumper and hood cameras. Returns true if it did.
@@ -23,6 +27,11 @@ extern float g_seatInput[4];
 // submitted for the current eye, it is handed to the d3d9 side (D3D_AddMirror) to be drawn with
 // the rear view right after its model. Before each eye's scene: forget the previous eye's.
 void Cockpit_BeginEye();
+// Whether `matrix` is a local-to-world matrix the player's own car (body, parts, driver, steering
+// wheel) was submitted with for the player view in the current eye.
+bool Cockpit_IsPlayerCarMatrix(const void* matrix);
+// How many such matrices this eye (0: the car was not drawn in the player view).
+int Cockpit_PlayerCarMatrices();
 // The headset's gaze in the world (centre of the eyes, forward), for the triangle editor's picking
 // in the next frame.
 void Cockpit_SetGaze(const float pos[3], const float dir[3]);

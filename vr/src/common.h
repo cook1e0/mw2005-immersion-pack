@@ -5,6 +5,7 @@
 #define NOMINMAX
 #include <windows.h>
 #include <stdint.h>
+#include <math.h>      // NAN (the dashboard elements' default: automatic layout)
 
 // ---------------------------------------------------------------------------
 // Logging (nfsmw_vr.log next to speed.exe)
@@ -27,6 +28,8 @@ struct Config {
     float resolutionScale = 1.0f;  // multiplies the "auto" resolution
     float fovScale = 1.0f;         // >1 renders a slightly wider FOV than the HMD (more reprojection margin)
     float nearZ = 0.05f;           // player view near clip plane (m; the game's is 0.5), so the cockpit isn't cut off; 0 = the game's own
+    bool  depthSplit = true;       // seated: the player car gets NearZ, the world WorldNearZ, in separate parts of the depth buffer
+    float worldNearZ = 0.3f;       // with DepthSplit, the near plane of everything but the player car (m)
     float screenDistance = 2.5f;   // menu/movie virtual screen distance (m)
     float screenWidth = 3.0f;      // menu/movie virtual screen width (m)
     float hudDistance = 1.2f;      // in-game HUD/frontend panel distance (m)
@@ -62,9 +65,10 @@ struct Config {
     float dashDepth = 0.0f;          // ... and toward the driver (m) from 3 cm off the gauge cluster
     float dashCover = 1.3f;          // (old rectangle cover, no longer drawn: the gauges' own triangles are black)
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
-    // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard,
-    // per car in [DashLayout] with HudPerCar. Keys: Dash<Name>X / Y / Size.
-    float dashEl[6][3];
+    // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard;
+    // shared by all cars in [DashLayout] Default. Legacy [DashLayout] SUPRA is used if Default is absent.
+    float dashEl[6][3] = {{NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f},
+                          {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}};
     // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture, the game's
     // own 4:3 layout: the widescreen fix's FixHUD off). Keys Dash<Name>L / T / R / B; the same for every
     // car (it's the HUD's layout).
@@ -95,6 +99,12 @@ struct Config {
     float editBrush = 0.0f;          // triangle editor brush radius (m, 0 = one triangle)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
+    int   envMapFacesPerFrame = 2;   // environment map cube faces refreshed per VR frame (1..6, 6 = every face every frame)
+    int   rearViewEvery = 1;         // the rear view is rendered every Nth VR frame (1 = every frame)
+    bool  logGlassShader = false;    // debug: disassemble the game's glass vertex shader into the log (one-off cost)
+    bool  logPasses = false;         // debug: list how often the game binds each render target per frame (per-eye vs shared passes)
+    bool  eyeCameraShared = false;   // debug: render both eyes from the seat camera (no eye offset), so a difference
+                                     // between the two images is per-eye state (a pool, a counter, a matrix) instead of the eye's viewpoint
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
     bool  stableReflections = true; // reflections use the seat's view, not the head's (they sit still as the head moves)
     bool  mirrors = true;            // the game's rear view on the interior rear view mirror (VR), no HUD mirror
@@ -110,6 +120,8 @@ struct Config {
     int   keySeatForward = VK_NUMPAD8, keySeatBack = VK_NUMPAD2;
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
     int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;
+    int   keyToggleShared = 0;       // debug: toggle reusing the rear-view/environment-map views
+    int   keyToggleSameEye = 0;      // debug: toggle rendering both eyes from the same (seat) camera
 };
 extern Config g_cfg;
 // Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.

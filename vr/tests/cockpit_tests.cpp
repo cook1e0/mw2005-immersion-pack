@@ -31,6 +31,16 @@ static void Check(bool ok, const char* message) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", message); exit(1); }
 }
 static void Near(float a, float b, const char* message) { Check(fabsf(a - b) < 0.0002f, message); }
+static void TestWheelOctants() {
+    for (int x = -20; x <= 20; x++) {
+        for (int y = -20; y <= 20; y++) {
+            float du = x * 0.13f, dw = y * 0.17f;
+            int expected = (int)((atan2f(dw, du) + 3.14159265f) / (3.14159265f / 4)) & 7;
+            Check(WheelOctant(du, dw) == expected, "fast wheel-search octant matches the angular bin");
+        }
+    }
+}
+
 static M4 Identity() {
     M4 m = {};
     for (int i = 0; i < 4; i++) m.m[i][i] = 1;
@@ -114,10 +124,12 @@ static void TestReloadedDriver() {
     Check(first && first->ok && first->body[0] == 1 && first->heads[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
     Check(GetDriver(solid) == first, "unchanged driver stays cached");
 
-    // Reloaded in place: same pointers, original triangle order and a new vertex buffer.
+    // Reloaded in place: same pointers, original triangle order and a new vertex buffer. Models are
+    // streamed between frames, so the change is looked for at the frame boundary.
     memcpy(indices, original, sizeof(indices));
     memcpy(ib.data, original, sizeof(indices));
     At<uintptr_t>(entry, 0x54) = 0x2222;
+    Cockpit_EndFrame();
     Driver* second = GetDriver(solid);
     Check(second && second != first && second->ok && indices[0] == 0 && s_retired.size() == 1, "reloaded driver prepared again");
 
@@ -278,6 +290,58 @@ static void TestSteeringWheel() {
     for (int c = 0; c < 3; c++) out[c] = top[0] * turned[c] + top[1] * turned[4 + c] + top[2] * turned[8 + c] + turned[12 + c];
     Check(out[1] < w->centre[1] - radius * 0.9f, "turning right moves the top of the wheel right");
     Near(out[0] * n[0] + out[2] * n[2], w->centre[0] * n[0] + w->centre[2] * n[2], "wheel stays in its plane");
+
+    static uint8_t reloadedSolid[0x100], reloadedPlat[0x40], reloadedEntry[kEntrySize], reloadedFormat[16];
+    static float reloadedVerts[4096 * 3];
+    static uint16_t reloadedIndices[4096];
+    static FakeIb reloadedIb;
+    Check(ni <= 4096, "wheel cache reload fixtures fit test buffers");
+    memset(reloadedVerts, 0, sizeof(reloadedVerts));  // A cache hit must not run wheel discovery again.
+    strcpy((char*)reloadedSolid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(reloadedSolid, kSolidPlat) = reloadedPlat;
+    At<int>(reloadedPlat, kPlatNumEntries) = 1;
+    At<uint8_t*>(reloadedPlat, kPlatEntries) = reloadedEntry;
+    At<uint16_t*>(reloadedPlat, kPlatIndices) = reloadedIndices;
+    At<IDirect3DIndexBuffer9*>(reloadedPlat, kPlatIndexBuffer) = &reloadedIb;
+    At<int>(reloadedPlat, kPlatNumIndices) = ni;
+    memcpy(reloadedEntry, entry, kEntrySize);
+    memcpy(reloadedFormat, format, sizeof(format));
+    At<uint8_t*>(reloadedEntry, kEntryFormat) = reloadedFormat;
+    At<float*>(reloadedEntry, kEntryVertices) = reloadedVerts;
+    memset(reloadedIndices, 0, ni * sizeof(uint16_t));
+    memset(reloadedIb.data, 0, ni * sizeof(uint16_t));
+    reloadedIb.size = ni * sizeof(uint16_t);
+    SolidInfo* reloaded = GetSolid(reloadedSolid);
+    Check(reloaded->wheel && reloaded->wheel->ok, "reloaded interior reuses cached wheel preparation");
+    Check(reloaded->wheel->turned[0] == w->turned[0] &&
+          memcmp(reloadedIndices, indices, ni * sizeof(uint16_t)) == 0,
+          "reloaded model receives cached wheel split and index order");
+
+    EditSet& edits = EditsFor("TESTCAR_KIT00_INTERIOR_A");
+    edits.wheel.insert(TriId(indices[0], indices[1], indices[2]));
+    ApplyEditsTo("TESTCAR_KIT00_INTERIOR_A", true);
+    Check(info->wheel && info->wheel->turned[0] == 193, "wheel triangle picker edit rebuilds prepared wheel");
+
+    static uint8_t editedReloadSolid[0x100], editedReloadPlat[0x40], editedReloadEntry[kEntrySize], editedReloadFormat[16];
+    static uint16_t editedReloadIndices[4096];
+    static FakeIb editedReloadIb;
+    strcpy((char*)editedReloadSolid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(editedReloadSolid, kSolidPlat) = editedReloadPlat;
+    At<int>(editedReloadPlat, kPlatNumEntries) = 1;
+    At<uint8_t*>(editedReloadPlat, kPlatEntries) = editedReloadEntry;
+    At<uint16_t*>(editedReloadPlat, kPlatIndices) = editedReloadIndices;
+    At<IDirect3DIndexBuffer9*>(editedReloadPlat, kPlatIndexBuffer) = &editedReloadIb;
+    At<int>(editedReloadPlat, kPlatNumIndices) = ni;
+    memcpy(editedReloadEntry, entry, kEntrySize);
+    memcpy(editedReloadFormat, format, sizeof(format));
+    At<uint8_t*>(editedReloadEntry, kEntryFormat) = editedReloadFormat;
+    At<float*>(editedReloadEntry, kEntryVertices) = reloadedVerts;
+    memset(editedReloadIndices, 0, ni * sizeof(uint16_t));
+    memset(editedReloadIb.data, 0, ni * sizeof(uint16_t));
+    editedReloadIb.size = ni * sizeof(uint16_t);
+    SolidInfo* editedReload = GetSolid(editedReloadSolid);
+    Check(editedReload->wheel && editedReload->wheel->ok && editedReload->wheel->turned[0] == 193,
+          "reloaded model uses refreshed wheel-picker template");
     g_cfg.steeringWheel = false;
 }
 
@@ -411,6 +475,37 @@ static void TestDash() {
     g_cfg.dashRight = 0;
 }
 
+// The HUD and dashboard panel placement stay per car, while the dashboard element layout is shared.
+static void TestPerCarDefaults() {
+    const float defW = 1.4f, defD = 1.2f, defH = -0.05f, defR = 0.0f, defZ = 1.0f;
+    // Simulate startup: the built-in defaults are captured before the ini is read.
+    g_cfg.hudWidth = defW; g_cfg.hudDistance = defD; g_cfg.hudHeight = defH; g_cfg.hudRight = defR;
+    g_cfg.dashRight = 0; g_cfg.dashUp = 0; g_cfg.dashZoom = defZ;
+    for (int i = 0; i < 6; i++) g_cfg.dashEl[i][0] = g_cfg.dashEl[i][1] = NAN;   // automatic layout
+    Cockpit_PerCarDefaults();
+    g_cfg.hudPerCar = 1.0f;
+    UpdateHudCar("PERCAR_A");
+    // The driver tunes model A (no saved line is written: the test's ini path does not exist).
+    g_cfg.hudWidth = 0.6f; g_cfg.hudDistance = 2.1f; g_cfg.hudHeight = 0.3f; g_cfg.hudRight = 0.25f;
+    g_cfg.dashRight = 0.3f; g_cfg.dashUp = -0.1f; g_cfg.dashZoom = 1.8f; g_cfg.dashDepth = 0.12f;
+    g_cfg.dashEl[0][0] = 0.11f; g_cfg.dashEl[0][1] = -0.22f; g_cfg.dashEl[0][2] = 1.7f;
+    // A different model gets independent HUD and panel placement, but keeps the shared element layout.
+    UpdateHudCar("PERCAR_B");
+    Near(g_cfg.hudWidth, defW, "a model with none saved starts at the built-in HUD size");
+    Near(g_cfg.hudDistance, defD, "HUD distance, not the previous model's");
+    Near(g_cfg.hudHeight, defH, "HUD height, not the previous model's");
+    Near(g_cfg.hudRight, defR, "HUD right, not the previous model's");
+    Near(g_cfg.dashRight, 0, "dashboard panel right position is per car");
+    Near(g_cfg.dashUp, 0, "dashboard panel up position is per car");
+    Near(g_cfg.dashZoom, defZ, "dashboard panel zoom is per car");
+    Near(g_cfg.dashDepth, 0, "dashboard panel depth is per car");
+    Near(g_cfg.dashEl[0][0], 0.11f, "dashboard element layout is shared between cars");
+    Near(g_cfg.dashEl[0][1], -0.22f, "dashboard element vertical position is shared between cars");
+    Near(g_cfg.dashEl[0][2], 1.7f, "dashboard element size is shared between cars");
+    UpdateHudCar("");
+    g_cfg.hudPerCar = 0.0f;
+}
+
 // Triangle ids ignore order and winding; the edits file's text round-trips.
 static void TestEditsText() {
     Check(TriId(5, 2, 9) == TriId(9, 5, 2) && TriId(2, 9, 5) == TriId(2, 5, 9), "triangle id ignores order");
@@ -422,6 +517,7 @@ static void TestEditsText() {
 }
 
 int main() {
+    TestWheelOctants();
     TestDash();
     TestEditsText();
     TestLevelUpsideDown();
@@ -508,5 +604,6 @@ int main() {
     TestReloadedDriver();
     TestArms();
     TestSteeringWheel();
-    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers and steering wheel");
+    TestPerCarDefaults();
+    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers, steering wheel and per-model HUD defaults");
 }

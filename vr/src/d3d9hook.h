@@ -13,8 +13,16 @@ void D3D_CaptureEye(int eye);
 // Initialises OpenXR if it hasn't been yet. Returns whether VR is available.
 bool D3D_EnsureXr();
 
+// Builds what the mirrors and the in-car dashboard would otherwise build on their first draw
+// (compiler, shaders, dashboard textures, state block), while the game is still loading.
+void D3D_WarmUp();
+
 // Records the render target / depth buffer bound when the scene render starts.
 void D3D_BeginEyes();
+// Which eye's scene render is running, for the per-frame pass log ([VR] LogPasses): 0 or 1 inside
+// an eye, -1 outside (frame setup, HUD).
+void D3D_EyePassBegin(int eye);
+void D3D_EyeRenderProfile(int eye, double seconds);
 // Restores the state the game's own post-Present Clear leaves the frame in, so the
 // next eye starts from the same blank targets as the first one.
 void D3D_ResetForNextEye();

@@ -111,6 +111,11 @@ struct Wheel {
     std::vector<int> kept, turned;                  // per entry: triangles before the wheel, wheel triangles
     std::vector<uint8_t> parts;                     // per entry: the entry without the wheel, the wheel alone
 };
+struct WheelTemplate {
+    Wheel wheel;
+    std::vector<uint16_t> orderedIndices;
+    std::vector<std::pair<int, int>> entryRanges;    // first index, triangle count per entry
+};
 // Side mirror glass that shares a draw entry with the rest of the body (BMW M3 GTR): in each such
 // entry its triangles are moved to the end, the other triangles first, then the left glass, then
 // the right, and the entry is submitted as up to three parts so the glass has draws of its own.
@@ -242,6 +247,7 @@ struct SolidInfo {
     void* ib = nullptr;
     uint16_t* indices = nullptr;
     uint32_t indexHash = 0;                         // of the game's index copy, after reordering
+    int hashSeen = -1;                              // eye the index hash above was last checked on
     // Triangle editor: the solid's triangles (built when needed, again after its indices changed),
     // the hidden ones as applied to the index buffer (id -> winding), and what is drawn black.
     std::vector<TriRef> tris;
@@ -252,6 +258,7 @@ struct SolidInfo {
     bool blackDirty = true;
 };
 std::unordered_map<uint8_t*, SolidInfo> s_solids;
+std::unordered_map<std::string, std::vector<WheelTemplate>> s_wheelTemplates;
 std::vector<Driver*> s_retired;                     // replaced this frame; queued draws may still use them
 std::vector<Wheel*> s_retiredWheels;
 std::vector<GlassSplit*> s_retiredSplits;
@@ -281,6 +288,7 @@ struct {
 uint8_t* s_curConn = nullptr;
 M4 s_curBody;
 bool s_curPov;
+bool s_curPlayerCar = false;
 // Compare only a seat actually applied in this frame, to the same car's player-view draw.
 uint8_t* s_seatedConn = nullptr;
 M4 s_seatedBody;
@@ -323,9 +331,13 @@ void SaveOffset() {
     Log("cockpit: seat for %s saved: %s", s_offsetCar.c_str(), buf);
 }
 
-// The HUD panel and the in-car dashboard per car (HudPerCar), like the seat: entering a car loads
-// its own values if it has them (else the last used stay); changes made in a car are saved for it
-// once they have settled for a second. [Hud]: size, distance, height, right; [Dash]: right, up, zoom.
+// The HUD panel and the in-car dashboard per car model (HudPerCar), like the seat: entering a car
+// loads its own values if it has them, and a model with none starts from the mod's built-in
+// defaults (captured before the config is read) instead of the last car's, so one model's
+// placement never carries over to another. Changes made in a car are saved for it once they have
+// settled for a second.
+// [Hud]: size, distance, height, right; [Dash]: panel placement and size per car;
+// [DashLayout]: element positions and sizes shared by all cars (legacy values from SUPRA migrate).
 struct PerCar {
     const char* section;
     const char* what;
@@ -335,10 +347,14 @@ struct PerCar {
     int least;                                      // values a line needs (older lines lack the last ones)
     bool nanOk;                                     // NaN accepted (automatic placement)
     bool always = false;                            // per car whatever HudPerCar says (like the seat)
+    bool zeroBase = false;                          // always start at 0, not the captured base (the wheel pivot)
+    const char* fallbackKey = nullptr;              // older shared layout to read if the new global entry is absent
+    bool preserveBaseIfMissing = false;             // global config values already loaded by LoadConfig
     std::string car;
     float seen[20] = {};
     bool dirty = false;
     double changed = 0;
+    float base[20] = {};                            // the mod's built-in values: where a model with none of its own starts
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
@@ -354,12 +370,12 @@ PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                            &g_cfg.dashEl[4][0], &g_cfg.dashEl[4][1], &g_cfg.dashEl[4][2], &g_cfg.dashEl[5][0],
                            &g_cfg.dashEl[5][1], &g_cfg.dashEl[5][2]},
                           {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
-                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true};
+                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true, false, "SUPRA", true};
 
 PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirrorOffset}, {-0.1f}, {0.1f}, 1, false, true};
 // The steering wheel's turning centre moved (right, up; Config::wheelPivot).
 PerCar s_pivotCar = {"WheelPivot", "steering wheel turning centre", 2, {&g_cfg.wheelPivot[0], &g_cfg.wheelPivot[1]},
-                     {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true};
+                     {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true, true};
 
 void SavePerCar(PerCar& p) {
     char buf[512];
@@ -382,6 +398,11 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         p.car = car;
         char buf[512];
         GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
+        const char* source = car.c_str();
+        if (!*buf && p.fallbackKey) {
+            GetPrivateProfileStringA(p.section, p.fallbackKey, "", buf, sizeof(buf), IniPath());
+            if (*buf) source = p.fallbackKey;
+        }
         // Lines saved before a value existed lack it (older [Hud]: no "right", 0; [Dash]: no cover,
         // the current one stays).
         float x[20] = {};
@@ -399,9 +420,14 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         for (int i = 0; i < p.n && ok; i++) ok = (p.nanOk && x[i] != x[i]) || (x[i] >= p.lo[i] && x[i] <= p.hi[i]);
         if (ok) {
             for (int i = 0; i < p.n; i++) *p.v[i] = x[i];
-            Log("cockpit: %s for %s: %s", p.what, car.c_str(), buf);
+            Log("cockpit: %s from %s for all cars: %s", p.what, source, buf);
+        } else if (p.preserveBaseIfMissing) {
+            Log("cockpit: %s: no shared entry, current config values kept", p.what);
         } else {
-            Log("cockpit: %s for %s: none saved yet, the last used stays", p.what, car.c_str());
+            // No line for this car model: start from the mod's defaults, not the car we came
+            // from, so each model's placement is its own.
+            for (int i = 0; i < p.n; i++) *p.v[i] = p.base[i];
+            Log("cockpit: %s for %s: none saved, the default used", p.what, car.c_str());
         }
         for (int i = 0; i < p.n; i++) p.seen[i] = *p.v[i];
         return;
@@ -423,7 +449,7 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
 void UpdateHudCar(const std::string& car) {
     UpdatePerCar(s_hudCar, car);
     UpdatePerCar(s_dashCar, car);
-    UpdatePerCar(s_dashLayoutCar, car);
+    UpdatePerCar(s_dashLayoutCar, "Default");
     UpdatePerCar(s_mirrorCar, car);
     if (car != s_pivotCar.car && !car.empty()) {   // a car with none saved: none
         if (s_pivotCar.dirty && !s_pivotCar.car.empty()) SavePerCar(s_pivotCar);
@@ -556,6 +582,16 @@ Driver* Prepare(uint8_t* solid, const char* name) {
 
 // Ring search, in planes tilted back by 0..40 degrees: for each centre, count vertices by distance
 // along the column and by radius, and take the bin with the most vertices spread all round.
+int WheelOctant(float du, float dw) {
+    if (du == 0 && dw == 0) return 4;
+    if (du >= 0) {
+        if (dw >= 0) return du == 0 ? 6 : (dw < du ? 4 : 5);
+        return du == 0 || -dw > du ? 2 : 3;
+    }
+    if (dw >= 0) return dw == 0 ? 0 : (dw > -du ? 6 : 7);
+    return -dw < -du ? 0 : 1;
+}
+
 bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w) {
     std::vector<V3> cand;
     for (const V3& p : pts)
@@ -563,50 +599,70 @@ bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w) {
             p.z < head[2] - 0.02f)
             cand.push_back(p);
     if (cand.size() < 12) return false;
-    struct Bin { int count; uint8_t octants; };
-    static Bin bins[160][20];
+    struct Bin { int count; uint8_t octants; uint32_t epoch; };
+    Bin bins[160][20] = {};
     std::vector<int> used;
+    used.reserve(3200);
     int bestScore = 0;
     float best[5] = {};                             // tilt, centre y, centre height, column distance, radius
+    int bestCwi = 0;
     std::vector<float> d(cand.size()), wv(cand.size());
-    for (int ti = 0; ti <= 16; ti++) {
-        float th = ti * 2.5f * 3.14159265f / 180.0f;
-        float n[2] = {cosf(th), -sinf(th)}, up[2] = {sinf(th), cosf(th)};   // (x, z) of the column and wheel-up axes
-        for (size_t k = 0; k < cand.size(); k++) {
-            d[k] = cand[k].x * n[0] + cand[k].z * n[1];
-            wv[k] = cand[k].x * up[0] + cand[k].z * up[1];
-        }
-        float headW = head[0] * up[0] + head[2] * up[1];
-        for (int cu10 = -3; cu10 <= 3; cu10++) {
-            float cu = head[1] + cu10 * 0.02f;
-            for (int cwi = 0; cwi < 50; cwi++) {
-                float cw = headW - 0.55f + cwi * 0.01f;
-                for (int key : used) bins[key / 20][key % 20] = {0, 0};
-                used.clear();
-                for (size_t k = 0; k < cand.size(); k++) {
-                    float du = cand[k].y - cu, dw = wv[k] - cw;
-                    float r = sqrtf(du * du + dw * dw);
-                    if (r < 0.12f || r > 0.24f) continue;
-                    int db = (int)lrintf(d[k] / 0.02f) + 80, rb = (int)lrintf(r / 0.015f);
-                    if (db < 0 || db >= 160 || rb < 0 || rb >= 20) continue;
-                    Bin& b = bins[db][rb];
-                    if (!b.count) used.push_back(db * 20 + rb);
-                    b.count++;
-                    int oct = (int)((atan2f(dw, du) + 3.14159265f) / (3.14159265f / 4)) & 7;
-                    b.octants |= (uint8_t)(1 << oct);
-                }
-                for (int key : used) {
-                    const Bin& b = bins[key / 20][key % 20];
-                    int octs = 0;
-                    for (int o = 0; o < 8; o++) octs += (b.octants >> o) & 1;
-                    if (octs < 7 || b.count * octs <= bestScore) continue;
-                    bestScore = b.count * octs;
-                    best[0] = th; best[1] = cu; best[2] = cw;
-                    best[3] = (key / 20 - 80) * 0.02f; best[4] = (key % 20) * 0.015f;
+    uint32_t epoch = 0;
+    auto scan = [&](int cwiFirst, int cwiLast, int cwiStep) {
+        for (int ti = 0; ti <= 16; ti++) {
+            float th = ti * 2.5f * 3.14159265f / 180.0f;
+            float n[2] = {cosf(th), -sinf(th)}, up[2] = {sinf(th), cosf(th)};
+            for (size_t k = 0; k < cand.size(); k++) {
+                d[k] = cand[k].x * n[0] + cand[k].z * n[1];
+                wv[k] = cand[k].x * up[0] + cand[k].z * up[1];
+            }
+            float headW = head[0] * up[0] + head[2] * up[1];
+            for (int cu10 = -3; cu10 <= 3; cu10++) {
+                float cu = head[1] + cu10 * 0.02f;
+                for (int cwi = cwiFirst; cwi <= cwiLast; cwi += cwiStep) {
+                    float cw = headW - 0.55f + cwi * 0.01f;
+                    used.clear();
+                    if (++epoch == 0) {
+                        memset(bins, 0, sizeof(bins));
+                        epoch = 1;
+                    }
+                    for (size_t k = 0; k < cand.size(); k++) {
+                        float du = cand[k].y - cu;
+                        if (fabsf(du) > 0.24f) continue;
+                        float dw = wv[k] - cw;
+                        if (fabsf(dw) > 0.24f) continue;
+                        float r2 = du * du + dw * dw;
+                        if (r2 < 0.014399f || r2 > 0.057601f) continue;
+                        int db = (int)lrintf(d[k] / 0.02f) + 80;
+                        int rb = (int)lrintf(sqrtf(r2) / 0.015f);
+                        if (db < 0 || db >= 160 || rb < 0 || rb >= 20) continue;
+                        Bin& b = bins[db][rb];
+                        if (b.epoch != epoch) {
+                            b.count = 0;
+                            b.octants = 0;
+                            b.epoch = epoch;
+                            used.push_back(db * 20 + rb);
+                        }
+                        b.count++;
+                        b.octants |= (uint8_t)(1 << WheelOctant(du, dw));
+                    }
+                    for (int key : used) {
+                        const Bin& b = bins[key / 20][key % 20];
+                        int octs = 0;
+                        for (int o = 0; o < 8; o++) octs += (b.octants >> o) & 1;
+                        if (octs < 7 || b.count * octs <= bestScore) continue;
+                        bestScore = b.count * octs;
+                        best[0] = th; best[1] = cu; best[2] = cw;
+                        best[3] = (key / 20 - 80) * 0.02f; best[4] = (key % 20) * 0.015f;
+                        bestCwi = cwi;
+                    }
                 }
             }
         }
-    }
+    };
+    scan(0, 48, 4);
+    if (!bestScore) return false;
+    scan(std::max(0, bestCwi - 4), std::min(49, bestCwi + 4), 1);
     if (!bestScore) return false;
     float th = best[0];
     // Back from (column distance, wheel-up height) to model x and z.
@@ -822,6 +878,81 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
     return w;
 }
 
+bool WheelTemplateLayout(uint8_t* solid, const WheelTemplate& cached) {
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    if (!entries || n != (int)cached.entryRanges.size() || numIndices != (int)cached.orderedIndices.size()) return false;
+    for (int i = 0; i < n; i++) {
+        uint8_t* entry = entries + i * kEntrySize;
+        if (At<int>(entry, kEntryFirstIndex) != cached.entryRanges[i].first ||
+            At<int>(entry, kEntryTris) != cached.entryRanges[i].second)
+            return false;
+    }
+    return true;
+}
+
+Wheel* ReuseWheelTemplate(uint8_t* solid, const char* name) {
+    auto templates = s_wheelTemplates.find(name);
+    if (templates == s_wheelTemplates.end()) return nullptr;
+    for (const WheelTemplate& cached : templates->second) {
+        if (!WheelTemplateLayout(solid, cached)) continue;
+        uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+        uint16_t* indices = At<uint16_t*>(plat, kPlatIndices);
+        auto* ib = At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer);
+        D3DINDEXBUFFER_DESC desc;
+        if (!indices || !ib || FAILED(ib->GetDesc(&desc)) || desc.Format != D3DFMT_INDEX16 ||
+            desc.Size < cached.orderedIndices.size() * sizeof(uint16_t)) {
+            Log("cockpit: %s: cached steering wheel layout is incompatible with its index buffer", name);
+            continue;
+        }
+        void* locked = nullptr;
+        UINT bytes = (UINT)(cached.orderedIndices.size() * sizeof(uint16_t));
+        if (FAILED(ib->Lock(0, bytes, &locked, 0)) || !locked) {
+            Log("cockpit: %s: cached steering wheel index buffer lock failed; preparing the model again", name);
+            continue;
+        }
+        memcpy(locked, cached.orderedIndices.data(), bytes);
+        ib->Unlock();
+        memcpy(indices, cached.orderedIndices.data(), bytes);
+        Wheel* wheel = new Wheel(cached.wheel);
+        int n = At<int>(plat, kPlatNumEntries);
+        wheel->parts.assign(n * 2 * kEntrySize, 0);
+        return wheel;
+    }
+    return nullptr;
+}
+
+void RememberWheelTemplate(uint8_t* solid, const std::string& name, const Wheel& wheel) {
+    if (!wheel.ok) return;
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    if (!entries || !indices || n <= 0 || numIndices <= 0 || n != (int)wheel.turned.size()) return;
+
+    WheelTemplate cached;
+    cached.wheel = wheel;
+    cached.wheel.parts.clear();
+    cached.orderedIndices.assign(indices, indices + numIndices);
+    cached.entryRanges.reserve(n);
+    for (int i = 0; i < n; i++) {
+        uint8_t* entry = entries + i * kEntrySize;
+        cached.entryRanges.push_back({At<int>(entry, kEntryFirstIndex), At<int>(entry, kEntryTris)});
+    }
+
+    auto& variants = s_wheelTemplates[name];
+    for (WheelTemplate& variant : variants) {
+        if (variant.entryRanges == cached.entryRanges && variant.orderedIndices.size() == cached.orderedIndices.size()) {
+            variant = std::move(cached);
+            return;
+        }
+    }
+    variants.push_back(std::move(cached));
+}
+
 // The car-model -> world matrix with the wheel turned by `degrees` (+ = clockwise, to the right,
 // as the driver sees it) about the column: row vectors, so M' = T * M with T turning about the
 // centre in model space. A right-handed turn about the column (toward the dash) lifts the left
@@ -885,6 +1016,8 @@ const HeadPos* CarHead(const char* name) {
 
 void ApplyHides(uint8_t* solid, SolidInfo& info);
 void RestoreAll(uint8_t* solid, SolidInfo& info);
+// Bumped once a frame (Cockpit_EndFrame), in VR and on a flat screen alike.
+int s_hashSerial = 0;
 
 SolidInfo* GetSolid(uint8_t* solid) {
     SolidInfo now;
@@ -896,15 +1029,29 @@ SolidInfo* GetSolid(uint8_t* solid) {
         SolidInfo& was = it->second;
         bool same = !memcmp(was.name, now.name, sizeof(now.name)) && was.plat == now.plat &&
                     was.entries == now.entries && was.ib == now.ib && was.indices == now.indices;
-        // A model reloaded in place has its original triangle order back.
-        if (same && ((was.driver && was.driver->ok) || (was.wheel && was.wheel->ok) || was.split))
-            same = CurrentHash(now) == was.indexHash;
+        // Drivers and split mirror entries can be restored in place by streaming. Wheel geometry
+        // stays cached; only watch its indices while the triangle editor is active, where edits
+        // require an explicit refresh.
+        bool watchIndices = (was.driver && was.driver->ok) || was.split ||
+                            ((was.wheel && was.wheel->ok) && (g_cfg.editorOn > 0.5f || g_cfg.editPicking > 0.5f));
+        if (same && watchIndices) {
+            if (was.hashSeen == s_hashSerial)
+                same = true;
+            else {
+                was.hashSeen = s_hashSerial;
+                same = CurrentHash(now) == was.indexHash;
+            }
+        }
         if (same) {
             // An interior seen before its car's driver: look for the wheel once the head is known.
             if (was.interior && !was.wheel && g_cfg.steeringWheel) {
                 if (const HeadPos* head = CarHead(name)) {
                     RestoreAll(solid, was);
-                    was.wheel = PrepareWheel(solid, name, head->v);
+                    was.wheel = ReuseWheelTemplate(solid, name);
+                    if (!was.wheel) {
+                        was.wheel = PrepareWheel(solid, name, head->v);
+                        if (was.wheel) RememberWheelTemplate(solid, name, *was.wheel);
+                    }
                     was.indexHash = CurrentHash(now);
                     ApplyHides(solid, was);
                 }
@@ -927,8 +1074,15 @@ SolidInfo* GetSolid(uint8_t* solid) {
     }
     now.driver = strstr(name, "_DRIVER") ? Prepare(solid, name) : nullptr;
     now.interior = strstr(name, "_INTERIOR") != nullptr;
-    if (now.interior && g_cfg.steeringWheel)
-        if (const HeadPos* head = CarHead(name)) now.wheel = PrepareWheel(solid, name, head->v);
+    if (now.interior && g_cfg.steeringWheel) {
+        if (const HeadPos* head = CarHead(name)) {
+            now.wheel = ReuseWheelTemplate(solid, name);
+            if (!now.wheel) {
+                now.wheel = PrepareWheel(solid, name, head->v);
+                if (now.wheel) RememberWheelTemplate(solid, name, *now.wheel);
+            }
+        }
+    }
     now.indexHash = CurrentHash(now);
     SolidInfo& stored = s_solids[solid];
     stored = now;
@@ -974,9 +1128,13 @@ void __fastcall hkOnRender(uint8_t* conn, void* edx, uint8_t* view, int reflecti
     uint8_t* prev = s_curConn;
     M4 prevBody = s_curBody;
     bool prevPov = s_curPov;
+    bool prevPlayerCar = s_curPlayerCar;
     s_curConn = !reflection && (uintptr_t)view == kPlayerView ? conn : nullptr;
+    s_curPlayerCar = false;
     if (s_curConn) {
-        s_curPov = DrawsWithPov(conn, view);
+        uint8_t* anchor = ViewAnchor(view);
+        s_curPlayerCar = anchor && At<uint32_t>(anchor, kAnchorWorldId) == At<uint32_t>(conn, kConnWorldId);
+        s_curPov = s_curPlayerCar && At<int16_t>(anchor, kAnchorPov) == 1;
         s_curBody = BodyMatrix(conn, s_curPov);
     }
     if (s_curConn && conn == s_seatedConn) {
@@ -990,6 +1148,7 @@ void __fastcall hkOnRender(uint8_t* conn, void* edx, uint8_t* view, int reflecti
     s_curConn = prev;
     s_curBody = prevBody;
     s_curPov = prevPov;
+    s_curPlayerCar = prevPlayerCar;
 }
 
 // CarRenderInfo::Render skips a car in the player view when the camera is within 4 m of it and,
@@ -1774,6 +1933,7 @@ void RestoreAll(uint8_t* solid, SolidInfo& info) {
 
 // Prepares the steering wheel of every loaded solid with that name again (after wheel edits).
 void RePrepareWheels(const std::string& name) {
+    s_wheelTemplates.erase(name);
     for (auto& kv : s_solids) {
         SolidInfo& info = kv.second;
         if (!info.interior || SolidName(info) != name) continue;
@@ -1782,6 +1942,7 @@ void RePrepareWheels(const std::string& name) {
         RestoreAll(kv.first, info);
         if (info.wheel) s_retiredWheels.push_back(info.wheel);
         info.wheel = PrepareWheel(kv.first, name.c_str(), head->v);
+        if (info.wheel) RememberWheelTemplate(kv.first, name, *info.wheel);
         info.indexHash = CurrentHash(info);
         info.trisDirty = info.blackDirty = true;
     }
@@ -2033,13 +2194,14 @@ int s_driverParts;
 uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
     SolidInfo* info = solid ? GetSolid(solid) : nullptr;
-    if (info && m && g_cfg.mirrors && DrawingPlayerCar()) NoteMirrors(solid, *info, m);
-    if (info && m && info->wheel && info->wheel->dashOk && g_cfg.dash > 0.5f && DrawingPlayerCar()) {
+    bool player = info && m && s_curConn && s_curPlayerCar;
+    if (player && g_cfg.mirrors) NoteMirrors(solid, *info, m);
+    if (player && info->wheel && info->wheel->dashOk && g_cfg.dash > 0.5f) {
         float origin[3], right[3], up[3], toEye[3];
         DashBasis(*info->wheel, m, origin, right, up, toEye);
         D3D_AddDash(At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer), origin, right, up, toEye);
     }
-    if (info && m && DrawingPlayerCar()) NoteEditor(solid, *info, m);
+    if (player) NoteEditor(solid, *info, m);
     Driver* d = info ? info->driver : nullptr;
     if (!d || !d->ok || !m) return entry;
     const float* h = d->head;
@@ -2047,8 +2209,7 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     for (int a = 0; a < 3; a++) world[a] = h[0] * m[a] + h[1] * m[4 + a] + h[2] * m[8 + a] + m[12 + a];
 
     // Seat measurement: the head in the game camera's space.
-    uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
-    if (s_haveBase && s_curConn && anchor && At<uint32_t>(anchor, kAnchorWorldId) == At<uint32_t>(s_curConn, kConnWorldId)) {
+    if (s_haveBase && s_curConn && s_curPlayerCar) {
         float rel[3], cam[3];
         for (int a = 0; a < 3; a++) rel[a] = world[a] - s_base.m[3][a];
         for (int r = 0; r < 3; r++) cam[r] = rel[0] * s_base.m[r][0] + rel[1] * s_base.m[r][1] + rel[2] * s_base.m[r][2];
@@ -2102,9 +2263,7 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
 
 // Whether the car drawn now in the player view is the player's own (the camera's anchor).
 bool DrawingPlayerCar() {
-    if (!s_curConn) return false;
-    uint8_t* anchor = ViewAnchor((uint8_t*)kPlayerView);
-    return anchor && At<uint32_t>(anchor, kAnchorWorldId) == At<uint32_t>(s_curConn, kConnWorldId);
+    return s_curConn && s_curPlayerCar;
 }
 
 // sub_6E0AB0 queues an entry for drawing, keeping pointers to it and to the matrix (its 6th
@@ -2113,12 +2272,27 @@ bool DrawingPlayerCar() {
 typedef void(__cdecl* SubmitEntry_t)(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5,
                                      const float* matrix, uint32_t a7, uint32_t a8, uint32_t a9);
 uint8_t* s_submitModel;
+// The matrices the player car's entries were queued with in this eye (the depth split, game.cpp:
+// the queue is drawn later through sub_6C8000 with the same matrix pointers).
+const void* s_carMatrices[64];
+int s_carMatrixCount;
+
+void MarkPlayerCarMatrix(const float* matrix) {
+    if (!matrix || !DrawingPlayerCar()) return;
+    for (int i = 0; i < s_carMatrixCount; i++)
+        if (s_carMatrices[i] == matrix) return;
+    if (s_carMatrixCount < 64) s_carMatrices[s_carMatrixCount++] = matrix;
+}
 float s_turned[256][16];
 unsigned s_turnedNext;
 
 void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, const float* matrix,
                          uint32_t a7, uint32_t a8, uint32_t a9) {
-    auto submit = (SubmitEntry_t)kSubmitEntry;
+    auto submit = [](uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5, const float* matrix,
+                     uint32_t a7, uint32_t a8, uint32_t a9) {
+        MarkPlayerCarMatrix(matrix);
+        ((SubmitEntry_t)kSubmitEntry)(entry, a2, a3, a4, a5, matrix, a7, a8, a9);
+    };
     uint8_t* model = s_submitModel;
     s_driverEntry = nullptr;
     uint8_t* e = OnSubmit(model, matrix, entry);
@@ -2214,6 +2388,15 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 
 }  // namespace
 
+// The values a car model with none of its own starts from: the mod's built-in defaults, captured
+// before the config is read. Called once from DllMain before LoadConfig (the F4 menu writes the
+// current car's values to [VR]) and before any car is seen or any layout auto-places.
+void Cockpit_PerCarDefaults() {
+    for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar})
+        for (int i = 0; i < p->n; i++) p->base[i] = p->zeroBase ? 0.0f : *p->v[i];
+    Log("cockpit: per-car defaults captured");
+}
+
 void Cockpit_Install() {
     if (!PatchCall(kCallSubmitEntry, kSubmitEntry, (void*)&hkSubmitEntry)) return;
     PatchCall(kCallCarCameraInside, kBoxIsInside, (void*)&hkCarCameraInside);
@@ -2290,6 +2473,7 @@ void Cockpit_EndFrame() {
     s_hits.clear();
     s_frameDone.clear();
     s_eyeIndex = -1;
+    s_hashSerial++;
     int cmd = (int)lrintf(g_cfg.editCommand);
     if (cmd) {
         g_cfg.editCommand = 0;
@@ -2359,7 +2543,16 @@ void Cockpit_Keys() {
     if (s_offsetDirty && !moving && !reset) SaveOffset();
 }
 
+bool Cockpit_IsPlayerCarMatrix(const void* matrix) {
+    for (int i = 0; i < s_carMatrixCount; i++)
+        if (s_carMatrices[i] == matrix) return true;
+    return false;
+}
+
+int Cockpit_PlayerCarMatrices() { return s_carMatrixCount; }
+
 void Cockpit_BeginEye() {
+    s_carMatrixCount = 0;
     s_mirrorDraws.clear();
     s_eyeDone.clear();
     s_eyeIndex++;
