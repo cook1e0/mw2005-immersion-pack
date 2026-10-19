@@ -152,7 +152,9 @@
   cost to state counter and the area name shown on entering a neighbourhood ("Ocean View") are left
   out of the HUD (`[HUD] Infractions=0`, `CostToState=0`, `LocationNames=0`; 1 shows them again).
   The pursuit itself and the rap sheet still count them. The log notes how many HUD objects each
-  hidden popup has.
+  hidden popup has. Area names are dropped by their own message style, so every other message
+  (totaled, busted, cops taken out, the free roam "TOTALED") still shows; a first version hid the
+  message text object itself and with it every message.
 
 ### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
 

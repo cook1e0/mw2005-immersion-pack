@@ -45,6 +45,7 @@ constexpr uintptr_t kGetTextureInfo = 0x503400;     // TextureInfo* GetTextureIn
 constexpr uintptr_t kVtblMultiImage = 0x8A2E3C;
 constexpr uintptr_t kIListFind = 0x5D59F0;          // IUnknown* UTL::COM::Object::_IList::Find(void*)
 constexpr uintptr_t kIGenericMessageHandle = 0x5650B0;
+constexpr uintptr_t kVtblGenericMessage = 0x8A2088;   // its IGenericMessage vtable (+4 RequestGenericMessage)
 constexpr uintptr_t kRequestGenericMessage = 0x568030; // bool GenericMessage::RequestGenericMessage(text, singleFrame,
                                                     //   fengHash, iconTexture, iconFengHash, priority)
 
@@ -582,7 +583,8 @@ bool Hud_Message(const char* text) {
     if (!s.meter || Now() - s.seen > 0.5) return false;
     void* outer = Field<void*>(s.meter + kSB_Iface, 4);    // IUnknown -> its UTL::COM::Object
     void* gm = outer ? ((IListFind_t)kIListFind)(outer, (void*)kIGenericMessageHandle) : nullptr;
-    if (!gm || Vtbl(gm)[1] != (void*)kRequestGenericMessage) {
+    // GenericMessage's own vtable (its RequestGenericMessage slot is the flow module's hook).
+    if (!gm || (uintptr_t)Vtbl(gm) != kVtblGenericMessage) {
         Log("hud: no generic message element");
         return false;
     }

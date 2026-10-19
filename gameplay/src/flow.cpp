@@ -221,10 +221,16 @@ void NoteText(uint8_t* obj, const wchar_t* text) {
 // built at 0x59D0C0) are HUD elements: each keeps the FE objects it drives in a list at +8
 // (node: next, prev, object at +8). Once one is built, those objects and everything inside them
 // are noted, and RenderObject leaves them out. The area name shown on entering a neighbourhood
-// ("Ocean View") is the generic message's text object DA768EA6, left out by its name.
+// ("Ocean View") is a generic message: LocalPlayer (0x6EE360, free roam only) finds the zone
+// trigger the car is in and, when it changes, requests the zone's name in its own message style
+// (0xA19BB14C, used by nothing else). Those requests are dropped at
+// GenericMessage::RequestGenericMessage (its vtable slot); every other message (totaled, busted,
+// cops taken out) goes through.
 constexpr uintptr_t kBuildInfractions = 0x5A1380, kCallBuildInfractions = 0x5A6B73;   // thiscall, 3 args
 constexpr uintptr_t kBuildCostToState = 0x59D0C0, kCallBuildCostToState = 0x5A6A69;   // thiscall, 3 args
-constexpr uint32_t kLocationText = 0xDA768EA6;
+constexpr uintptr_t kSlotRequestMessage = 0x8A208C;  // GenericMessage's IGenericMessage vtable: RequestGenericMessage
+constexpr uintptr_t kRequestMessage = 0x568030;
+constexpr uint32_t kLocationStyle = 0xA19BB14C;
 constexpr int kElemObjects = 0x08, kNodeObj = 0x08;
 constexpr int kGroupChildren = 0x5C, kListHead = 0x08;
 
@@ -246,6 +252,13 @@ void NoteElement(std::set<uint8_t*>& out, uint8_t* elem, const char* what) {
     Log("flow: %s hidden (%u HUD objects)", what, (unsigned)out.size());
 }
 
+bool __fastcall Hook_RequestMessage(void* gm, void* edx, const char* text, bool singleFrame, uint32_t style,
+                                    uint32_t icon, uint32_t iconStyle, int priority) {
+    if (style == kLocationStyle && g_cfg.hideLocationNames) return false;
+    return ((bool(__fastcall*)(void*, void*, const char*, bool, uint32_t, uint32_t, uint32_t, int))kRequestMessage)(
+        gm, edx, text, singleFrame, style, icon, iconStyle, priority);
+}
+
 void* __fastcall Hook_BuildInfractions(uint8_t* elem, void* edx, void* a, void* b, void* c) {
     void* r = ((void*(__fastcall*)(void*, void*, void*, void*, void*))kBuildInfractions)(elem, edx, a, b, c);
     if (g_cfg.hideInfractions) NoteElement(s_hiddenInfractions, elem, "infractions popup");
@@ -262,7 +275,6 @@ void* __fastcall Hook_BuildCostToState(uint8_t* elem, void* edx, void* a, void* 
 
 void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
     if (obj && (s_hiddenInfractions.count(obj) || s_hiddenCts.count(obj))) return;
-    if (obj && g_cfg.hideLocationNames && *(uint32_t*)(obj + kObjNameHash) == kLocationText) return;
     if (obj && *(int*)(obj + kObjType) == 2) {
         const wchar_t* text = *(const wchar_t**)(obj + kStringText);
         if (text && !IsBadReadPtr(text, 2)) {
@@ -459,6 +471,15 @@ void Flow_Install() {
         Log("flow: unexpected HUD code, infractions popup left");
     if (!RetargetCall(kCallBuildCostToState, kBuildCostToState, (void*)&Hook_BuildCostToState))
         Log("flow: unexpected HUD code, cost to state popup left");
+    if (*(uintptr_t*)kSlotRequestMessage == kRequestMessage) {
+        void* p = (void*)&Hook_RequestMessage;
+        DWORD old;
+        VirtualProtect((void*)kSlotRequestMessage, 4, PAGE_READWRITE, &old);
+        memcpy((void*)kSlotRequestMessage, &p, 4);
+        VirtualProtect((void*)kSlotRequestMessage, 4, old, &old);
+    } else {
+        Log("flow: unexpected generic message code, area names left");
+    }
     RaceStart_Install();
     if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
         void* p = (void*)&Hook_RenderObject;
