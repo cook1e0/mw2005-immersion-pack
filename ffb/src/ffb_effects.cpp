@@ -7,6 +7,8 @@ namespace ffb {
 namespace {
 const double kTwoPi = 6.283185307179586;
 double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * hz * dt, kTwoPi); }
+// Share of a knock's full strength at the car's speed (m/s): full from 150 km/h, a tenth at least.
+float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0f); }
 }
 
 EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p) {
@@ -53,6 +55,31 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     if (!haveHitSeq_) {
         haveHitSeq_ = true;
         lastHitSeq_ = t.hitSeq;
+        lastBreakSeq_ = t.breakSeq;
+        lastCarHitSeq_ = t.carHitSeq;
+    }
+
+    // --- breakable props: a short, sharp knock, harder the faster the car hits ---
+    if (t.breakSeq != lastBreakSeq_) {
+        lastBreakSeq_ = t.breakSeq;
+        float amp = p.breakables * SpeedShare(t.breakSpeed);
+        if (amp > 0.01f) {
+            breakStart_ = now;
+            breakAmp_ = amp;
+            breakDir_ = Clampf(t.breakLat, -1.0f, 1.0f);
+        }
+    }
+    if (breakStart_ >= 0) {
+        float tau = (float)(now - breakStart_);
+        if (tau > 0.25f || tau < 0) {
+            breakStart_ = -1;
+        } else {
+            // Toward the prop's side (the front wheel on that side takes it), then a quick rattle.
+            float knock = tau < 0.05f ? sinf(3.14159265f * tau / 0.05f) : 0.0f;
+            float rattle = 0.5f * expf(-tau / 0.06f) * sinf((float)(kTwoPi * 28.0) * tau);
+            float dir = fabsf(breakDir_) > 0.2f ? (breakDir_ > 0 ? 1.0f : -1.0f) : 0.0f;
+            e.breakable = breakAmp_ * (dir * knock + rattle) * drive;
+        }
     }
     if (t.hitSeq != lastHitSeq_) {
         lastHitSeq_ = t.hitSeq;
@@ -73,6 +100,70 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
             float push = tau < 0.08f ? sinf(3.14159265f * tau / 0.08f) : 0.0f;
             float shake = 0.6f * expf(-tau / 0.12f) * sinf((float)(kTwoPi * 20.0) * tau);
             e.crash = hitAmp_ * (hitDir_ * push + shake) * drive;
+        }
+    }
+
+    // --- off-road: an uneven rumble while front wheels are on grass, dirt, mud, gravel: two rough
+    // tones and random bumps, half with one wheel off, growing with speed, eased in and out ---
+    {
+        float share = t.valid ? ((t.offroad[0] ? 0.5f : 0.0f) + (t.offroad[1] ? 0.5f : 0.0f)) : 0.0f;
+        float target = p.offroad * share * Smoothstep(1.0f, 12.0f, speed) * (0.7f + 0.3f * Smoothstep(12.0f, 40.0f, speed));
+        offroadLevel_ += (target - offroadLevel_) * Clampf(dt / 0.1f, 0.0f, 1.0f);
+        roughPhase_[0] = Advance(roughPhase_[0], 17.0f, dt);
+        roughPhase_[1] = Advance(roughPhase_[1], 29.0f, dt);
+        bumpWait_ -= dt;
+        if (bumpWait_ <= 0.0f) {
+            rand_ = rand_ * 1664525u + 1013904223u;
+            float r = (rand_ >> 8) / 16777216.0f;                  // 0..1
+            bump_ = (r < 0.5f ? -1.0f : 1.0f) * (0.5f + r);
+            bumpWait_ = 0.05f + 0.15f * (1.0f - Smoothstep(5.0f, 30.0f, speed)) + 0.08f * r;
+        }
+        bump_ *= expf(-dt / 0.035f);
+        float rough = 0.45f * (float)sin(roughPhase_[0]) + 0.25f * (float)sin(roughPhase_[1]) + 0.45f * bump_;
+        e.offroad = offroadLevel_ * 0.5f * rough * drive;
+    }
+
+    // --- landing: all four wheels off the ground for 0.15 s or more, then touching down: a hard
+    // kick (toward the side the front is sliding, else alternating) and a short shake ---
+    if (t.valid && t.wheelsOnGround == 0) {
+        airTime_ += dt;
+    } else {
+        if (t.valid && airTime_ >= 0.15f && p.landing > 0.0f) {
+            landStart_ = now;
+            landAmp_ = p.landing * Clampf(0.55f + airTime_ * 0.6f, 0.55f, 1.2f);
+            landDir_ = fabsf(t.vLatFront) > 0.3f ? (t.vLatFront > 0 ? 1.0f : -1.0f) : -landDir_;
+        }
+        airTime_ = 0.0f;
+    }
+    if (landStart_ >= 0) {
+        float tau = (float)(now - landStart_);
+        if (tau > 0.35f) {
+            landStart_ = -1;
+        } else {
+            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
+            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
+            e.landing = landAmp_ * (landDir_ * kick + shake) * drive;
+        }
+    }
+
+    // --- another vehicle hit: the landing's kick and shake, toward the side the car was pushed ---
+    if (t.carHitSeq != lastCarHitSeq_) {
+        lastCarHitSeq_ = t.carHitSeq;
+        if (p.carHits > 0.0f) {
+            carStart_ = now;
+            carAmp_ = p.carHits * SpeedShare(t.carHitSpeed);
+            carDir_ = t.carHitLat >= 0.0f ? 1.0f : -1.0f;
+        }
+    }
+    if (carStart_ >= 0) {
+        float tau = (float)(now - carStart_);
+        if (tau > 0.35f) {
+            carStart_ = -1;
+        } else {
+            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
+            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
+            e.carHit = carAmp_ * (carDir_ * kick + shake) * drive;
+            e.carHitLevel = carAmp_ * expf(-tau / 0.1f) * drive;
         }
     }
 

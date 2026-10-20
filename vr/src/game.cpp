@@ -37,6 +37,22 @@ constexpr uintptr_t kPlayerView = 0x919650;      // &eViews[EVIEW_PLAYER1]
 // in a headset. The pass returns at once when the player view's rain has no drops on screen.
 constexpr uintptr_t kCallScreenRain = 0x6DF7EC;   // call sub_6D4620 in ___eDisplayFrame
 constexpr uintptr_t kScreenRain = 0x6D4620;       // cdecl, 1 arg
+// The direction aid: a spinning arrow model (MARKER_DIRECTION_AID) floated above the player's car
+// (its class in the AI code loads it at 0x41A671 and draws it at 0x41ACBE, then marks it drawn).
+// Right in front of your face from the cockpit in a headset. Only this call is retargeted; the
+// renderer itself (eViewPlatInterface::Render, thiscall, 5 args) draws every other model.
+constexpr uintptr_t kCallDirectionArrow = 0x41ACBE;
+constexpr uintptr_t kRenderModel = 0x6DA9B0;
+// The sun glare: ___eDisplayFrame calls a pass (0x6D04E0, thiscall on 0x93E018 with the player view,
+// ret 4) that selects the "E3DEMO" sun set (SetCurrentSun 0x4FD370 with its bStringHash) and draws
+// a white quad (WHITE16X16_NOALPHA) at the sun's position on the screen. A screen-space overlay sits
+// flat on each eye in a headset, a blinding blob instead of a sun in the sky. In VR only the sun set
+// is selected, as the pass does; the drawing is skipped.
+constexpr uintptr_t kCallSunGlare = 0x6DF585;
+constexpr uintptr_t kSunGlare = 0x6D04E0;
+constexpr uintptr_t kSetCurrentSun = 0x4FD370;     // cdecl, the sun set's name hash
+constexpr uintptr_t kBStringHash = 0x460BF0;       // cdecl
+constexpr uintptr_t kSunGlareSetName = 0x8AF998;   // "E3DEMO" in speed.exe
 // Reflections: elSetupEnvMap puts the reflection "eye" 2.78 m from the car (or model) toward the
 // camera position it is given. In the cockpit the camera sits next to the car's centre, so a few
 // centimetres of head movement swung that direction, and every car and window reflection with
@@ -46,13 +62,118 @@ constexpr uintptr_t kSetupLightContext = 0x502520;  // (ctx, rig, local_world, w
 constexpr uintptr_t kCallsCloneLightContext[] = {0x74E474, 0x74F62E, 0x74F7D6, 0x74F968, 0x74FBC4,
                                                  0x74FFAB, 0x750158, 0x75031A, 0x7504F8};
 constexpr uintptr_t kCallsSetupLightContext[] = {0x502AAF, 0x73BB67, 0x73BB89};
+// Side mirrors. The game renders its rear view (eViews[3], EVIEW_PLAYER1_RVM, from a
+// RearViewMirrorCameraMover the driving camera always creates) into the "RVM" texture, shown at
+// the top of the HUD when the rear view mirror option is on. In the headset that HUD mirror is
+// clutter, so the image goes onto the player car's mirrors instead (cockpit.cpp finds the glass).
+// MaybeChangeViewMode only renders the rear view (view mode ONE_RVM) while sub_595D40 allows it:
+// option on, the race HUD up and not an in-car camera, so never in the headset's bumper/hood
+// views. While VR runs it always allows it, the mirror camera's option check reads "on", and the
+// HUD's mirror (drawn with the "RVM" and "RVM_MASK" textures) is left out by the d3d9 wrapper.
+constexpr uintptr_t kMirrorCamOption = 0x4766A7;  // RearViewMirrorCameraMover::Update: mov al, [ecx+0x39]
+constexpr uint8_t kMirrorCamGame[3] = {0x8A, 0x41, 0x39}, kMirrorCamOn[3] = {0xB0, 0x01, 0x90};     // mov al, 1
+constexpr uintptr_t kRvmAllowed = 0x595D40;       // bool sub_595D40(view): rear view mirror allowed
+constexpr uint8_t kRvmAllowedGame[3] = {0xA1, 0x84, 0xD8}, kRvmAllowedOn[3] = {0xB0, 0x01, 0xC3};   // mov al, 1; ret
+constexpr uintptr_t kRvmTexture = 0x982B48;       // TextureInfo* "RVM": +0 platform info, its +0x18 the D3D texture
+constexpr uintptr_t kRvmMaskTexture = 0x982B4C;   // TextureInfo* "RVM_MASK"
+// ___eDisplayFrame renders eViews[3] while it is active into this render target (type, ?, colour
+// surface, depth surface), then the HUD draws it; the image is taken from its colour surface.
+constexpr uintptr_t kRvmTarget = 0x93DB0C;
+constexpr int kTargetSurface = 0x08;
+constexpr uintptr_t kRvmViewActive = 0x919738;    // eViews[3] + 8
+constexpr int kPlatView = 0x00;                   // eViewPlatInfo: view matrix (the camera's), projection at +0x40
+// Reflections and the head: the per-object transform setup (sub_6C8000) gives every shader
+// WorldView = local * view, with D3DXMatrixMultiply at kCallWorldView (WorldViewProj is a separate
+// multiply). The car paint shader turns its reflection vector into the environment map with
+// WorldView's rotation, and the glossy window shader slides its reflection with WorldView's first
+// row: in the headset, with the eye's view, every reflection turned with the head. While the eyes
+// render, WorldView gets the seat's view (the game camera in the seat, without the head) instead,
+// so reflections sit still as the head moves, as they do with the flat screen's camera.
+constexpr uintptr_t kCallWorldView = 0x6C8147;    // call D3DXMatrixMultiply(out, local, view) (stdcall thunk)
+// Depth split (seated, [VR] DepthSplit): the same function builds WorldViewProj = local * viewProj
+// at kCallWorldViewProj, viewProj being the view's eViewPlatInfo +0x80 (+0x100 when 0x982CB4's flag
+// is set; the projections are +0x40 and +0xC0). With one near plane low enough for the cockpit
+// (NearZ, ~0.05-0.1 m) a 24-bit depth buffer runs out of precision a few hundred metres out and
+// distant surfaces z-fight; the game's 0.5 m has five to ten times the precision everywhere. So
+// while seated the player view's own matrices get WorldNearZ and are squeezed into depth
+// [kCarDepth, 1] - every game path (shaders, fixed function, particles, flares) reads them - and the
+// player car's objects get a WorldViewProj with NearZ and a 20 m far plane in [0, kCarDepth]. The car
+// is then always in front of the world, which only matters for something inside your car.
+constexpr uintptr_t kCallWorldViewProj = 0x6C81CA;  // call D3DXMatrixMultiply(out, local, viewProj)
+constexpr int kPlatViewProj = 0x80, kPlatProjAlt = 0xC0, kPlatViewProjAlt = 0x100;
+constexpr float kCarDepth = 0.02f, kCarFarZ = 20.0f;
+constexpr uintptr_t kMatrixMultiply = 0x7E7D5E;
+// The game's own mirror glass (side mirrors) uses the global light material "MIRROR": black
+// diffuse, a full white specular highlight and an environment map reflection of 0.001, i.e. no
+// reflection, just a pale glow (the HUD had the rear view). While the rear view is on the glass
+// (d3d9proxy swaps it in as the glass's texture), the material is plain white: the picture, lit
+// like the rest of the car, and no glow or environment map over it. The shader reads the
+// material's values at every draw.
+constexpr uintptr_t kGetLightMaterial = 0x502820;  // eLightMaterial* elGetLightMaterial(uint32 hash), cdecl
+constexpr uint32_t kMirrorMaterialHash = 0x6BFA56DA; // bStringHash("MIRROR")
+constexpr int kMatNameHash = 0x0C, kMatData = 0x30;  // eLightMaterial: NameHash, eLightMaterialData
+enum {
+    kMatDiffMinR = 1, kMatDiffMaxR = 5, kMatSpecMinScale = 11, kMatSpecMaxScale = 15, kMatEnvPower = 19,
+    kMatEnvMinScale = 20, kMatEnvMaxScale = 24,
+};
+// Both eyes run ___eDisplayFrame, and it starts with ePreDisplay, which steps per-frame state:
+// sound, animated world models, the sun flare, the light flares' parameters, tunnel bloom and
+// tinting fades. Run twice, the second eye got a later step than the first: blinking lights,
+// flares and fades differed between the eyes. It runs for the first eye only.
+//
+// The PC build's eView table is not the console one the public decompilation lists: its own view
+// loop walks eViews[0..23] (see kNumViews). Views using the player's camera are rebuilt per eye;
+// only the known rear-view and environment-map indices are shared.
+//  * a view that uses the player's Camera (the bloom, the specular pass, and any other pass laid
+//    over the player's image) is rebuilt from this eye. The game builds its matrices once a frame,
+//    in eDisplayFrame's view loop, from the game's camera; left there, its overlay turned with the
+//    head instead of with the eye. This covers EVIEW_PLAYER1_GLOW / EVIEW_PLAYER1_SPECULAR and
+//    closes the class for any other camera-sharing view.
+//  * the rear view and the environment map's cube faces are known to be eye-independent, so they
+//    are rendered for the first eye only. Other offscreen views, including shadow maps, stay active
+//    for both eyes: having a camera of their own does not prove their results can be reused.
+// An object that still differs between the eyes - a light or a prop drawn by a pass of its own -
+// means one of these rules is not holding for some view. The table is logged once per session
+// ("view NN: ...") so it can be checked.
+constexpr uintptr_t kCallPreDisplay = 0x6DE3D1;   // call ePreDisplay in ___eDisplayFrame
+constexpr uintptr_t kPreDisplay = 0x504C50;       // cdecl, no args
+// The world's light flares - street lamps, warning lights, the sun - are collected while each
+// view's scenery is culled (Scenery adds to the pool per view) and drawn from that pool per view.
+// The pool is emptied once a frame, by ePostDisplay (call at 0x6E7623, after the render) through
+// eResestLightFlarePool (0x4FC800), not once per eye. So the second eye found the first eye's
+// flares still in the pool and drew them again: doubled where the pool had room, dropped where it
+// ran into its fifty (eGetNextLightFlareInPool returns null at 50). The pool is put back to what
+// ePreDisplay left in it before the second eye culls, so each eye collects its own.
+constexpr uintptr_t kFlarePool = 0x916a78;         // eLightFlare[50], 48 bytes each
+constexpr uintptr_t kFlarePoolXclude = 0x915aa8;   // uint32[50], the view each flare is hidden in
+constexpr uintptr_t kFlarePoolCount = 0x916018;    // ActivePoolIndex
+constexpr int kFlareSize = 48, kFlareMax = 50;
+constexpr int kFlareTypeOffset = 0x2C;
+constexpr uint8_t kSunLensFlareType = 0x15;
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
-constexpr int kViewStride = 0x70, kNumViews = 22;
-// Passes drawn from the player's camera and laid over its image: EVIEW_PLAYER1_GLOW (bloom) and
-// EVIEW_PLAYER1_SPECULAR (the wet-road / paint highlights). They share the player's Camera, but
-// their matrices are built once per frame in eDisplayFrame's view loop; built from the game's
-// camera while each eye looks with the head, their overlay turned with the head.
-constexpr int kCompanionViews[] = {4, 6};
+// eDisplayFrame's own view loop runs eViews[0..23] (cmp esi, 0x17 at 0x6E73BE), so the PC table has
+// 24 slots; the console decompilation's 22 is a different build.
+constexpr int kViewStride = 0x70, kNumViews = 24;
+bool IsSharedViewForBothEyes(int index) { return index == 3 || (index >= 18 && index <= 23); }
+// Eye-independent views not refreshed at all this frame (both eyes keep sampling their last image,
+// so the eyes cannot disagree): the environment map's cube faces in turn, [VR] EnvMapFacesPerFrame
+// a frame, and the rear view on every [VR] RearViewEvery'th frame only. The faces continue where
+// the last frame stopped, so each one is refreshed once every 6 / EnvMapFacesPerFrame frames.
+constexpr int kRearView = 3, kFirstEnvFace = 18, kEnvFaces = 6;
+bool s_viewSkipped[kNumViews];
+
+void PickViewsThisFrame() {
+    static unsigned frame, nextFace;
+    memset(s_viewSkipped, 0, sizeof(s_viewSkipped));
+    frame++;
+    int faces = g_cfg.envMapFacesPerFrame;
+    if (faces < kEnvFaces) {
+        for (int i = 0; i < kEnvFaces; i++) s_viewSkipped[kFirstEnvFace + i] = true;
+        for (int i = 0; i < faces; i++) s_viewSkipped[kFirstEnvFace + (nextFace + i) % kEnvFaces] = false;
+        nextFace = (nextFace + faces) % kEnvFaces;
+    }
+    if (g_cfg.rearViewEvery > 1 && frame % (unsigned)g_cfg.rearViewEvery != 0) s_viewSkipped[kRearView] = true;
+}
 constexpr uintptr_t kPlayerAspectScale = 0x8AF994; // float 1.15 applied to player views' aspect
 constexpr uintptr_t kCallTotaledCam = 0x631257;  // EShowRaceOverMessage: call CameraAI::MaybeDoTotaledCam(IPlayer*)
 constexpr uintptr_t kTotaledCam = 0x479F20;      // cdecl, 1 arg
@@ -81,6 +202,25 @@ constexpr uintptr_t kDirectorSetAction = 0x4797F0; // thiscall, Attrib::StringKe
 constexpr uintptr_t kStringKeyCtor = 0x453760;    // Attrib::StringKey::StringKey(const char*), thiscall
 constexpr uintptr_t kNisInstance = 0x9885C8;      // UTL::Singleton<INIS>::mInstance: non-null during an NIS
 constexpr uintptr_t kActionDriveName = 0x894C20;  // "CDActionDrive" in speed.exe
+// Not only SelectAction changes the camera: CameraAI::SetAction (0x479EB0) sets an action
+// directly, from the cinematic moment (pursuit breakers: "CDActionIce") and from 0x47A12F
+// ("CDActionTrackCar", the slow-motion moment camera), between the director's selections. Both of
+// the director's own SetAction calls are checked, so no path cuts away from the cockpit.
+constexpr uintptr_t kCallsDirectorSetAction[] = {0x479DD5, 0x479EFD};
+// NIS screen overlays (table at 0x8EDEEC: 1 FLASHERS, 2 BLACK_FADE_OUT, 3 BUSTED_OVERLAY,
+// 4 BLACK_BACKGROUND), pushed by id for an NIS event. BUSTED_OVERLAY.fng is the square
+// camera-viewfinder frame over the busted cutscene.
+constexpr uintptr_t kCallNisOverlay = 0x482EAC;   // call ShowNISOverlay(id) for an NIS event
+constexpr uintptr_t kNisOverlay = 0x46EA50;       // cdecl, 1 arg (the id, a byte)
+constexpr int kNisOverlayBusted = 3;
+// Pursuit breakers also start an NIS (the game's scripted cutscene, let through for race intros
+// and busted): ETriggerMomentNIS (handled at 0x63BE40, from its event slot 0 at 0x6424B3) stamps
+// the sim time in 0x90D9D4, and the moment code (0x641080) starts the NIS while that stamp is under
+// 2 s old, freezing the world and placing the car again after it. In VR the stamp is put back, so
+// the moment never starts: no frozen world, no respawn.
+constexpr uintptr_t kCallTriggerMomentNis = 0x6424B3;
+constexpr uintptr_t kTriggerMomentNis = 0x63BE40;     // thiscall, no args
+constexpr uintptr_t kMomentNisTime = 0x90D9D4;        // float: when the last moment NIS was asked for
 // Frame memory: eFrameMalloc's two 400 KB buffers (eInitEngine allocates them, the frame swaps
 // them in eSwapFrameMallocBuffers after Present). Car parts, lights and matrices come from it.
 constexpr uintptr_t kFrameMemSizes[] = {0x5009D2, 0x5009DC, 0x500A01, 0x500A12}; // imm32 0x64000 in eInitEngine
@@ -92,6 +232,7 @@ constexpr uintptr_t kFrameMemMaxFail = 0x915F9C; // FrameMallocMaxFailAmount: mo
 
 // eView (PC layout)
 constexpr int kViewPlatInfo = 0x00;
+constexpr int kViewId = 0x04;      // EVIEW_ID
 constexpr int kViewActive = 0x08;
 constexpr int kViewCamera = 0x40;
 constexpr int kViewRenderTarget = 0x60;
@@ -184,17 +325,104 @@ void __stdcall hkGetResolution(int* w, int* h) {
 
 // sub_6CF400's first setup argument overrides the camera's near plane when non-zero: [VR] NearZ
 // replaces it for the player view so the cockpit right in front of the eyes isn't clipped.
+typedef void*(__stdcall* MatrixMultiply_t)(void* out, const void* a, const void* b);
+
+// With the depth split on this frame, the player view (and the passes that share its camera) get
+// WorldNearZ instead; the player car gets NearZ through its own matrices (see kCallWorldViewProj).
+bool s_depthSplit = false;
+
 uint32_t NearArg(void* cam) {
     if (!(g_cfg.nearZ > 0.0f)) return s_setupArgs[0];
+    float nearZ = s_depthSplit ? g_cfg.worldNearZ : g_cfg.nearZ;
     static float logged = -1;
-    if (g_cfg.nearZ != logged) {
+    if (nearZ != logged) {
         float game = s_setupArgs[0] ? *(const float*)&s_setupArgs[0] : cam ? At<float>(cam, kCamNearZ) : 0.0f;
-        Log("game: near plane %.3f m (game's %.3f m)", g_cfg.nearZ, game);
-        logged = g_cfg.nearZ;
+        Log("game: near plane %.3f m (game's %.3f m)%s", nearZ, game, s_depthSplit ? ", the world's (depth split)" : "");
+        logged = nearZ;
     }
     uint32_t bits;
-    memcpy(&bits, &g_cfg.nearZ, sizeof(bits));
+    memcpy(&bits, &nearZ, sizeof(bits));
     return bits;
+}
+
+// A perspective matrix (projection, or view * projection) whose z column is A * w + B (w being
+// view-space depth, the w column): z/w = A + B / depth. True for the game's D3D projections.
+bool ZColumnIs(const M4& m, float A, float B) {
+    for (int i = 0; i < 4; i++) {
+        float want = A * m.m[i][3] + (i == 3 ? B : 0.0f);
+        if (fabsf(m.m[i][2] - want) > 1e-3f * (fabsf(want) + 1.0f)) return false;
+    }
+    return true;
+}
+
+// The car's version: near NearZ, far kCarFarZ, depth squeezed into [0, kCarDepth].
+M4 CarDepthVariant(const M4& m) {
+    float n = g_cfg.nearZ, f = kCarFarZ;
+    float A = f / (f - n), B = -n * f / (f - n);
+    M4 c = m;
+    for (int i = 0; i < 4; i++) c.m[i][2] = kCarDepth * (A * m.m[i][3] + (i == 3 ? B : 0.0f));
+    return c;
+}
+
+// The world's: same planes, depth squeezed into [kCarDepth, 1].
+void WorldDepthRemap(M4& m) {
+    for (int i = 0; i < 4; i++) m.m[i][2] = kCarDepth * m.m[i][3] + (1.0f - kCarDepth) * m.m[i][2];
+}
+
+// Per eye, after the player view was set up: the car's viewProj (for kCallWorldViewProj) and
+// projection (for the mod's own cockpit drawing: dashboard, wheel over the HUD, mirrors), and the
+// world's matrices remapped in place. False (and nothing changed) if the matrices are not the
+// expected perspective ones.
+const void* s_carViewProjFor[2];
+M4 s_carViewProj[2], s_carProj;
+bool s_carProjSet = false;
+int s_carHits = 0, s_carMissFrames = 0;
+bool s_depthSplitFailed = false;
+
+bool SplitPlayerDepth(void* view) {
+    uint8_t* plat = At<uint8_t*>(view, kViewPlatInfo);
+    M4& P = *(M4*)(plat + kPlatProjection);
+    if (fabsf(P.m[0][3]) > 1e-5f || fabsf(P.m[1][3]) > 1e-5f || fabsf(P.m[2][3] - 1.0f) > 1e-5f || fabsf(P.m[3][3]) > 1e-5f)
+        return false;
+    float A = P.m[2][2], B = P.m[3][2];
+    if (!(A > 0.0f) || !(B < 0.0f)) return false;
+    M4& VP = *(M4*)(plat + kPlatViewProj);
+    if (!ZColumnIs(VP, A, B)) return false;
+    s_carProj = CarDepthVariant(P);
+    s_carProjSet = true;
+    s_carViewProj[0] = CarDepthVariant(VP);
+    s_carViewProjFor[0] = &VP;
+    WorldDepthRemap(P);
+    WorldDepthRemap(VP);
+    // The alternative pair, when it holds a perspective projection of its own.
+    M4& P2 = *(M4*)(plat + kPlatProjAlt);
+    M4& VP2 = *(M4*)(plat + kPlatViewProjAlt);
+    s_carViewProjFor[1] = nullptr;
+    float A2 = P2.m[2][2], B2 = P2.m[3][2];
+    if (fabsf(P2.m[2][3] - 1.0f) < 1e-5f && fabsf(P2.m[3][3]) < 1e-5f && A2 > 0.0f && B2 < 0.0f && ZColumnIs(VP2, A2, B2)) {
+        s_carViewProj[1] = CarDepthVariant(VP2);
+        s_carViewProjFor[1] = &VP2;
+        WorldDepthRemap(P2);
+        WorldDepthRemap(VP2);
+    }
+    return true;
+}
+
+void* __stdcall hkWorldViewProjMultiply(void* out, const void* local, const void* viewProj) {
+    if (s_depthSplit && viewProj && local) {
+        for (int k = 0; k < 2; k++)
+            if (viewProj == s_carViewProjFor[k] && Cockpit_IsPlayerCarMatrix(local)) {
+                viewProj = &s_carViewProj[k];
+                s_carHits++;
+                break;
+            }
+    }
+    return ((MatrixMultiply_t)kMatrixMultiply)(out, local, viewProj);
+}
+
+// The projection the mod's own cockpit drawing uses this eye.
+const float* EyeProjection(void* plat) {
+    return s_depthSplit && s_carProjSet ? &s_carProj.m[0][0] : (const float*)((char*)plat + kPlatProjection);
 }
 
 int ViewIndex(const void* view) {
@@ -291,13 +519,195 @@ void SetupViewFov(void* view, int index, void* cam, float tanX, float tanY, cons
     }
 }
 
-// The glow and specular views that use the player's camera, active this frame, with arguments.
+// Every active view that uses the player's Camera (the bloom and specular passes, and any other
+// pass laid over the player's image), with its recorded setup arguments.
 template <class Fn> void ForEachCompanion(void* cam, Fn fn) {
-    for (int index : kCompanionViews) {
+    for (int index = 0; index < kNumViews; index++) {
+        if (index == 1) continue;   // the player view itself, set up separately
         void* view = (void*)(kViews + index * kViewStride);
         if (!s_viewArgs[index].have || !At<int8_t>(view, kViewActive) || At<void*>(view, kViewCamera) != cam) continue;
         fn(view, index, s_viewArgs[index].a);
     }
+}
+
+// While the eyes render: the eye's view matrix and the seat's, for WorldView.
+bool s_stableView = false;
+M4 s_eyeView, s_seatView;
+
+void* __stdcall hkWorldViewMultiply(void* out, const void* local, const void* view) {
+    if (s_stableView && view && !memcmp(view, &s_eyeView, sizeof(s_eyeView))) view = &s_seatView;
+    return ((MatrixMultiply_t)kMatrixMultiply)(out, local, view);
+}
+
+// The MIRROR material plain white while the side mirrors show the rear view, the game's otherwise
+// (looked up again every second, as global data can be reloaded).
+bool s_mirrorPatched = false;
+
+void FixGameMirrors() {
+    static DWORD last;
+    static uint8_t* mat;
+    static float original[30];
+    static bool haveOriginal;
+    if (GetTickCount() - last >= 1000 || !mat) {
+        last = GetTickCount();
+        uint8_t* m = ((uint8_t*(__cdecl*)(uint32_t))kGetLightMaterial)(kMirrorMaterialHash);
+        mat = m && At<uint32_t>(m, kMatNameHash) == kMirrorMaterialHash ? m : nullptr;
+        if (mat && !haveOriginal) {
+            memcpy(original, mat + kMatData, sizeof(original));
+            haveOriginal = true;
+        }
+    }
+    if (!mat || !haveOriginal) return;
+    float* f = (float*)(mat + kMatData);
+    float want[30];
+    memcpy(want, original, sizeof(want));
+    if (g_cfg.gameMirrors && s_mirrorPatched) {
+        for (int i = 0; i < 3; i++) want[kMatDiffMinR + i] = want[kMatDiffMaxR + i] = 1.0f;
+        want[kMatSpecMinScale] = want[kMatSpecMaxScale] = 0.0f;
+        want[kMatEnvMinScale] = want[kMatEnvMaxScale] = 0.0f;
+    }
+    if (!memcmp(want, f, sizeof(want))) return;
+    Log("game: MIRROR material %s", want[kMatDiffMinR] > 0.5f ? "white (the rear view on the glass)" : "as the game's");
+    memcpy(f, want, sizeof(want));
+}
+
+bool s_secondEye = false;
+// The flare pool as ePreDisplay left it (before any view was culled) and, for the log, the pool
+// size after each eye collected its own flares.
+static uint8_t s_flareKeep[kFlareMax * kFlareSize];
+static uint32_t s_flareKeepXclude[kFlareMax];
+static int s_flareKeepCount = 0;
+int s_flarePoolAfterEye[2] = {};
+
+int RemoveSunLensFlares(uint8_t* flares, uint32_t* exclusions, int count) {
+    int kept = 0;
+    for (int i = 0; i < count; i++) {
+        uint8_t* flare = flares + i * kFlareSize;
+        if (flare[kFlareTypeOffset] == kSunLensFlareType) continue;
+        if (kept != i) {
+            memcpy(flares + kept * kFlareSize, flare, kFlareSize);
+            exclusions[kept] = exclusions[i];
+        }
+        kept++;
+    }
+    return kept;
+}
+
+void __cdecl hkPreDisplay() {
+    if (s_secondEye) {
+        // The first eye's culled flares are still in the pool and would be drawn (and counted)
+        // again for this eye. Put back what ePreDisplay left in it; this eye adds its own.
+        if (s_flareKeepCount > 0) {
+            memcpy((void*)kFlarePool, s_flareKeep, (size_t)s_flareKeepCount * kFlareSize);
+            memcpy((void*)kFlarePoolXclude, s_flareKeepXclude, (size_t)s_flareKeepCount * sizeof(uint32_t));
+        }
+        *(int*)kFlarePoolCount = s_flareKeepCount;
+        return;
+    }
+    ((void(__cdecl*)())kPreDisplay)();
+    int n = *(int*)kFlarePoolCount;
+    if (n < 0) n = 0;
+    if (n > kFlareMax) n = kFlareMax;
+    int withoutSun = RemoveSunLensFlares((uint8_t*)kFlarePool, (uint32_t*)kFlarePoolXclude, n);
+    if (withoutSun != n) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("game: sun lens flare disabled; world lighting and other light flares remain enabled");
+        }
+        n = withoutSun;
+        *(int*)kFlarePoolCount = n;
+    }
+    s_flareKeepCount = n;
+    if (n > 0) {
+        memcpy(s_flareKeep, (void*)kFlarePool, (size_t)n * kFlareSize);
+        memcpy(s_flareKeepXclude, (void*)kFlarePoolXclude, (size_t)n * sizeof(uint32_t));
+    }
+}
+
+bool s_mirrorPatchOk = false;
+
+void WriteCode(uintptr_t at, const uint8_t* bytes, int n) {
+    DWORD old;
+    VirtualProtect((void*)at, n, PAGE_EXECUTE_READWRITE, &old);
+    memcpy((void*)at, bytes, n);
+    VirtualProtect((void*)at, n, old, &old);
+    FlushInstructionCache(GetCurrentProcess(), (void*)at, n);
+}
+
+// The mirror camera on and the HUD mirror off while VR runs with Mirrors=1, the game's otherwise.
+void UpdateMirrorPatch() {
+    bool want = s_mirrorPatchOk && g_cfg.mirrors && Xr_Available();
+    if (want == s_mirrorPatched) return;
+    WriteCode(kMirrorCamOption, want ? kMirrorCamOn : kMirrorCamGame, 3);
+    WriteCode(kRvmAllowed, want ? kRvmAllowedOn : kRvmAllowedGame, 3);
+    s_mirrorPatched = want;
+    Log("game: rear view %s", want ? "on the car's mirrors (HUD mirror hidden)" : "as the game's option");
+}
+
+// The texture whose surface the rear view renders into (the HUD may draw it directly).
+void* RvmTargetTexture() { return D3D_TextureOfSurface(*(void**)(kRvmTarget + kTargetSurface)); }
+
+void* TextureOf(uintptr_t slot) {
+    uint8_t* info = *(uint8_t**)slot;
+    uint8_t* plat = info ? *(uint8_t**)info : nullptr;
+    return plat ? *(void**)(plat + 0x18) : nullptr;
+}
+
+// The HUD's mirror textures, for the d3d9 wrapper to leave out while the mirrors are on.
+void UpdateHiddenTextures() {
+    if (s_mirrorPatched) D3D_HideTextures(TextureOf(kRvmTexture), TextureOf(kRvmMaskTexture), RvmTargetTexture());
+    else D3D_HideTextures(nullptr, nullptr, nullptr);
+}
+
+void* RvmSurface() {
+    static int logged = -1;
+    int active = *(uint8_t*)kRvmViewActive != 0;
+    void* surface = *(void**)(kRvmTarget + kTargetSurface);
+    if (active != logged) {
+        logged = active;
+        Log("game: rear view %s (surface %p)", active ? "rendering" : "not rendering", surface);
+    }
+    return active ? surface : nullptr;
+}
+
+// Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
+// models (d3d9proxy); the rear view is copied afterwards for the next eye.
+// Driving: in the world, the simulation running, not paused.
+bool DrivingUnpaused() {
+    if (!((bool(__cdecl*)())0x468380)()) return false;                  // GameFlow: in the world
+    if (((int(__cdecl*)())0x6E8D20)() != 3) return false;              // Sim::GetState: running
+    return !(*(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true));   // FEManager::ShouldPauseSimulation
+}
+
+// The steering wheel in front of the HUD (d3d9proxy): the seat (the game camera in the seat,
+// without the head) as world axes, origin, right, up, forward, and the eye's view and projection.
+void BeginWheelHud(void* view, const uint8_t* seatParams) {
+    bool on = g_cfg.wheelOverHud > 0.5f && DrivingUnpaused();
+    M4 V;
+    memcpy(&V, seatParams + kCamMatrix, sizeof(V));
+    M4 W = MInvRigid(V);   // rows: right, down, forward, position
+    float seat[12] = {W.m[3][0], W.m[3][1], W.m[3][2], W.m[0][0], W.m[0][1], W.m[0][2],
+                      -W.m[1][0], -W.m[1][1], -W.m[1][2], W.m[2][0], W.m[2][1], W.m[2][2]};
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_BeginWheelEye(on, seat, (const float*)((char*)plat + kPlatView), EyeProjection(plat));
+}
+
+void BeginMirrors(void* view) {
+    if (!s_mirrorPatched) return;
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_BeginMirrorEye((const float*)((char*)plat + kPlatView), EyeProjection(plat), g_cfg.mirrorBrightness);
+}
+
+// The in-car dashboard: only from the seat, driving and not paused.
+void BeginDash(void* view, bool seated) {
+    void* plat = At<void*>(view, kViewPlatInfo);
+    D3D_BeginDashEye(seated && g_cfg.dash > 0.5f && DrivingUnpaused(), (const float*)((char*)plat + kPlatView),
+                     EyeProjection(plat));
+}
+
+void EndMirrors() {
+    if (s_mirrorPatched) D3D_EndMirrorEye(RvmSurface());
 }
 
 void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
@@ -313,13 +723,77 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
     }
 }
 
+// The PC build's eView table, once per session: which passes exist, which are active this frame and
+// which use the player's Camera. Logged the first time the eyes render, to check the view setup
+// against an object that differs between the eyes.
+void LogViewTableOnChange() {
+    struct Row {
+        int8_t active;
+        int playerCam;
+        int have;
+        int w, h, id;
+        void* rt;
+    };
+    static Row last[kNumViews];
+    Row now[kNumViews];
+    memset(now, 0, sizeof(now));
+    void* pcam = At<void*>((void*)kPlayerView, kViewCamera);
+    bool changed = false;
+    for (int i = 0; i < kNumViews; i++) {
+        void* v = (void*)(kViews + i * kViewStride);
+        int8_t active = At<int8_t>(v, kViewActive);
+        void* rt = active ? At<void*>(v, kViewRenderTarget) : nullptr;
+        now[i].active = active;
+        now[i].playerCam = At<void*>(v, kViewCamera) == pcam;
+        now[i].have = s_viewArgs[i].have;
+        now[i].w = rt ? At<int>(rt, kRtWidth) : 0;
+        now[i].h = rt ? At<int>(rt, kRtHeight) : 0;
+        now[i].rt = rt;
+        now[i].id = At<int>(v, kViewId);
+        if (now[i].active != last[i].active || now[i].playerCam != last[i].playerCam || now[i].have != last[i].have ||
+            now[i].w != last[i].w || now[i].h != last[i].h)
+            changed = true;
+    }
+    if (!changed) return;
+    memcpy(last, now, sizeof(now));
+    for (int i = 0; i < kNumViews; i++)
+        Log("view %2d: id %2d active %d playerCam %d args %d rt %p %dx%d", i, now[i].id, now[i].active, now[i].playerCam,
+            now[i].have, now[i].rt, now[i].w, now[i].h);
+}
+
+// The views the second eye reused instead of rendering (see the eye rules above): logged whenever
+// the list changes, so the log shows which passes are treated as eye-independent.
+void LogSharedViews(const int* index, int count) {
+    static int last[kNumViews];
+    static int lastCount = -1;
+    bool same = count == lastCount;
+    for (int i = 0; same && i < count; i++)
+        if (last[i] != index[i]) same = false;
+    if (same) return;
+    lastCount = count;
+    for (int i = 0; i < count; i++) last[i] = index[i];
+    char line[256];
+    int m = snprintf(line, sizeof(line), "shared (rendered for the first eye, reused by the second):");
+    for (int i = 0; i < count && m < (int)sizeof(line); i++) m += snprintf(line + m, sizeof(line) - m, " %d", index[i]);
+    Log("%s", line);
+}
+
 void __cdecl hkRenderScene() {
     s_stereoFrame = false;
+    FixGameMirrors();
+    UpdateMirrorPatch();
+    UpdateHiddenTextures();
     void* view = (void*)kPlayerView;
     void* cam = At<void*>(view, kViewCamera);
     bool active = At<int8_t>(view, kViewActive) != 0;
 
-    if (!Xr_Available() || !s_stereoEnabled || !active || !cam || !s_haveSetupArgs || !Xr_BeginFrame()) {
+    bool began = false;
+    if (Xr_Available() && s_stereoEnabled && active && cam && s_haveSetupArgs) {
+        double tw = D3D_ProfNow();
+        began = Xr_BeginFrame();
+        D3D_ProfAdd(PROF_WAITFRAME, D3D_ProfNow() - tw);
+    }
+    if (!began) {
         // Flat screen: the cockpit seat still applies to the single view.
         uint8_t saved[kCameraParamsSize];
         bool seat = false;
@@ -361,12 +835,14 @@ void __cdecl hkRenderScene() {
     memcpy(saved, cam, sizeof(saved));
 
     // The eyes are placed relative to this (optionally levelled) camera.
+    bool seated = false;
     uint8_t base[kCameraParamsSize];
     memcpy(base, saved, sizeof(base));
     {
         M4 V;
         memcpy(&V, saved + kCamMatrix, sizeof(V));
-        if (Cockpit_ApplySeat(V)) memcpy(base + kCamMatrix, &V, sizeof(V));
+        seated = Cockpit_ApplySeat(V);
+        if (seated) memcpy(base + kCamMatrix, &V, sizeof(V));
         if (s_levelEnabled && (g_cfg.levelRoll > 0 || g_cfg.levelPitch > 0)) {
             V = LevelCamera(V, kWorldUp, g_cfg.levelRoll, g_cfg.levelPitch);
             memcpy(base + kCamMatrix, &V, sizeof(V));
@@ -385,22 +861,123 @@ void __cdecl hkRenderScene() {
         s_envPosSet = true;
     }
 
+    double tEyes = D3D_ProfNow();
+    float gazePos[3] = {}, gazeDir[3] = {};
+    LogViewTableOnChange();
+    PickViewsThisFrame();
+    s_depthSplit = seated && g_cfg.depthSplit && g_cfg.nearZ > 0.0f && !s_depthSplitFailed;
+    s_carProjSet = false;
+    int carHitsFrame = 0, carMatricesFrame = 0;
     D3D_BeginEyes();
     for (int eye = 0; eye < 2; eye++) {
         if (eye > 0) D3D_ResetForNextEye();
-        ApplyEyeToCamera(cam, base, Xr_Eye(eye));
+        // SameEyeCamera renders both eyes from the seat camera: whatever still differs between the
+        // two images then is per-eye state (a pool, a counter, a matrix), not the eye's viewpoint.
+        EyeView centre = {};
+        centre.relOrientation.w = 1;
+        ApplyEyeToCamera(cam, base, g_cfg.eyeCameraShared ? centre : Xr_Eye(eye));
+        {
+            // The gaze for the triangle editor: between the eyes, straight ahead (rows: right, down,
+            // forward, position).
+            M4 V;
+            memcpy(&V, (const char*)cam + kCamMatrix, sizeof(V));
+            M4 W = MInvRigid(V);
+            for (int a = 0; a < 3; a++) {
+                gazePos[a] += W.m[3][a] * 0.5f;
+                gazeDir[a] += W.m[2][a] * 0.5f;
+            }
+        }
         SetupPlayerView(view, cam, tanX, tanY);
+        if (s_depthSplit && !SplitPlayerDepth(view)) {
+            Log("game: depth split off - the player view's matrices are not the expected perspective ones");
+            s_depthSplitFailed = true;
+            s_depthSplit = false;
+            SetupPlayerView(view, cam, tanX, tanY);   // again with NearZ for everything
+        }
+        s_carHits = 0;
+        if (g_cfg.stableReflections) {
+            memcpy(&s_eyeView, (const char*)cam + kCamMatrix, sizeof(s_eyeView));
+            memcpy(&s_seatView, base + kCamMatrix, sizeof(s_seatView));
+            s_stableView = true;
+        }
+        Cockpit_BeginEye();
+        BeginMirrors(view);
+        BeginWheelHud(view, base);
+        BeginDash(view, seated);
+        s_secondEye = eye > 0;
+        D3D_EyePassBegin(eye);
+        // Only the known eye-independent rear-view and environment-map views are reused. A view's
+        // having its own camera is not enough to establish that its output is safe to share. Those
+        // not refreshed this frame at all (PickViewsThisFrame) are off for the first eye too.
+        int sharedIndex[kNumViews];
+        int8_t sharedWas[kNumViews];
+        int sharedCount = 0;
+        bool reuseAll = s_secondEye && g_cfg.sharedViewsOnce;
+        for (int i = 0; i < kNumViews; i++) {
+            if (!IsSharedViewForBothEyes(i) || !(reuseAll || s_viewSkipped[i])) continue;
+            void* v = (void*)(kViews + i * kViewStride);
+            int8_t& active = At<int8_t>(v, kViewActive);
+            if (!active || At<void*>(v, kViewCamera) == cam) continue;
+            sharedIndex[sharedCount] = i;
+            sharedWas[sharedCount] = active;
+            sharedCount++;
+            active = 0;
+        }
+        if (reuseAll) LogSharedViews(sharedIndex, sharedCount);
+        double tScene = D3D_ProfNow();
         oRenderScene();
+        D3D_EyeRenderProfile(eye, D3D_ProfNow() - tScene);
+        carHitsFrame += s_carHits;
+        carMatricesFrame += Cockpit_PlayerCarMatrices();
+        D3D_EyePassBegin(-1);
+        s_flarePoolAfterEye[eye] = *(int*)kFlarePoolCount;
+        for (int i = 0; i < sharedCount; i++)
+            At<int8_t>((void*)(kViews + sharedIndex[i] * kViewStride), kViewActive) = sharedWas[i];
+        s_secondEye = false;
+        EndMirrors();
+        D3D_EndWheelEye();
+        D3D_EndDashEye();
+        Cockpit_EndEye();
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
+    Cockpit_SetGaze(gazePos, gazeDir);
+    // The car's objects must be recognised when they are drawn, or the cockpit closer than
+    // WorldNearZ is cut away: the car queued but none of its draws found for half a second turns
+    // the split off for the session.
+    if (s_depthSplit) {
+        static bool loggedOk;
+        if (carMatricesFrame > 0 && carHitsFrame == 0) {
+            if (++s_carMissFrames >= 30) {
+                Log("game: depth split off - the player car's draws were not recognised (%d matrices queued)", carMatricesFrame);
+                s_depthSplitFailed = true;
+            }
+        } else if (carHitsFrame > 0) {
+            s_carMissFrames = 0;
+            if (!loggedOk) {
+                loggedOk = true;
+                Log("game: depth split on - world near %.3f m, player car near %.3f m (%d car objects, %d matrices, both eyes)",
+                    g_cfg.worldNearZ, g_cfg.nearZ, carHitsFrame, carMatricesFrame);
+            }
+        }
+    }
+    s_depthSplit = false;
+    s_stableView = false;
 
     memcpy(cam, saved, sizeof(saved));
     oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,
                s_setupArgs[0], s_setupArgs[1], s_setupArgs[2], s_setupArgs[3]);
     ForEachCompanion(cam, [](void* v, int, const uint32_t* a) { oViewSetup(At<void*>(v, kViewPlatInfo), nullptr, v, a[0], a[1], a[2], a[3]); });
+    D3D_ProfAdd(PROF_EYES, D3D_ProfNow() - tEyes);
     D3D_BeginHudPhase();
     s_stereoFrame = true;
+    // The flare pool's size after each eye culled and drew (see kFlarePool): the same number twice
+    // means both eyes collected their own flares; a larger second number is the pool being reused.
+    static DWORD lastFlareLog;
+    if (GetTickCount() - lastFlareLog >= 1000) {
+        lastFlareLog = GetTickCount();
+        Log("flares: pool %d entries after eye 1, %d after eye 2", s_flarePoolAfterEye[0], s_flarePoolAfterEye[1]);
+    }
 }
 
 // A totaled car (drag race crash, or an engine blown by the H-shifter mod's engine wear) cuts
@@ -438,6 +1015,27 @@ void __cdecl hkIceAction(int view, const char* action) {
     ((SetActionFn)kSetAction)(view, action);
 }
 
+// A race's end (PhotoFinishScreen) starts CameraAI::StartCinematicSlowdown: the director's
+// slowdown time (+0x2C0) is handed every frame to the driving camera (CDActionDrive::SetSpecial,
+// which sets its flag +0x70), and the driving camera slows the world while that flag is set. The
+// game ends it by cutting to the race-over camera (a new action clears both). Refused in VR, the
+// cut never came and the career went on in slow motion; so each refused cut ends the slowdown too
+// (the driving camera then eases back to full speed by itself).
+constexpr int kDirectorSlowdown = 0x2C0;          // float: cinematic slowdown handed to the driving camera
+constexpr int kDirectorAction = 0x20;             // the current camera action
+constexpr int kDriveSpecialOn = 0x70;             // CDActionDrive: bool, slowing the world
+
+void EndCinematicSlowdown(uint8_t* director) {
+    float& slow = At<float>(director, kDirectorSlowdown);
+    uint8_t* action = At<uint8_t*>(director, kDirectorAction);
+    const char* name = At<const char*>(director, kDirectorActionName);
+    bool drive = action && name && strcmp(name, (const char*)kActionDriveName) == 0;
+    if (slow == 0.0f && !(drive && At<uint8_t>(action, kDriveSpecialOn))) return;
+    slow = 0.0f;
+    if (drive) At<uint8_t>(action, kDriveSpecialOn) = 0;
+    Log("game: cinematic slowdown ended with the camera cut it waits for (VR)");
+}
+
 void __fastcall hkSelectAction(uint8_t* director, void*) {
     float& timer = At<float>(director, kDirectorTrackCopTimer);
     if (Xr_Available() && At<int>(director, kDirectorView) == 1 && timer > 0.0f) {
@@ -445,6 +1043,15 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
         timer = 0.0f;
     }
     ((void(__thiscall*)(void*))kSelectAction)(director);
+
+    // Without any cut to refuse either, a slowdown is ended after 4 s.
+    static DWORD slowSince = 0;
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && At<float>(director, kDirectorSlowdown) > 0.0f) {
+        if (!slowSince) slowSince = GetTickCount();
+        else if (GetTickCount() - slowSince > 4000) EndCinematicSlowdown(director);
+    } else {
+        slowSince = 0;
+    }
 
     if (!Xr_Available() || At<int>(director, kDirectorView) != 1 || *(void**)kNisInstance) return;
     const char* action = At<const char*>(director, kDirectorActionName);
@@ -460,6 +1067,51 @@ void __fastcall hkSelectAction(uint8_t* director, void*) {
     ((void*(__thiscall*)(StringKey*, const char*))kStringKeyCtor)(&key, drive);
     ((void(__thiscall*)(void*, StringKey))kDirectorSetAction)(director, key);
     At<float>(director, kDirectorTrackCopTimer) = 0.0f;
+    EndCinematicSlowdown(director);
+}
+
+// The busted cutscene without its viewfinder frame while VR runs: the scene is seen as it is.
+void __cdecl hkNisOverlay(int id) {
+    if (Xr_Available() && (id & 0x7F) == kNisOverlayBusted) {
+        Log("game: busted overlay skipped (VR)");
+        return;
+    }
+    ((void(__cdecl*)(int))kNisOverlay)(id);
+}
+
+void __fastcall hkTriggerMomentNis(void* ev, void*) {
+    float* stamp = (float*)kMomentNisTime;
+    float saved = *stamp;
+    ((void(__thiscall*)(void*))kTriggerMomentNis)(ev);
+    if (Xr_Available() && *stamp != saved) {
+        *stamp = saved;
+        Log("game: pursuit breaker cutscene skipped (VR)");
+    }
+}
+
+struct ActionKey { uint32_t hash64[2], hash32; const char* string; };
+
+// Director::SetAction for the player's view while VR runs: anything but the driving camera (or a
+// debug camera) becomes the driving camera, except during an NIS.
+void __fastcall hkDirectorSetAction(uint8_t* director, void*, ActionKey key) {
+    auto set = (void(__thiscall*)(void*, ActionKey))kDirectorSetAction;
+    const char* drive = (const char*)kActionDriveName;
+    const char* action = key.string;
+    if (Xr_Available() && At<int>(director, kDirectorView) == 1 && !*(void**)kNisInstance && action && action[0] &&
+        action != drive && strcmp(action, drive) != 0 && strncmp(action, "CDActionDebug", 13) != 0) {
+        static DWORD lastLog = 0;
+        if (GetTickCount() - lastLog > 2000) {
+            lastLog = GetTickCount();
+            Log("game: camera '%s' refused, driving camera kept (VR)", action);
+        }
+        ActionKey driveKey;
+        ((void*(__thiscall*)(ActionKey*, const char*))kStringKeyCtor)(&driveKey, drive);
+        At<float>(director, kDirectorTrackCopTimer) = 0.0f;
+        set(director, driveKey);
+        EndCinematicSlowdown(director);
+        return;
+    }
+    set(director, key);
 }
 
 // Swaps in the seat position when `pos` is the eye camera's (not some other point).
@@ -477,6 +1129,25 @@ int __cdecl hkCloneLightContext(void* ctx, void* local, void* worldView, const f
 int __cdecl hkSetupLightContext(void* ctx, void* rig, void* local, void* worldView, const float* pos, void* view) {
     return ((int(__cdecl*)(void*, void*, void*, void*, const float*, void*))kSetupLightContext)(
         ctx, rig, local, worldView, EnvPos(pos), view);
+}
+
+void __fastcall hkDirectionArrow(void* view, void* edx, void* model, void* matrix, void* light, int flags, int extra) {
+    if (Xr_Available() && !g_cfg.directionArrow) return;
+    ((void(__fastcall*)(void*, void*, void*, void*, void*, int, int))kRenderModel)(view, edx, model, matrix, light, flags, extra);
+}
+
+void __fastcall hkSunGlare(void* self, void* edx, void* view) {
+    if (Xr_Available() && !g_cfg.sunGlare) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("game: sun glare (screen-space white quad at the sun) skipped (VR)");
+        }
+        uint32_t hash = ((uint32_t(__cdecl*)(const char*))kBStringHash)((const char*)kSunGlareSetName);
+        ((void(__cdecl*)(uint32_t))kSetCurrentSun)(hash);
+        return;
+    }
+    ((void(__fastcall*)(void*, void*, void*))kSunGlare)(self, edx, view);
 }
 
 void __cdecl hkScreenRain(int arg) {
@@ -572,6 +1243,8 @@ bool Game_ValidateHooks() {
 }
 
 bool Game_InstallHooks() {
+    s_mirrorPatchOk = !memcmp((void*)kMirrorCamOption, kMirrorCamGame, 3) && !memcmp((void*)kRvmAllowed, kRvmAllowedGame, 3);
+    if (!s_mirrorPatchOk) Log("game: unexpected rear view code, side mirrors off");
     if (!Game_ValidateHooks()) return false;
     EnlargeFrameMemory();
     PatchRel32(kCallViewSetup, 0xE8, (void*)&hkViewSetup);
@@ -589,7 +1262,18 @@ bool Game_InstallHooks() {
     PatchCall(kCallPlayIce, kPlayIce, (void*)&hkPlayIce, "cinematic camera");
     PatchCall(kCallIceAction, kSetAction, (void*)&hkIceAction, "cinematic camera action");
     PatchCall(kCallSelectAction, kSelectAction, (void*)&hkSelectAction, "camera director");
+    for (uintptr_t site : kCallsDirectorSetAction) PatchCall(site, kDirectorSetAction, (void*)&hkDirectorSetAction, "camera director action");
+    PatchCall(kCallNisOverlay, kNisOverlay, (void*)&hkNisOverlay, "busted overlay");
+    PatchCall(kCallTriggerMomentNis, kTriggerMomentNis, (void*)&hkTriggerMomentNis, "pursuit breaker cutscene");
     PatchCall(kCallScreenRain, kScreenRain, (void*)&hkScreenRain, "raindrops on the screen");
+    PatchCall(kCallDirectionArrow, kRenderModel, (void*)&hkDirectionArrow, "direction arrow");
+    if (strcmp((const char*)kSunGlareSetName, "E3DEMO") == 0)
+        PatchCall(kCallSunGlare, kSunGlare, (void*)&hkSunGlare, "sun glare");
+    else
+        Log("game: unexpected sun set name, sun glare left as it is");
+    PatchCall(kCallWorldView, kMatrixMultiply, (void*)&hkWorldViewMultiply, "reflections (WorldView)");
+    PatchCall(kCallWorldViewProj, kMatrixMultiply, (void*)&hkWorldViewProjMultiply, "depth split (WorldViewProj)");
+    PatchCall(kCallPreDisplay, kPreDisplay, (void*)&hkPreDisplay, "per-frame display updates");
     for (uintptr_t site : kCallsCloneLightContext)
         PatchCall(site, kCloneLightContext, (void*)&hkCloneLightContext, "car reflections");
     for (uintptr_t site : kCallsSetupLightContext)

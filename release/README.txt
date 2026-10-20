@@ -29,6 +29,9 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.13.0: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe.
+Keep your scripts\nfsmw_*.ini files: new settings start at their defaults. See FIXES.md.
+
 Upgrading from v0.12.1: replace the three scripts\nfsmw_*.asi plugins and ffbtool.exe. A bound
 wheel now steers the car directly (full lock at SteeringLock), the car's steering wheel turns with
 yours, and the force feedback is rebuilt with new effects (F4 > Force feedback); its old [FFB]
@@ -65,7 +68,9 @@ the default one from the zip.
 With the widescreen fix: all three mods run alongside it. If the game crashes right at start,
 set SkipIntro = 0 in scripts\NFSMostWanted.WidescreenFix.ini. The fix keeps the game's settings
 in its own registry key starting from defaults (640x480, low detail): set them again in the
-game's options.
+game's options. In VR set FixHUD = 0 there too: the headset shows the HUD and menus on a 4:3
+panel, the game's own layout; the fix's correction for the nearly square eye picture squeezes the
+HUD so its parts run into each other (and adds bars the in-car dashboard picks up as black).
 
 Without an ASI loader: each .asi also works renamed to the DLL it used to be, next to speed.exe:
 nfsmw_vr.asi -> d3d9.dll, nfsmw_ffb.asi -> dinput8.dll, nfsmw_gameplay.asi -> dsound.dll.

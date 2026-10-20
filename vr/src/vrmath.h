@@ -99,14 +99,21 @@ inline M4 LevelCamera(const M4& V, V3 up, float rollAmount, float pitchAmount) {
     flatFwd = norm(flatFwd);
     V3 f = norm(fwd * (1 - pitchAmount) + flatFwd * pitchAmount);
 
-    // Fully level "right" axis: horizontal and perpendicular to f, same side as the original.
-    V3 levelRight = norm(cross(up, f));
-    if (dot(levelRight, right) < 0) levelRight = levelRight * -1.0f;
-    V3 r = norm(right * (1 - rollAmount) + levelRight * rollAmount);
-    r = norm(r - f * dot(r, f));
     // Down axis completes the basis with the original handedness (right x down = +/-forward).
     V3 origDown = {W.m[1][0], W.m[1][1], W.m[1][2]};
     float handed = dot(cross(right, origDown), fwd) >= 0 ? 1.0f : -1.0f;
+    // Fully level "right" axis: horizontal and perpendicular to f, on the side that puts "down"
+    // toward the ground, whatever way up the car is: a car on its roof doesn't turn the view over.
+    V3 levelRight = norm(cross(up, f));
+    if (dot(cross(f, levelRight) * handed, up) > 0) levelRight = levelRight * -1.0f;
+    // Part of the roll kept: turn the level axis toward the original one by that share of the
+    // angle between them (blending the vectors would collapse when they point opposite ways).
+    V3 r = levelRight;
+    if (rollAmount < 0.999f) {
+        V3 cur = norm(right - f * dot(right, f));
+        float angle = atan2f(dot(cross(levelRight, cur), f), dot(levelRight, cur)) * (1 - rollAmount);
+        r = norm(levelRight * cosf(angle) + cross(f, levelRight) * sinf(angle));
+    }
     V3 d = cross(f, r) * handed;
 
     M4 L = W;

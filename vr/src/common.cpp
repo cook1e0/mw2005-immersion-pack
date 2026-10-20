@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include <math.h>
 
 Config g_cfg;
 
@@ -77,6 +78,8 @@ void Log(const char* fmt, ...) {
     LeaveCriticalSection(&s_logLock);
 }
 
+const char* const kDashElKey[6] = {"Map", "Radar", "Speedo", "Pursuit", "Board", "Msg"};
+
 static float ReadFloat(const char* ini, const char* key, float def) {
     char buf[64], defs[64];
     snprintf(defs, sizeof(defs), "%g", def);
@@ -108,7 +111,12 @@ void LoadConfig() {
     c.hudWidth = ReadFloat(ini, "HudWidth", c.hudWidth);
     c.nearZ = ReadFloat(ini, "NearZ", c.nearZ);
     if (!(c.nearZ >= 0.0f)) c.nearZ = 0.0f;
+    c.depthSplit = ReadInt(ini, "DepthSplit", c.depthSplit) != 0;
+    c.worldNearZ = ReadFloat(ini, "WorldNearZ", c.worldNearZ);
+    if (!(c.worldNearZ >= 0.05f)) c.worldNearZ = 0.05f;
+    if (c.worldNearZ > 2.0f) c.worldNearZ = 2.0f;
     c.hudHeight = ReadFloat(ini, "HudHeight", c.hudHeight);
+    c.hudRight = ReadFloat(ini, "HudRight", c.hudRight);
     char bridge[16] = "auto";
     GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
     c.bridge = _stricmp(bridge, "auto") == 0 ? -1 : atoi(bridge) != 0;
@@ -122,6 +130,8 @@ void LoadConfig() {
     c.keyToggle = ReadInt(ini, "KeyToggle", c.keyToggle);
     c.keyLevel = ReadInt(ini, "KeyLevel", c.keyLevel);
     c.keySpectator = ReadInt(ini, "KeySpectator", c.keySpectator);
+    c.keyToggleShared = ReadInt(ini, "KeyToggleShared", c.keyToggleShared);
+    c.keyToggleSameEye = ReadInt(ini, "KeyToggleSameEye", c.keyToggleSameEye);
     GetPrivateProfileStringA("VR", "SpectatorMode", c.spectatorMode, c.spectatorMode, sizeof(c.spectatorMode), ini);
     c.spectatorEye = ReadInt(ini, "SpectatorEye", c.spectatorEye) != 0 ? 1 : 0;
     c.spectatorFov = ReadFloat(ini, "SpectatorFov", c.spectatorFov);
@@ -132,17 +142,78 @@ void LoadConfig() {
     c.seat = ReadInt(ini, "Seat", c.seat) != 0;
     c.hideHead = ReadInt(ini, "HideHead", c.hideHead) != 0;
     c.hideArms = ReadInt(ini, "HideArms", 1) != 0 ? 1.0f : 0.0f;
+    c.wheelOverHud = ReadInt(ini, "WheelOverHud", 0) != 0 ? 1.0f : 0.0f;
+    c.hudPerCar = ReadInt(ini, "HudPerCar", 0) != 0 ? 1.0f : 0.0f;
+    c.dash = ReadInt(ini, "Dash", 1) != 0 ? 1.0f : 0.0f;
+    c.dashRight = ReadFloat(ini, "DashRight", c.dashRight);
+    c.dashUp = ReadFloat(ini, "DashUp", c.dashUp);
+    c.dashZoom = ReadFloat(ini, "DashZoom", c.dashZoom);
+    c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
+    c.dashYaw = ReadFloat(ini, "DashYaw", c.dashYaw);
+    c.dashPitch = ReadFloat(ini, "DashPitch", c.dashPitch);
+    c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
+    c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
+    c.dashGlass = ReadFloat(ini, "DashGlass", c.dashGlass);
+    c.dashGlassDepth = ReadFloat(ini, "DashGlassDepth", c.dashGlassDepth);
+    c.dashReflect = ReadFloat(ini, "DashReflect", c.dashReflect);
+    {
+        char col[32];
+        GetPrivateProfileStringA("VR", "DashColor", "3C3F44", col, sizeof(col), ini);
+        c.dashColor = (unsigned)strtoul(col, nullptr, 16) & 0xFFFFFF;
+    }
+    c.dashScreenH = ReadFloat(ini, "DashScreenH", c.dashScreenH);
+    c.mirrorOffset = ReadFloat(ini, "MirrorOffset", c.mirrorOffset);
+    c.dashCover = ReadFloat(ini, "DashCover", c.dashCover);
+    for (int i = 0; i < 6; i++) {
+        char key[32];
+        snprintf(key, sizeof(key), "Dash%sX", kDashElKey[i]);
+        c.dashEl[i][0] = ReadFloat(ini, key, NAN);
+        snprintf(key, sizeof(key), "Dash%sY", kDashElKey[i]);
+        c.dashEl[i][1] = ReadFloat(ini, key, NAN);
+        snprintf(key, sizeof(key), "Dash%sSize", kDashElKey[i]);
+        c.dashEl[i][2] = ReadFloat(ini, key, 1.0f);
+        snprintf(key, sizeof(key), "Dash%sBox", kDashElKey[i]);
+        c.dashElBox[i] = ReadInt(ini, key, c.dashElBox[i] > 0.5f) != 0 ? 1.0f : 0.0f;
+        static const char* const kEdge[4] = {"L", "T", "R", "B"};
+        for (int k = 0; k < 4; k++) {
+            snprintf(key, sizeof(key), "Dash%s%s", kDashElKey[i], kEdge[k]);
+            c.dashCrop[i][k] = ReadFloat(ini, key, c.dashCrop[i][k]);
+        }
+    }
+    c.editBrush = ReadFloat(ini, "EditBrush", c.editBrush);
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;
+    c.directionArrow = ReadInt(ini, "DirectionArrow", c.directionArrow) != 0;
+    c.sunGlare = ReadInt(ini, "SunGlare", c.sunGlare) != 0;
+    c.sharedViewsOnce = ReadInt(ini, "SharedViewsOnce", c.sharedViewsOnce) != 0;
+    c.envMapFacesPerFrame = ReadInt(ini, "EnvMapFacesPerFrame", c.envMapFacesPerFrame);
+    if (c.envMapFacesPerFrame < 1) c.envMapFacesPerFrame = 1;
+    if (c.envMapFacesPerFrame > 6) c.envMapFacesPerFrame = 6;
+    c.rearViewEvery = ReadInt(ini, "RearViewEvery", c.rearViewEvery);
+    if (c.rearViewEvery < 1) c.rearViewEvery = 1;
+    if (c.rearViewEvery > 4) c.rearViewEvery = 4;
+    c.logGlassShader = ReadInt(ini, "LogGlassShader", c.logGlassShader) != 0;
+    c.logPasses = ReadInt(ini, "LogPasses", c.logPasses) != 0;
+    c.eyeCameraShared = ReadInt(ini, "SameEyeCamera", c.eyeCameraShared) != 0;
+    c.stableReflections = ReadInt(ini, "StableReflections", c.stableReflections) != 0;
+    c.mirrors = ReadInt(ini, "Mirrors", c.mirrors) != 0;
+    c.gameMirrors = ReadInt(ini, "GameMirrors", c.gameMirrors) != 0;
+    GetPrivateProfileStringA("VR", "GameMirrorsSkip", "", c.gameMirrorsSkip, sizeof(c.gameMirrorsSkip), ini);
+    c.mirrorFlip = ReadInt(ini, "MirrorFlip", c.mirrorFlip) != 0;
+    c.sideMirrorWidth = ReadFloat(ini, "SideMirrorWidth", c.sideMirrorWidth);
+    if (!(c.sideMirrorWidth >= 0.3f)) c.sideMirrorWidth = 0.3f;
+    if (c.sideMirrorWidth > 1.0f) c.sideMirrorWidth = 1.0f;
+    c.mirrorScale = ReadFloat(ini, "MirrorScale", c.mirrorScale);
+    c.mirrorContrast = ReadFloat(ini, "MirrorContrast", c.mirrorContrast);
+    c.mirrorBrightness = ReadFloat(ini, "MirrorBrightness", c.mirrorBrightness);
     c.keySeatForward = ReadInt(ini, "KeySeatForward", c.keySeatForward);
     c.keySeatBack = ReadInt(ini, "KeySeatBack", c.keySeatBack);
     c.keySeatLeft = ReadInt(ini, "KeySeatLeft", c.keySeatLeft);
     c.keySeatRight = ReadInt(ini, "KeySeatRight", c.keySeatRight);
     c.keySeatUp = ReadInt(ini, "KeySeatUp", c.keySeatUp);
     c.keySeatDown = ReadInt(ini, "KeySeatDown", c.keySeatDown);
-    c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);
-    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f nearZ=%.3f bridge=%d fakeHmd=%d",
+    c.keySeatReset = ReadInt(ini, "KeySeatReset", c.keySeatReset);    Log("config: enabled=%d windowed=%d novsync=%d worldScale=%.3f fovScale=%.3f levelRoll=%.2f levelPitch=%.2f nearZ=%.3f bridge=%d fakeHmd=%d",
         c.enabled, c.forceWindowed, c.disableVSync, c.worldScale, c.fovScale, c.levelRoll, c.levelPitch, c.nearZ, c.bridge,
         c.fakeHmd);
 }

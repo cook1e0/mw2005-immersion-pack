@@ -843,6 +843,7 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         b.shm->hudDistance = g_cfg.hudDistance;
         b.shm->hudWidth = g_cfg.hudWidth;
         b.shm->hudHeight = g_cfg.hudHeight;
+        b.shm->hudRight = g_cfg.hudRight;
         b.shm->screenDistance = g_cfg.screenDistance;
         b.shm->screenWidth = g_cfg.screenWidth;
         BridgeCall(kBridgeEndFrame);
@@ -877,7 +878,7 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         }
         if (ok && withHud && s.chains[2].handle && BlitToSwapchain(s.chains[2], s.eyeSrv[2], true)) {
             // Seat-locked transparent panel in front of the driver.
-            V3 offset = QRotate(s.originRot, {0, g_cfg.hudHeight, -g_cfg.hudDistance});
+            V3 offset = QRotate(s.originRot, {g_cfg.hudRight, g_cfg.hudHeight, -g_cfg.hudDistance});
             hud.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
                              XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
             hud.space = s.local;

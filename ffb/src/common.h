@@ -50,6 +50,11 @@ struct Config {
     float surfaceRumble = 0.3f;     // the game's rumble on grass, gravel, dirt, rumble strips
     float crashes = 0.6f;           // jolts from hitting cars, walls and props
     float scrapes = 0.4f;           // grinding along walls
+    float breakables = 0.6f;        // knocks from smashing breakable props (benches, sign posts...)
+    float landing = 0.8f;           // kick and shake when landing after a jump
+    float carHits = 0.8f;           // the same when hitting another vehicle
+    float offroadVibration = 0.4f;  // rumble on grass, dirt, mud, gravel
+    float nosLighter = 0.3f;        // steering this much lighter while the nitrous is on (0..0.9)
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens

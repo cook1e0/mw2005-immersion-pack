@@ -311,6 +311,91 @@ static void TestEffects() {
         m.hitSpeed = 20;
         assert(NearZero(menu.Step(m, 0.0f, now + 0.02, dt, p).crash));
     }
+    // Breakable props: a knock toward the prop's side, over quickly; separate from crashes.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        fx.Step(t, 1.0f, now, dt, p);
+        t.breakSeq = 1;
+        t.breakSpeed = 20;
+        t.breakLat = 0.8f;                                     // on the right
+        float peak = 0, crash = 0;
+        for (int i = 0; i < 20; i++) {
+            EffectParts e = fx.Step(t, 1.0f, now + i * dt, dt, p);
+            peak = std::max(peak, e.breakable);
+            crash += fabsf(e.crash);
+        }
+        assert(peak > 0.2f && crash == 0.0f);
+        assert(NearZero(fx.Step(t, 1.0f, now + 0.5, dt, p).breakable));
+        p.breakables = 0;
+        t.breakSeq = 2;
+        assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, p).breakable));
+        p = EffectParams();
+    }
+    // Off-road: a vibration both ways while front wheels are off the road, stronger with both, none
+    // on the road, standing still or turned off.
+    {
+        auto rms = [&](Telemetry t, EffectParams q, float* lo, float* hi) {
+            Effects fx;
+            double sum = 0;
+            *lo = *hi = 0;
+            for (int i = 0; i < 1000; i++) {
+                float v = fx.Step(t, 1.0f, now + i * dt, dt, q).offroad;
+                if (i < 200) continue;
+                sum += v * v;
+                *lo = std::min(*lo, v);
+                *hi = std::max(*hi, v);
+            }
+            return (float)sqrt(sum / 800);
+        };
+        float lo, hi;
+        Telemetry t = Car(20);
+        assert(rms(t, p, &lo, &hi) < 1e-4f);
+        t.offroad[1] = true;
+        float one = rms(t, p, &lo, &hi);
+        assert(one > 0.02f && lo < -0.02f && hi > 0.02f);
+        t.offroad[0] = true;
+        float both = rms(t, p, &lo, &hi);
+        assert(both > one * 1.5f && hi < 0.5f);
+        Telemetry still = Car(0);
+        still.offroad[0] = still.offroad[1] = true;
+        assert(rms(still, p, &lo, &hi) < 1e-4f);
+        EffectParams off = p;
+        off.offroad = 0;
+        assert(rms(t, off, &lo, &hi) < 1e-4f);
+    }
+    // Landing: nothing in the air, a strong jolt on touchdown after a jump, gone after it.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        t.wheelsOnGround = 0;
+        double at = now;
+        float peak = 0;
+        for (int i = 0; i < 200; i++) peak = std::max(peak, fabsf(fx.Step(t, 1.0f, at += dt, dt, p).landing));
+        assert(peak < 1e-6f);
+        t.wheelsOnGround = 4;
+        for (int i = 0; i < 100; i++) peak = std::max(peak, fabsf(fx.Step(t, 1.0f, at += dt, dt, p).landing));
+        assert(peak > 0.4f);
+        assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).landing) < 1e-6f);
+    }
+    // Vehicle hits: a jolt toward the side the car was pushed, once per hit.
+    {
+        Effects fx;
+        Telemetry t = Car(20);
+        double at = now;
+        fx.Step(t, 1.0f, at += dt, dt, p);
+        t.carHitSeq = 1;
+        t.carHitSpeed = 45.0f;
+        t.carHitLat = 1.0f;
+        float first = 0, peak = 0;
+        for (int i = 0; i < 10; i++) {
+            float v = fx.Step(t, 1.0f, at += dt, dt, p).carHit;
+            if (i == 2) first = v;
+            peak = std::max(peak, fabsf(v));
+        }
+        assert(first > 0.3f && peak > 0.4f);
+        assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).carHit) < 1e-6f);
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;
@@ -333,6 +418,19 @@ static void TestEffects() {
 // --- engine safety chain ----------------------------------------------------------------------------
 static void TestEngine() {
     g_cfg = Config();
+    {
+        EffectParts effects;
+        effects.engine = 0.4f;
+        effects.carHit = 0.6f;
+        effects.carHitLevel = 0.125f;
+        float priority = 0;
+        assert(fabsf(PrioritizedEffectSum(effects, &priority) - 0.8f) < 1e-6f);
+        assert(fabsf(priority - 0.5f) < 1e-6f);
+        effects.carHitLevel = 0.25f;
+        assert(fabsf(PrioritizedEffectSum(effects) - effects.carHit) < 1e-6f);
+        effects.carHitLevel = 0;
+        assert(fabsf(PrioritizedEffectSum(effects) - effects.Sum()) < 1e-6f);
+    }
     Engine e;
     double now = 10;
     float lastOut = 0;
@@ -357,6 +455,34 @@ static void TestEngine() {
         t.time = now;
         Step s = e.Update(t, true, 0.6f, now, 0.0025f, 0.0);
         assert(isfinite(s.out));
+    }
+    // Nitrous makes the steering lighter, by NosLighter, and it comes back after.
+    {
+        g_cfg = Config();
+        g_cfg.nosLighter = 0.5f;
+        g_cfg.oscillationGuard = false;
+        Engine a, b;
+        Telemetry n = Car(30, 1.0f);
+        Telemetry plain = n;
+        n.nos = true;
+        float withNos = 0, without = 0;
+        double at = now;
+        for (int i = 0; i < 800; i++) {
+            at += 0.0025;
+            n.time = plain.time = at;
+            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
+            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
+        }
+        assert(fabsf(without) > 0.05f && fabsf(withNos - without * 0.5f) < 0.02f * fabsf(without) + 1e-4f);
+        n.nos = false;
+        for (int i = 0; i < 800; i++) {
+            at += 0.0025;
+            n.time = plain.time = at;
+            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
+            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
+        }
+        assert(fabsf(withNos - without) < 0.02f * fabsf(without) + 1e-4f);
+        g_cfg = Config();
     }
     // The force fades in after the effect (re)starts.
     g_cfg = Config();

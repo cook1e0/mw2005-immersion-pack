@@ -7,6 +7,10 @@ void Physics_Install();
 // Once per frame (game thread), reads tuning tables the game builds at startup.
 void Physics_Frame();
 
+// Testing: lifts the player's car [Tires] DropHeight metres straight up at its next physics step
+// (vertical and spin speed zeroed, forward speed kept) and lets it fall. Any thread.
+void Physics_DropCar();
+
 // Per-car settings (game thread). The player's car changed: its [Car.<name>] section, if it has
 // one, replaces the [Physics] slider values in g_cfg until another car is driven.
 void Physics_SetCar(const char* vehicleName);

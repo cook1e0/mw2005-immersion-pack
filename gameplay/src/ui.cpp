@@ -234,7 +234,7 @@ const struct {
     {"NfsmwFfb_Setting", "nfsmw_ffb.ini", "No FFB mod"},
     {"NfsmwVr_Setting", "nfsmw_vr.ini", "No VR mod"},
 };
-const struct {
+constexpr struct {
     int mod;
     const char* key;
     float def;                  // the mod's default
@@ -252,15 +252,94 @@ const struct {
     {MOD_VR, "HideArms", 1.0f},
     {MOD_FFB, "CentreWeight", 0.3f}, {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.5f},
     {MOD_FFB, "SurfaceRumble", 0.3f}, {MOD_FFB, "Crashes", 0.6f}, {MOD_FFB, "Scrapes", 0.4f},
+    {MOD_FFB, "Breakables", 0.6f},
+    {MOD_VR, "MirrorBrightness", 1.4f}, {MOD_VR, "MirrorContrast", 1.25f},
+    {MOD_VR, "WheelOverHud", 0.0f},
+    {MOD_VR, "MenuOpen", 0.0f},             // live, not a setting: this menu is open
+    {MOD_FFB, "OffroadVibration", 0.4f},
+    {MOD_VR, "HudPerCar", 0.0f},
+    {MOD_VR, "HudRight", 0.0f},
+    {MOD_FFB, "NosLighter", 0.3f},
+    {MOD_FFB, "Landing", 0.8f},
+    {MOD_FFB, "CarHits", 0.8f},
+    {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
+    {MOD_VR, "DashCover", 1.3f},
+    {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
+    {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
+    {MOD_VR, "DashSpeedoX", 0.0f}, {MOD_VR, "DashSpeedoY", 0.0f}, {MOD_VR, "DashSpeedoSize", 1.0f},
+    {MOD_VR, "DashPursuitX", 0.0f}, {MOD_VR, "DashPursuitY", 0.0f}, {MOD_VR, "DashPursuitSize", 1.0f},
+    {MOD_VR, "DashBoardX", 0.0f}, {MOD_VR, "DashBoardY", 0.0f}, {MOD_VR, "DashBoardSize", 1.0f},
+    {MOD_VR, "DashAdjust", 0.0f}, {MOD_VR, "DashHighlight", -1.0f},   // live: the Adjust dashboard page is open
+    {MOD_VR, "EditorOn", 0.0f}, {MOD_VR, "EditCommand", 0.0f},        // live: the Triangle editor page, its command
+    {MOD_VR, "EditBrush", 0.0f},
+    {MOD_VR, "EditPicking", 0.0f}, {MOD_VR, "EditLayer", 0.0f},   // live: picking with the menu hidden
+    {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
+    {MOD_VR, "DashDepth", 0.0f},
+    {MOD_VR, "DashMsgX", 0.0f}, {MOD_VR, "DashMsgY", 0.12f}, {MOD_VR, "DashMsgSize", 1.0f},
+    {MOD_VR, "DashMapL", 0.165f}, {MOD_VR, "DashMapT", 0.600f}, {MOD_VR, "DashMapR", 0.415f}, {MOD_VR, "DashMapB", 0.990f},
+    {MOD_VR, "DashRadarL", 0.355f}, {MOD_VR, "DashRadarT", 0.000f}, {MOD_VR, "DashRadarR", 0.645f}, {MOD_VR, "DashRadarB", 0.110f},
+    {MOD_VR, "DashSpeedoL", 0.585f}, {MOD_VR, "DashSpeedoT", 0.620f}, {MOD_VR, "DashSpeedoR", 0.835f}, {MOD_VR, "DashSpeedoB", 0.990f},
+    {MOD_VR, "DashPursuitL", 0.400f}, {MOD_VR, "DashPursuitT", 0.660f}, {MOD_VR, "DashPursuitR", 0.600f}, {MOD_VR, "DashPursuitB", 0.990f},
+    {MOD_VR, "DashBoardL", 0.645f}, {MOD_VR, "DashBoardT", 0.000f}, {MOD_VR, "DashBoardR", 0.950f}, {MOD_VR, "DashBoardB", 0.430f},
+    {MOD_VR, "DashMsgL", 0.300f}, {MOD_VR, "DashMsgT", 0.210f}, {MOD_VR, "DashMsgR", 0.700f}, {MOD_VR, "DashMsgB", 0.590f},
+    {MOD_VR, "MirrorOffset", 0.0f},
+    {MOD_VR, "DashBox", 0.85f},
+    {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
+    {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
+    {MOD_VR, "DashGlass", 0.35f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
+    {MOD_VR, "DashGlassDepth", 0.01f}, {MOD_VR, "DashReflect", 0.3f},
+    {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
     FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
-    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, EXT_COUNT
+    FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
+    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS,
+    VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER,
+    VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
+    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH,
+    VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, VR_DASHDEPTH,
+    VR_DASHMSG,                 // 3: the messages element's X, Y, Size
+    VR_DASHCROP = VR_DASHMSG + 3,   // 24: each element's crop of the HUD (left, top, right, bottom)
+    VR_MIRROROFFSET = VR_DASHCROP + 24,
+    VR_DASHBOX,
+    VR_DASHELBOX,               // 4: the box behind the bottom HUD, cop radar, leaderboard, messages
+    VR_DASHSCREEN = VR_DASHELBOX + 4,   // 2: the display's width, height
+    VR_DASHGLASS = VR_DASHSCREEN + 2,
+    VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
+    VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
+    VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
+    EXT_COUNT = VR_DASHANGLE + 2
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
+// Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
+// made every dashboard setting move another element).
+constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
+static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
+static_assert(KeyIs(kExt[VR_DASHEL].key, "DashMapX"), "kExt out of order at VR_DASHEL");
+static_assert(KeyIs(kExt[VR_DASHEL + 14].key, "DashBoardSize"), "kExt out of order at VR_DASHEL + 14");
+static_assert(KeyIs(kExt[VR_DASHADJUST].key, "DashAdjust"), "kExt out of order at VR_DASHADJUST");
+static_assert(KeyIs(kExt[VR_EDITBRUSH].key, "EditBrush"), "kExt out of order at VR_EDITBRUSH");
+static_assert(KeyIs(kExt[VR_EDITPICKED].key, "EditPicked"), "kExt out of order at VR_EDITPICKED");
+static_assert(KeyIs(kExt[VR_DASHDEPTH].key, "DashDepth"), "kExt out of order at VR_DASHDEPTH");
+static_assert(KeyIs(kExt[VR_DASHMSG].key, "DashMsgX"), "kExt out of order at VR_DASHMSG");
+static_assert(KeyIs(kExt[VR_DASHMSG + 2].key, "DashMsgSize"), "kExt out of order at VR_DASHMSG + 2");
+static_assert(KeyIs(kExt[VR_DASHCROP].key, "DashMapL"), "kExt out of order at VR_DASHCROP");
+static_assert(KeyIs(kExt[VR_DASHCROP + 8].key, "DashSpeedoL"), "kExt out of order at VR_DASHCROP + 8");
+static_assert(KeyIs(kExt[VR_DASHCROP + 12].key, "DashPursuitL"), "kExt out of order at VR_DASHCROP + 12");
+static_assert(KeyIs(kExt[VR_DASHCROP + 23].key, "DashMsgB"), "kExt out of order at VR_DASHCROP + 23");
+static_assert(KeyIs(kExt[VR_MIRROROFFSET].key, "MirrorOffset"), "kExt out of order at VR_MIRROROFFSET");
+static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_DASHBOX");
+static_assert(KeyIs(kExt[VR_DASHELBOX].key, "DashBottomBox"), "kExt out of order at VR_DASHELBOX");
+static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of order at VR_DASHELBOX + 3");
+static_assert(KeyIs(kExt[VR_DASHSCREEN].key, "DashScreenW"), "kExt out of order at VR_DASHSCREEN");
+static_assert(KeyIs(kExt[VR_DASHGLASS].key, "DashGlass"), "kExt out of order at VR_DASHGLASS");
+static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of order at VR_WHEELPIVOT + 1");
+static_assert(KeyIs(kExt[VR_DASHGLASSDEPTH].key, "DashGlassDepth"), "kExt out of order at VR_DASHGLASSDEPTH");
+static_assert(KeyIs(kExt[VR_DASHREFLECT].key, "DashReflect"), "kExt out of order at VR_DASHREFLECT");
+static_assert(KeyIs(kExt[VR_DASHANGLE + 1].key, "DashPitch"), "kExt out of order at VR_DASHANGLE + 1");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
@@ -359,7 +438,7 @@ int FfbDeviceName(int index, std::string* name) {
         exported = f != nullptr;
         if (f) {
             char buf[160] = {};
-            int count = ((int(__cdecl*)(int, char*, int))f)(-1, nullptr, 0);   // count only, opens nothing
+            int count = ((int(__cdecl*)(int, char*, int))f)(0, buf, sizeof(buf));
             for (int i = 0; i < count && i < 16; i++) {
                 buf[0] = 0;
                 ((int(__cdecl*)(int, char*, int))f)(i, buf, sizeof(buf));
@@ -496,6 +575,11 @@ const Item kItems[] = {
     {NUMBER, "Road surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Breakable objects", "FFB", "Breakables", &s_ext[FFB_BREAKABLES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Landing", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "NOS FFB", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -574,16 +658,24 @@ const Item kItems[] = {
     {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Front torque share", "Physics", "TorqueSplit", &g_cfg.torqueSplit, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
     {NUMBER, "Drivetrain multiplication", "Physics", "Drivetrain", &g_cfg.drivetrain, 0.7f, 3.0f, 0.05f, 1, "%.2fx", 0},
+    {NUMBER, "Rear grip (oversteer)", "Physics", "RearGrip", &g_cfg.rearGrip, 0.5f, 1.5f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Offroad grip", "Physics", "OffroadGrip", &g_cfg.offroadGrip, 0.2f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Slide grip", "Physics", "SlideGrip", &g_cfg.slideGrip, 0.4f, 1.0f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Slide oversteer", "Physics", "SlideOversteer", &g_cfg.slideOversteer, 0.4f, 1.0f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Rain grip", "Physics", "RainGrip", &g_cfg.rainGrip, 0.5f, 1.0f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Grip loss at speed", "Physics", "SpeedGripLoss", &g_cfg.speedGripLoss, 0.0f, 0.9f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Spin limit", "Physics", "MaxSpin", &g_cfg.maxSpin, 0.0f, 30.0f, 0.5f, 1, "%.1f rad/s", 0},
     RESET_,
     RESET_GAME_,
 
     PAGE_("TRAFFIC AND HUD"),
     BACK_,
     HEADER_("TRAFFIC"),
-    {TOGGLE, "No SUV cops", "Traffic", "NoSuvCops", &g_cfg.noSuvCops, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "No head-on ramming SUVs", "Traffic", "NoHeavySupport", &g_cfg.noHeavySupport, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Drive drag races normally", "Races", "NormalDragRaces", &g_cfg.normalDragRaces, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Normal HUD in drag races", "Races", "NormalDragHud", &g_cfg.normalDragHud, 0, 0, 0, 0, nullptr, 0},
     HEADER_("HUD"),
     {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
@@ -597,10 +689,97 @@ const Item kItems[] = {
     {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
     {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
     {NUMBER, "HUD height", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
+    {NUMBER, "HUD left / right", "VR", "HudRight", &s_ext[VR_HUDRIGHT], -0.8f, 0.8f, 0.05f, 1, "%+.2f m", 0},
+    {NUMBER, "Each car remembers HUD positioning", "VR", "HudPerCar", &s_ext[VR_HUDPERCAR], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    HEADER_("IN-CAR DASHBOARD"),
+    {NUMBER, "In-car dashboard", "VR", "Dash", &s_ext[VR_DASH], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    {NUMBER, "Whole dashboard size (this car)", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Dashboard left / right", "VR", "DashRight", &s_ext[VR_DASHRIGHT], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Dashboard up / down", "VR", "DashUp", &s_ext[VR_DASHUP], -0.4f, 0.4f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
+    {NUMBER, "Dashboard angle left / right", "VR", "DashYaw", &s_ext[VR_DASHANGLE], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
+    {NUMBER, "Dashboard angle up / down", "VR", "DashPitch", &s_ext[VR_DASHANGLE + 1], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
+    {NUMBER, "Display width", "VR", "DashScreenW", &s_ext[VR_DASHSCREEN], 0.04f, 0.8f, 0.005f, 100, "%.1f cm", 0},
+    {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
+    {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Display glass opacity", "VR", "DashGlass", &s_ext[VR_DASHGLASS], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Display glass depth", "VR", "DashGlassDepth", &s_ext[VR_DASHGLASSDEPTH], 0.005f, 0.06f, 0.0025f, 100, "%.2f cm", 0},
+    {NUMBER, "Display glass reflection", "VR", "DashReflect", &s_ext[VR_DASHREFLECT], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    LINK_("Adjust dashboard (each element, live)", "ADJUST DASHBOARD"),
+    LINK_("Triangle editor (hide, black, steering wheel)", "TRIANGLE EDITOR"),
     HEADER_("VIEW"),
     {NUMBER, "Hide the driver's arms and hands", "VR", "HideArms", &s_ext[VR_HIDEARMS], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    {NUMBER, "Steering wheel rendered in front of HUD", "VR", "WheelOverHud", &s_ext[VR_WHEELOVERHUD], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
+    {NUMBER, "Mirror brightness", "VR", "MirrorBrightness", &s_ext[VR_MIRRORBRIGHTNESS], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Mirror contrast", "VR", "MirrorContrast", &s_ext[VR_MIRRORCONTRAST], 0.5f, 3.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Near clip plane", "VR", "NearZ", &s_ext[VR_NEARZ], 0.001f, 0.25f, 0.001f, 100, "%.1f cm", 0},
     RESET_,
+
+    PAGE_("ADJUST DASHBOARD"),
+    LINK_("< Back", "VR"),
+    {NUMBER, "Whole dashboard size (this car)", "VR", "DashZoom", &s_ext[VR_DASHZOOM], 0.3f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("MINIMAP"),
+    {NUMBER, "Minimap left / right", "VR", "DashMapX", &s_ext[VR_DASHEL + 0], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap up / down", "VR", "DashMapY", &s_ext[VR_DASHEL + 0 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Minimap size", "VR", "DashMapSize", &s_ext[VR_DASHEL + 0 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Minimap crop left", "VR", "DashMapL", &s_ext[VR_DASHCROP + 0], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop top", "VR", "DashMapT", &s_ext[VR_DASHCROP + 1], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop right", "VR", "DashMapR", &s_ext[VR_DASHCROP + 2], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Minimap crop bottom", "VR", "DashMapB", &s_ext[VR_DASHCROP + 3], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("COP RADAR"),
+    {NUMBER, "Cop radar left / right", "VR", "DashRadarX", &s_ext[VR_DASHEL + 3], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Cop radar up / down", "VR", "DashRadarY", &s_ext[VR_DASHEL + 3 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Cop radar size", "VR", "DashRadarSize", &s_ext[VR_DASHEL + 3 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Cop radar crop left", "VR", "DashRadarL", &s_ext[VR_DASHCROP + 4], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop top", "VR", "DashRadarT", &s_ext[VR_DASHCROP + 5], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop right", "VR", "DashRadarR", &s_ext[VR_DASHCROP + 6], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Cop radar crop bottom", "VR", "DashRadarB", &s_ext[VR_DASHCROP + 7], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("SPEEDOMETER"),
+    {NUMBER, "Speedometer left / right", "VR", "DashSpeedoX", &s_ext[VR_DASHEL + 6], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer up / down", "VR", "DashSpeedoY", &s_ext[VR_DASHEL + 6 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Speedometer size", "VR", "DashSpeedoSize", &s_ext[VR_DASHEL + 6 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speedometer crop left", "VR", "DashSpeedoL", &s_ext[VR_DASHCROP + 8], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop top", "VR", "DashSpeedoT", &s_ext[VR_DASHCROP + 9], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop right", "VR", "DashSpeedoR", &s_ext[VR_DASHCROP + 10], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Speedometer crop bottom", "VR", "DashSpeedoB", &s_ext[VR_DASHCROP + 11], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("PURSUIT INFO"),
+    {NUMBER, "Pursuit info left / right", "VR", "DashPursuitX", &s_ext[VR_DASHEL + 9], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info up / down", "VR", "DashPursuitY", &s_ext[VR_DASHEL + 9 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Pursuit info size", "VR", "DashPursuitSize", &s_ext[VR_DASHEL + 9 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Pursuit info crop left", "VR", "DashPursuitL", &s_ext[VR_DASHCROP + 12], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop top", "VR", "DashPursuitT", &s_ext[VR_DASHCROP + 13], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop right", "VR", "DashPursuitR", &s_ext[VR_DASHCROP + 14], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Pursuit info crop bottom", "VR", "DashPursuitB", &s_ext[VR_DASHCROP + 15], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    HEADER_("LEADERBOARD"),
+    {NUMBER, "Leaderboard left / right", "VR", "DashBoardX", &s_ext[VR_DASHEL + 12], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Leaderboard up / down", "VR", "DashBoardY", &s_ext[VR_DASHEL + 12 + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Leaderboard size", "VR", "DashBoardSize", &s_ext[VR_DASHEL + 12 + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Leaderboard crop left", "VR", "DashBoardL", &s_ext[VR_DASHCROP + 16], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop top", "VR", "DashBoardT", &s_ext[VR_DASHCROP + 17], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop right", "VR", "DashBoardR", &s_ext[VR_DASHCROP + 18], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Leaderboard crop bottom", "VR", "DashBoardB", &s_ext[VR_DASHCROP + 19], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+
+    HEADER_("MESSAGES (BUSTED, TOTALED)"),
+    {NUMBER, "Messages left / right", "VR", "DashMsgX", &s_ext[VR_DASHMSG], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Messages up / down", "VR", "DashMsgY", &s_ext[VR_DASHMSG + 1], -0.6f, 0.6f, 0.005f, 100, "%+.1f cm", 0},
+    {NUMBER, "Messages size", "VR", "DashMsgSize", &s_ext[VR_DASHMSG + 2], 0.0f, 3.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Messages crop left", "VR", "DashMsgL", &s_ext[VR_DASHCROP + 20], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop top", "VR", "DashMsgT", &s_ext[VR_DASHCROP + 21], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop right", "VR", "DashMsgR", &s_ext[VR_DASHCROP + 22], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+    {NUMBER, "Messages crop bottom", "VR", "DashMsgB", &s_ext[VR_DASHCROP + 23], 0.0f, 1.0f, 0.0025f, 100, "%.2f%%", 0},
+
+    PAGE_("TRIANGLE EDITOR"),
+    LINK_("< Back", "VR"),
+    HEADER_("PICK"),
+    {ACTION, "Pick triangles (the menu hides)", nullptr, "EdPick", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Selection size", "VR", "EditMode", &s_ext[VR_EDITMODE], 0.0f, 5.0f, 1.0f, 1, "%.0f", 0},
+    HEADER_("DO WITH THE SELECTION"),
+    {ACTION, "Hide", nullptr, "EdHide", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Draw black", nullptr, "EdBlack", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Add to the steering wheel", nullptr, "EdWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Take off the steering wheel", nullptr, "EdNoWheel", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Restore", nullptr, "EdRestore", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {ACTION, "Undo", nullptr, "EdUndo", nullptr, 0, 0, 0, 0, nullptr, 0},
 
     PAGE_("MENU AND TESTING"),
     BACK_,
@@ -613,6 +792,13 @@ const Item kItems[] = {
     HEADER_("TESTING"),
     BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
     {ACTION, "Pop all four tires now", nullptr, "PopTires", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
+    {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Rear view mirror forward / back", "VR", "MirrorOffset", &s_ext[VR_MIRROROFFSET], -0.05f, 0.05f, 0.001f, 100, "%+.1f cm", 0},
+    {ACTION, "Center steering wheel animation", nullptr, "EdWheelPivot", nullptr, 0, 0, 0, 0, nullptr, 0},
+    {NUMBER, "Steering wheel centre left / right", "VR", "WheelPivotRight", &s_ext[VR_WHEELPIVOT], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
+    {NUMBER, "Steering wheel centre up / down", "VR", "WheelPivotUp", &s_ext[VR_WHEELPIVOT + 1], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
+    {ACTION, "Steering wheel centre: reset", nullptr, "EdWheelPivotReset", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("LOOK"),
     {TOGGLE, "Classic menu look", "UI", "ClassicMenu", &g_cfg.classicMenu, 0, 0, 0, 0, nullptr, 0},
 };
@@ -682,11 +868,17 @@ void SetPage(const char* title) {
         }
 }
 
-// Back to the main page, on the category we came from.
+// Back to the page that links to this one (a sub-page's parent, e.g. VR), on that link; for a
+// category, the main page.
 void GoBack() {
     if (s_menu.page == 0) return;
     const char* from = kItems[s_menu.page].label;
-    SetPage(kMainPage);
+    const char* parent = kMainPage;
+    for (int i = 1, page = 0; i < kNumItems; i++) {
+        if (kItems[i].kind == PAGE) page = i;
+        else if (page && kItems[i].kind == LINK && strcmp(kItems[i].section, from) == 0) parent = kItems[page].label;
+    }
+    SetPage(parent);
     for (int i : PageRows())
         if (kItems[i].kind == LINK && strcmp(kItems[i].section, from) == 0) s_menu.sel = i;
 }
@@ -747,13 +939,69 @@ std::string LinkSummary(const char* page) {
     if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() && Physics_OwnSettings() ? "This car's own" : "On";
-    if (p == "TRAFFIC AND HUD") return g_cfg.noSuvCops ? "No SUV cops" : "SUV cops";
+    if (p == "TRAFFIC AND HUD") return g_cfg.noHeavySupport ? "No ramming SUVs" : "Ramming SUVs";
     if (p == "VR") {
         if (!ExtSetting(VR_HUDWIDTH)) return kExtMods[MOD_VR].missing;
         snprintf(buf, sizeof(buf), "HUD %.0f%%", *ExtSetting(VR_HUDWIDTH) / kExt[VR_HUDWIDTH].def * 100.0f);
         return buf;
     }
     return "";
+}
+
+// Triangle editor picking: the menu hides and the VR mod's selection follows the gaze. Menu up / down
+// step through the triangles along it (nearest first), left / right change the selection's size;
+// the menu key or Enter keeps the selection and brings the menu back, Escape leaves it.
+const char* const kPickSizes[6] = {"1 triangle", "Within 2 cm", "Within 5 cm", "Within 10 cm", "Connected piece", "Whole draw entry"};
+bool s_picking = false;
+
+void UpdateVrPages();
+void SetOpen(bool open);
+
+void StartPicking() {
+    float* picking = ExtSetting(VR_EDITPICKING);
+    if (!picking) {
+        Note("No VR mod");
+        return;
+    }
+    *picking = 1;
+    if (float* layer = ExtSetting(VR_EDITLAYER)) *layer = 0;
+    s_picking = true;
+    Log("ui: picking triangles");
+    SetOpen(false);
+}
+
+void StopPicking(bool keep) {
+    s_picking = false;
+    if (float* picking = ExtSetting(VR_EDITPICKING)) *picking = 0;
+    SetOpen(true);
+    float* picked = ExtSetting(VR_EDITPICKED);
+    int n = picked ? (int)lrintf(*picked) : 0;
+    Note(keep ? (n ? "Picked " + std::to_string(n) + (n == 1 ? " triangle" : " triangles") : std::string("Nothing picked"))
+              : std::string("Picking cancelled"));
+    Log("ui: picking %s (%d triangles)", keep ? "done" : "cancelled", n);
+}
+
+// While picking, in place of the menu's own keys.
+void UpdatePicking(int toggles, const int nav[4]) {
+    static bool enterWas = true, escWas = true;
+    bool enter = (GetAsyncKeyState(VK_RETURN) & 0x8000) != 0, esc = (GetAsyncKeyState(VK_ESCAPE) & 0x8000) != 0;
+    bool enterHit = enter && !enterWas, escHit = esc && !escWas;
+    enterWas = enter;
+    escWas = esc;
+    if (escHit) {
+        if (float* cmd = ExtSetting(VR_EDITCOMMAND)) *cmd = 9;   // the selection dropped
+        StopPicking(false);
+        return;
+    }
+    if ((toggles & 1) || enterHit) {
+        StopPicking(true);
+        return;
+    }
+    if (float* layer = ExtSetting(VR_EDITLAYER)) *layer = std::max(0.0f, *layer - nav[0] + nav[1]);
+    if (float* mode = ExtSetting(VR_EDITMODE)) {
+        *mode = Clamp(*mode - nav[2] + nav[3], 0.0f, 5.0f);
+        s_ext[VR_EDITMODE] = *mode;
+    }
 }
 
 std::string ValueText(const Item& it, int index) {
@@ -779,6 +1027,11 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    for (int el = 0; el < 5; el++)
+        if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
+    if (it.value == &s_ext[VR_DASHMSG + 2] && v <= 0.001f) return "Hidden";
+    if (it.value == &s_ext[VR_EDITBRUSH] && v <= 0.0f) return "1 triangle";
+    if (it.value == &s_ext[VR_EDITMODE]) return kPickSizes[std::max(0, std::min(5, (int)lrintf(v)))];
     if (it.flags & BF_ONOFF) return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
         std::string name;
@@ -897,8 +1150,10 @@ const struct {
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
-    {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.drivetrain, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
-    {&g_cfg.noSuvCops, 0}, {&g_cfg.normalDragRaces, 0},
+    {&g_cfg.grip, 1}, {&g_cfg.torqueSplit, 1}, {&g_cfg.drivetrain, 1}, {&g_cfg.rearGrip, 1}, {&g_cfg.offroadGrip, 1},
+    {&g_cfg.slideGrip, 1}, {&g_cfg.slideOversteer, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.speedGripLoss, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
+    {&g_cfg.maxSpin, 0},
+    {&g_cfg.noHeavySupport, 0}, {&g_cfg.normalDragRaces, 0}, {&g_cfg.normalDragHud, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
@@ -1015,6 +1270,24 @@ void Change(int index, int dir) {
             GoBack();
             return;
         }
+        if (strncmp(it.key, "Ed", 2) == 0) {
+            static const struct { const char* key; int cmd; const char* note; } kEd[] = {
+                {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
+                {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
+                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"},
+                {"EdWheelPivot", 10, "Steering wheel animation centred"}, {"EdWheelPivotReset", 11, "Steering wheel centre reset"}};
+            if (strcmp(it.key, "EdPick") == 0) {
+                StartPicking();
+                return;
+            }
+            float* cmd = ExtSetting(VR_EDITCOMMAND);
+            for (const auto& e : kEd)
+                if (strcmp(it.key, e.key) == 0) {
+                    if (cmd) *cmd = (float)e.cmd;
+                    Note(cmd ? e.note : "No VR mod");
+                }
+            return;
+        }
         if (strcmp(it.key, "RecenterVr") == 0) {
             Note(VrRecenter() ? "View recentred" : !ExtSetting(VR_HUDWIDTH) ? "No VR mod" : "No headset");
             return;
@@ -1029,6 +1302,11 @@ void Change(int index, int dir) {
         }
         if (strcmp(it.key, "RestartFfb") == 0) {
             Note(FfbRestart() ? "FFB restart requested" : "Needs updated FFB mod with NativeFFB=0");
+            return;
+        }
+        if (strcmp(it.key, "DropCar") == 0) {
+            Physics_DropCar();
+            Note("Dropping the car");
             return;
         }
         Game_PopTires();
@@ -1104,6 +1382,32 @@ void CancelCapture() {
     s_menu.capture = -1;
 }
 
+// The VR mod's live flags for the Adjust dashboard page (and the element of the selected row) and
+// the Triangle editor page; all off with the menu closed.
+void UpdateVrPages() {
+    const char* page = s_menu.open ? kItems[s_menu.page].label : "";
+    float* adjust = ExtSetting(VR_DASHADJUST);
+    float* highlight = ExtSetting(VR_DASHHIGHLIGHT);
+    float* editor = ExtSetting(VR_EDITORON);
+    if (adjust) *adjust = strcmp(page, "ADJUST DASHBOARD") == 0 ? 1.0f : 0.0f;
+    if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 || s_picking ? 1.0f : 0.0f;
+    for (int k = 0; k < 2 && s_menu.open; k++)
+        if (float* v = ExtSetting(VR_WHEELPIVOT + k)) s_ext[VR_WHEELPIVOT + k] = *v;
+    if (highlight) {
+        *highlight = -1;
+        const void* v = s_menu.open && s_menu.sel >= 0 && s_menu.sel < kNumItems ? kItems[s_menu.sel].value : nullptr;
+        for (int k = 0; k < 15 && v; k++)
+            if (v == &s_ext[VR_DASHEL + k]) *highlight = (float)(k / 3);
+        for (int k = 0; k < 3 && v; k++)
+            if (v == &s_ext[VR_DASHMSG + k]) *highlight = 5;
+        for (int k = 0; k < 24 && v; k++)
+            if (v == &s_ext[VR_DASHCROP + k]) *highlight = (float)(k / 4);
+        const int boxElement[4] = {0, 1, 4, 5};
+        for (int k = 0; k < 4 && v; k++)
+            if (v == &s_ext[VR_DASHELBOX + k]) *highlight = (float)boxElement[k];
+    }
+}
+
 void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
@@ -1113,6 +1417,7 @@ void SetOpen(bool open) {
             if (ExtSetting(i)) s_ext[i] = *ExtSetting(i);
     if (!open) {
         CancelCapture();
+        UpdateVrPages();
         if (s_menu.dirty) {
             Save();
             s_menu.dirty = false;
@@ -1163,6 +1468,10 @@ void UpdateMenu(const InputSnapshot& in, bool driving) {
             CancelCapture();
             Note("Nothing pressed, cancelled");
         }
+        return;
+    }
+    if (s_picking) {
+        UpdatePicking(toggles, nav);
         return;
     }
     if (toggles & 1) SetOpen(!s_menu.open);
@@ -1298,6 +1607,7 @@ const struct {
     {&s_ext[FFB_SURFACE], "The game's own rumble for the surface under the front tyres: grass, gravel, dirt, rumble strips."},
     {&s_ext[FFB_CRASHES], "A jolt when you hit something: cars, walls, and props such as benches, sign posts and fences."},
     {&s_ext[FFB_SCRAPES], "Grinding while the car slides along a wall, and a pull toward it."},
+    {&s_ext[FFB_BREAKABLES], "A sharp knock when you smash a breakable object (bench, sign post, fence, bin): the game's own breakable props, recognised as such, not any light contact."},
     {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
     {&s_ext[FFB_FRICTION], "Constant resistance, like a real steering rack."},
     {&s_ext[FFB_SOFTLOCK], "Push-back when the wheel goes past the steering lock."},
@@ -1306,7 +1616,34 @@ const struct {
     {&s_ext[VR_HUDWIDTH], "Size of the HUD panel in the headset (this menu is on it too)."},
     {&s_ext[VR_HUDDISTANCE], "How far in front of you the HUD panel floats."},
     {&s_ext[VR_HUDHEIGHT], "Moves the HUD panel up or down."},
+    {&s_ext[VR_HUDRIGHT], "Moves the HUD panel to the left (-) or right (+)."},
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
+    {&s_ext[VR_WHEELOVERHUD], "On: the car's steering wheel is drawn in front of the HUD while driving. In the pause menu, other menus and this menu the HUD is on top again."},
+    {&s_ext[FFB_OFFROAD], "The wheel vibrates while the front wheels are off the road: grass, dirt, mud, gravel, sand. Stronger with both wheels off and with speed."},
+    {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
+    {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
+    {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
+    {&s_ext[VR_HUDPERCAR], "On: each car model remembers its own floating HUD size, distance, height and left / right position, like the seat. A model you haven't set yet starts from the mod's built-in defaults, not from the last car you used. The in-car dashboard display's size and position are always per car model, whatever this says; the element layout and the HUD crops are the same for every car."},
+    {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
+    {&s_ext[VR_DASHZOOM], "Size of the whole in-car dashboard: the display and everything on it. Each car model remembers its own."},
+    {&s_ext[VR_DASHRIGHT], "Moves the in-car dashboard panel to the left (-) or right (+) of the gauge cluster. Each car model remembers its own."},
+    {&s_ext[VR_DASHUP], "Moves the in-car dashboard panel down (-) or up (+). Each car model remembers its own."},
+    {&s_ext[VR_MIRROROFFSET], "Moves the VR rear view mirror's picture toward you (+) or back into the mirror (-), for cars where it floats in front of the mirror. Each car remembers it."},
+    {&s_ext[VR_DASHBOX], "The in-car display: a gray screen with rounded corners and an orange outline the HUD elements sit on (0 = none)."},
+    {&s_ext[VR_DASHGLASS], "A glass sheen over the in-car display and everything on it (0 = none)."},
+    {&s_ext[VR_DASHGLASSDEPTH], "How far in front of the in-car display its glass is."},
+    {&s_ext[VR_DASHREFLECT], "How strongly the display's glass reflects the world behind you (from the rear view mirror's picture: needs the rear view mirror on)."},
+    {&s_ext[VR_WHEELPIVOT], "Moves the point the steering wheel turns about to the right (+) or left (-). Each car remembers it."},
+    {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
+    {&s_ext[VR_DASHANGLE], "Turns the whole in-car display (with its glass and elements) about its centre: its face to your right (+) or left (-). Each car model remembers its own."},
+    {&s_ext[VR_DASHANGLE + 1], "Tilts the whole in-car display (with its glass and elements) about its centre: its face up (+) or down (-). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
+    {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car model remembers its own."},
+    {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
+    {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},
+    {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
+    {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_NEARZ], "Closest distance drawn. Lower it if the dashboard or wheel near your eyes is cut off; very low values can make distant surfaces flicker."},
     {&g_cfg.recenterVr, "Recentres the VR view, like the VR mod's F8. Works while driving and in menus."},
     {&g_cfg.seat[0], "Moves the VR seat (cockpit camera) forward while held. Saved per car."},
@@ -1353,10 +1690,18 @@ const struct {
     {&g_cfg.driftAssist, "Rear grip taken away once a slide starts."},
     {&g_cfg.grip, "Tire grip multiplier."},
     {&g_cfg.torqueSplit, "Multiplies the share of torque sent to the front wheels."},
+    {&g_cfg.rearGrip, "Rear tyre grip compared with the front. Below 100% the rear lets go first: the car oversteers: with the throttle in rear and all-wheel drive cars, lifting off or braking into a corner in front drive cars. Above 100% it understeers."},
+    {&g_cfg.slideGrip, "Grip of a tyre that has broken loose, compared with its peak. Below 100% a tyre that lets go slides on with less grip, so the car slides and you catch it, instead of snapping into the turn. Use it with Rear grip for oversteer."},
+    {&g_cfg.slideOversteer, "Side grip of the rear tyres under full throttle, the way grass takes it: they keep driving but hold less sideways, so the rear slides out under power. It follows the throttle (lifting off in front drive cars) and the grip comes back as the slide gets past 20-45 degrees, so lifting or countersteering catches it. 100% = off."},
+    {&g_cfg.rainGrip, "Tyre grip in the rain (90% = 10% less), from a light rain on."},
+    {&g_cfg.speedGripLoss, "Cornering grip lost at speed: this much of the tyres' side grip is gone at 300 km/h, a quarter of it at 150 km/h, nothing from a standstill (it grows with the square of the speed). Launching and braking keep their grip. Works per car with \"Settings for this car only\"."},
+    {&g_cfg.offroadGrip, "Tyre grip on grass, dirt, mud, gravel and sand (each tyre by the surface under it). 100% = as on the road."},
     {&g_cfg.drivetrain, "Exaggerates how the driven wheels lose grip under power: 2x doubles a rear drive car's power oversteer, a front drive car's understeer, and all-wheel drive by its torque split. Below 1 softens it."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
-    {&g_cfg.noSuvCops, "No SUV police: no heavy support, other cars instead of SUV patrols."},
+    {&g_cfg.maxSpin, "The fastest your car may rotate (8 rad/s is over one turn a second). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
+    {&g_cfg.noHeavySupport, "No heavy support: the SUVs a pursuit sends to ram you head-on out of oncoming traffic don't come. SUV patrols and SUVs in roadblocks still do."},
+    {&g_cfg.normalDragHud, "Drag races show the normal race HUD (tachometer, speedometer, minimap, damage meter) instead of the drag HUD. Applies from the next race."},
     {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
     {&g_cfg.hudMeter, "The speedbreaker meter shows car damage, with engine heat in red."},
     {&g_cfg.speedbreaker, "Keep the game's speedbreaker."},
@@ -1376,6 +1721,9 @@ const char* HelpText(const Item& it) {
         return "Pushes the wheel to the right for half a second. Nothing: pick another Wheel device. To the left: turn on Reverse force direction.";
     if (it.kind == ACTION && strcmp(it.key, "RestartFfb") == 0)
         return "Reacquires the wheel and rebuilds this mod's effects after a driver or focus issue. Also available with F10.";
+    if (it.kind == ACTION && strcmp(it.key, "DropCar") == 0)
+        return "Lifts the car straight up by Drop height and lets it fall, keeping its forward speed: for testing landings anywhere.";
+    if (it.value == &g_cfg.dropHeight) return "How high Drop from air lifts the car.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
     if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
     if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";
@@ -1697,11 +2045,8 @@ void ValueWidget(int i, float w, float k) {
             float& val = *(float*)it.value;
             float shown = val * it.show;
             ImGui::SetNextItemWidth(w);
-            std::string fmt = v == "Off" ? std::string("Off") : std::string(it.fmt);
-            if ((it.flags & BF_ONOFF) || it.value == &s_ext[FFB_DEVICE]) {
-                fmt.clear();   // the text from ValueText, as a format without conversions
-                for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
-            }
+            std::string fmt;   // the text from ValueText (Off, Hidden, a device name...), as a format without conversions
+            for (char ch : v) fmt += ch == '%' ? std::string("%%") : std::string(1, ch);
             if (ImGui::SliderFloat("##v", &shown, it.lo * it.show, it.hi * it.show, fmt.c_str(), ImGuiSliderFlags_NoInput)) {
                 val = Clamp(roundf(shown / it.show / it.step) * it.step, it.lo, it.hi);
                 s_menu.sel = i;
@@ -1764,6 +2109,14 @@ void ValueWidget(int i, float w, float k) {
                 break;
             }
             if (ImGui::Button("Go", ImVec2(w * 0.4f, 0))) {
+                s_menu.sel = i;
+                Change(i, +1);
+            }
+            break;
+        case LINK:
+            // A link on a page (to a sub-page, or back): opened like a category.
+            if (ImGui::Button(it.section == kMainPage || strncmp(it.label, "<", 1) == 0 ? "< Back" : "Open  >",
+                              ImVec2(w * 0.4f, 0))) {
                 s_menu.sel = i;
                 Change(i, +1);
             }
@@ -1980,7 +2333,9 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
         std::string m = MenuKeyName(), keys;
         if (s_menu.capture >= 0) keys = m + ": cancel";
         else if (onMain) keys = "Up/Down: category    Right: open    " + m + ": close";
-        else if (cur.kind == LINK) keys = "Left/Right: back to the categories    " + m + ": close";
+        else if (cur.kind == LINK && cur.section != kMainPage && strncmp(cur.label, "<", 1) != 0)
+            keys = "Right: open    Left: back    " + m + ": close";
+        else if (cur.kind == LINK) keys = "Left/Right: back    " + m + ": close";
         else if (cur.kind == BIND) keys = std::string("Right: add binding    Left: ") + (cur.flags & BF_REQUIRED ? "reset" : "unbind") + "    " + m + ": close";
         else if (cur.kind == ACTION || cur.kind == RESET) keys = "Right: do it    Left: back    " + m + ": close";
         else keys = "Up/Down: select    Left/Right: change    " + m + ": close";
@@ -1991,6 +2346,7 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     ImGui::End();
     s_im.lastSel = s_menu.sel;
     s_im.lastPage = s_menu.page;
+    UpdateVrPages();
 
     ImGui::Render();
     RenderImGui(dev, ImGui::GetDrawData(), W, H);
@@ -1998,7 +2354,25 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
 
 }  // namespace
 
+// Each menu row on another mod's setting must name the same key as the kExt entry it points at
+// (the EXT enum and kExt listed in different orders swapped rows' settings once).
+void CheckExtRows() {
+    for (int i = 0; i < kNumItems; i++) {
+        int ext = kItems[i].kind == NUMBER ? ExtIndex(kItems[i].value) : -1;
+        if (ext < 0) continue;
+        const char* section = kExt[ext].mod == MOD_FFB ? "FFB" : "VR";
+        if (strcmp(kItems[i].key, kExt[ext].key) != 0 || strcmp(kItems[i].section, section) != 0)
+            Log("ui: BUG: row \"%s\" (%s %s) points at %s %s", kItems[i].label, kItems[i].section, kItems[i].key, section,
+                kExt[ext].key);
+    }
+}
+
 void Ui_Frame() {
+    static bool checked = false;
+    if (!checked) {
+        checked = true;
+        CheckExtRows();
+    }
     IDirect3DDevice9* dev = *(IDirect3DDevice9**)kDevice;
     if (!dev) return;
     Physics_Frame();
@@ -2026,6 +2400,7 @@ void Ui_Frame() {
         Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
     }
     UpdateMenu(in, st.driving);
+    if (float* v = ExtSetting(VR_MENUOPEN)) *v = s_menu.open ? 1.0f : 0.0f;
     if (!st.driving) return;
     if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
 

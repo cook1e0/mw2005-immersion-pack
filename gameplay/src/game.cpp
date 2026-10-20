@@ -4,7 +4,8 @@
 // DoAutoReverse(gas, brake) (shifts into reverse when braking at a standstill and swaps the
 // pedals while reversing). With the H-shifter active both calls are replaced: the gear comes
 // from the stick through ITransmission::Shift, neutral and reverse included, and the pedals keep
-// their meaning in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
+// their meaning in reverse. Manual sequential shifting works the same way: down from first is
+// neutral, then reverse (up from reverse back through neutral), and gas drives in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
 // automatic gearbox (which also skips neutral) stays out of the way.
 //
 // Clutch: EngineRacer models a friction clutch. In its ENGAGING state the torque passed between
@@ -40,6 +41,7 @@
 #include "vfx.h"
 #include "traffic.h"
 #include "controls.h"
+#include "flow.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -253,13 +255,10 @@ void PlayMoment(uint32_t moment) {
     ((void(__thiscall*)(void*))kMessageDeliver)(msg);
 }
 
-// A missed shift: the drag race "missed shift" event (exhaust pop) and, since that has no sound
-// outside drag races, the totaled car's engine failure sound ([Shifter] GrindSound).
+// A missed shift: the totaled car's engine failure sound ([Shifter] GrindSound). The drag race
+// "missed shift" event isn't sent any more: its exhaust smoke stayed where the shift was missed.
 void MissShift(uint8_t* eng) {
-    uint8_t* owner = Field<uint8_t*>(eng, kER_Owner);
-    if (!owner) return;
-    void* ev = ((void*(__cdecl*)(size_t))kEventNew)(0x10);
-    if (ev) ((void(__thiscall*)(void*, void*, float))kEMissShift)(ev, Field<void*>(owner, 8), 0.0f);
+    if (!Field<uint8_t*>(eng, kER_Owner)) return;
     if (g_cfg.grindSound) PlayMoment(g_cfg.grindSound);
 }
 
@@ -380,6 +379,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
     // Sequential (ours or the game's manual gearbox): our ShiftUp / ShiftDown bindings, or the
     // game's own shift controls.
     if (delta == 0 && presses != 0) delta = presses > 0 ? 1 : -1;
+    bool manual = !s.autoShift;
     bool clutchIn = s.clutchActive && in.clutchPedal >= g_cfg.shiftPedal;
     bool needClutch = g_cfg.requireClutch && s.clutchActive && (g_cfg.sequential || g_cfg.sequentialNeedsClutch);
     if (delta != 0 && needClutch && !clutchIn) {
@@ -393,13 +393,35 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         lastRefused = Now();
         delta = 0;
     }
-    bool shifted = s_origDoShifting(ip, delta);
-    if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+    if (!manual) {
+        bool shifted = s_origDoShifting(ip, delta);
+        if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+        return shifted;
+    }
+    // Manual: one gear per press through the whole box, R N 1 2 ... like the gates of an H.
+    if (delta == 0) return s_origDoShifting(ip, 0);
+    void* trans = eng + kER_Transmission;
+    int cur = TransGear(trans);
+    int want = cur + (delta > 0 ? 1 : -1);
+    if (want < G_REVERSE || want > TransTopGear(trans)) return false;
+    if (want == G_REVERSE && g_cfg.blockWrongDirection && WrongDirection(eng, want)) {
+        static double lastRefused = -1e9;
+        if (Now() - lastRefused > 1.0) Log("shift: R refused (car rolling the other way)");
+        lastRefused = Now();
+        return false;
+    }
+    bool shifted = TransShift(trans, want);
+    if (shifted) {
+        if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
+        if (want <= G_FIRST) Log("shift: %s -> %s (sequential)", GearName(cur), GearName(want));
+    }
     return shifted;
 }
 
 void __fastcall Hook_DoAutoReverse(void* ip, void*, float gas, float brake) {
-    if (s.hActive && Fresh()) return;   // reverse is a gate on the shifter, pedals keep their roles
+    // Reverse is a gear of its own (the shifter's gate, or below neutral in sequential): the
+    // pedals keep their roles.
+    if ((s.hActive || !s.autoShift) && Fresh()) return;
     s_origDoAutoReverse(ip, gas, brake);
 }
 
@@ -525,8 +547,8 @@ bool InRace() {
 }
 
 // A destroyed car ends a race with the game's "Totaled" screen. Free roam has no such screen, so
-// the car is made undrivable (engine marked blown, controls blocked) and a HUD message says how
-// to get going again, until the game repairs it (safehouse).
+// the car is made undrivable (engine marked blown, controls blocked) and a HUD message marks it
+// until the game repairs it (safehouse).
 void UpdateTotaled(uint8_t* eng) {
     void* damage = PlayerDamageable(eng);
     bool totaled = damage && ((Float_t)Vtbl(damage)[5])(damage) <= 0.0f;   // GetHealth
@@ -547,12 +569,13 @@ void UpdateTotaled(uint8_t* eng) {
             s.totaledBlocked = true;
         }
     }
-    if (Now() - s.totaledMsg > 6.0 && Hud_Message("TOTALED - JUMP TO SAFE HOUSE")) s.totaledMsg = Now();
+    if (Now() - s.totaledMsg > 6.0 && Hud_Message("TOTALED")) s.totaledMsg = Now();
 }
 
 // Runs every step for the player's engine, also while blown (input blocked, so no FetchInput).
 void PlayerEngineStep(uint8_t* eng) {
     s.simSeen = Now();
+    Flow_PlayerStep();
     UpdateMenuBlock(eng);
     InputSnapshot in = Input_Get();
     if (in.repairs != s.repairs) {
@@ -590,9 +613,28 @@ void PlayerEngineStep(uint8_t* eng) {
 
 constexpr float kBadlyDamaged = 0.75f;      // from this much car damage the engine heats up faster
 constexpr float kDamagedHeatUp = 1.33f;     // ... by this factor
+constexpr float kNosHeatUp = 2.0f;          // nitrous on at the limiter heats it twice as fast
+constexpr float kNosHeatUpDamaged = 1.33f;  // ... a third faster on a badly damaged car (on top of its own 1.33)
+constexpr int kER_IEngine = 0x54;           // EngineRacer's IEngine sub-object (vtable 0x8AB6E0)
+constexpr uintptr_t kVtblRacerEngine = 0x8AB6E0;
+
+// The nitrous is on (IEngine::IsNOSEngaged, EngineRacer 0x6A0410, slot 8).
+bool NosOn(uint8_t* eng) {
+    void* iface = eng + kER_IEngine;
+    if (*(uintptr_t*)iface != kVtblRacerEngine) return false;
+    return (((uint32_t(__thiscall*)(void*))Vtbl(iface)[8])(iface) & 0xFF) != 0;
+}
+
+// The game resets the engine at a race start, restart or respawn: a rolling start puts the car at
+// speed in whatever gear the shifter is in (2nd at 170 km/h blew the engine in 4 s), so the heat
+// waits this long after a reset for a gear to be picked. Nor does it rise in a cutscene (NIS).
+constexpr double kWearGraceAfterReset = 8.0;
+constexpr uintptr_t kNisInstance = 0x9885C8;          // UTL::Singleton<INIS>::mInstance: non-null during an NIS
+double s_wearGraceUntil = 0;
 
 void UpdateWear(uint8_t* eng, float dT) {
     if (IsBlown(eng)) return;
+    if (Now() < s_wearGraceUntil || *(void**)kNisInstance) return;
     // Like EngineDragster::ComputeEngineHeat: frozen at the start line and in the speedbreaker.
     if (dT <= 0.0f || IsStaging(eng) || InSpeedBreaker(eng)) return;
     uint8_t* layout = Field<uint8_t*>(eng, kER_EngineLayout);
@@ -604,8 +646,17 @@ void UpdateWear(uint8_t* eng, float dT) {
     if (rpm >= redline * 0.99f) {
         float over = maxRpm > redline ? Clamp((rpm - redline) / (maxRpm - redline), 0.0f, 1.0f) : 0.0f;
         rate = g_cfg.heatUp + (g_cfg.heatUpMax - g_cfg.heatUp) * over;
-        // A wrecked car's engine runs hotter: a third faster from 75% damage (cooling unchanged).
-        if (PlayerDamage(eng) >= kBadlyDamaged) rate *= kDamagedHeatUp;
+        // A wrecked car's engine runs hotter: a third faster from 75% damage. The nitrous on the
+        // limiter heats it twice as fast, but only a third faster on a car that is already badly
+        // damaged, so the two don't pile up (1.33 * 1.33, not 1.33 * 2). Cooling unchanged.
+        bool damaged = PlayerDamage(eng) >= kBadlyDamaged;
+        float k = damaged ? kDamagedHeatUp : 1.0f;
+        bool nos = NosOn(eng);
+        if (nos) k *= damaged ? kNosHeatUpDamaged : kNosHeatUp;
+        rate *= k;
+        static bool loggedNos;
+        if (nos && !loggedNos) Log("engine: nitrous on the limiter, heating x%.2f", k);
+        loggedNos = nos;
     }
     s.heat = Clamp(s.heat + rate * dT, 0.0f, 1.0f);
     int step = (int)(s.heat * 4.0f);
@@ -644,6 +695,7 @@ void __fastcall Hook_Repair(uint8_t* damage) {
             IsBlown(eng) ? "blown" : "ok", s.heat);
         s.heat = 0.0f;
         s.heatStep = 0;
+        s_wearGraceUntil = Now() + kWearGraceAfterReset;
     }
     ((Void_t)kRepair)(damage);
 }
@@ -846,6 +898,7 @@ HudStatus Game_Hud() {
     }
     h.heat = g_cfg.engineWear && !s.autoShift && !IsDragster(s.engine) ? s.heat : 0.0f;
     h.poppedTires = PoppedTires(s.engine);
+    h.engineBlown = s.blown;
     return h;
 }
 
@@ -937,6 +990,7 @@ bool Game_Install() {
     Vfx_Install();
     Traffic_Install();
     Controls_Install();
+    Flow_Install();
     // Only the call itself: the widescreen fix hooks the instruction right after it.
     if (Expect(kCallRenderHud, {0xE8, 0x94, 0xF8, 0xFF, 0xFF})) {
         WriteRel(kCallRenderHud, 0xE8, (void*)&Hook_RenderHud);

@@ -112,8 +112,9 @@ struct Config {
     float damageStrength = 1.0f;    // damage per m/s above that, in % (1.0 = 1% per m/s)
     bool  damageSmoke = true;       // engine smoke (the cop cars' damage smoke) on a damaged car
     float smokeFrom = 0.75f;        // ... from this much damage
-    bool  noSuvCops = true;         // no SUV cops (heavy support, SUV patrols, roadblocks)
+    bool  noHeavySupport = true;    // no heavy support: the ramming SUVs sent head-on at you (SUV patrols stay)
     bool  normalDragRaces = true;   // the player drives drag races normally (no auto lane steering, normal engine and damage)
+    bool  normalDragHud = true;     // drag races show the normal race HUD, not the drag HUD (from the next race)
     float heatSmokeFrom = 0.5f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 0.8f;        // fraction of the car's velocity its smoke particles keep
     float damageLossStart = 0.3f;   // damage where the engine starts losing power
@@ -122,6 +123,7 @@ struct Config {
     // [Tires] spike strips pop tires like in NFS Carbon: the car stays drivable, with less grip
     // and some drag, instead of the game's locked-up wheels
     bool  poppedTires = true;
+    float dropHeight = 5.0f;        // [Tires] DropHeight: testing, how high "Drop from air" lifts the car (m)
     float tireHandicap = 0.35f;     // multiplies the grip loss and drag of a popped tire
     std::string debugPopTires;      // binding that pops all four tires (testing)
 
@@ -129,6 +131,11 @@ struct Config {
     bool  hudMeter = true;
     bool  speedbreaker = false;     // the game's speedbreaker (its meter is taken over)
     std::string hudIcon = "INGAME_ICON_PLAYERCAR"; // texture replacing the speedbreaker clock
+    bool  hideInfractions = true;   // no infractions popup on the HUD
+    bool  hideCostToState = true;   // no cost to state popup on the HUD
+    bool  hideLocationNames = true; // no area name ("Ocean View") on entering a neighbourhood
+    float hudHeatIconFrom = 0.5f;   // engine heat from which the engine warning icon flashes
+    std::string hudHeatIcon = "ENGINE_HEAT_ICON,HEAT_ICON"; // engine warning icon: first loaded texture of these
     float hudHeatFrom = 0.5f;       // heat where the red overlay starts filling
     float hudWarn = 0.75f;          // heat or damage at which the meter and car icon flash
     bool  hudFillUp = true;         // the meter fills from the bottom up (the game's arc fills downwards)
@@ -143,8 +150,15 @@ struct Config {
     float grip = 1.0f;              // overall tire grip
     float torqueSplit = 1.0f;       // multiplies the share of torque sent to the front wheels
     float drivetrain = 1.0f;        // exaggerates the driven axle's character (RWD oversteer, FWD understeer)
+    float rearGrip = 1.0f;          // rear tyres' grip relative to the front (below 1: oversteer)
+    float offroadGrip = 0.75f;      // tyre grip on grass, dirt, mud, gravel, sand
+    float slideGrip = 0.85f;        // a sliding tyre's friction compared with its peak grip
+    float slideOversteer = 0.8f;    // the rear tyres' side grip, as on grass (drive grip unchanged)
+    float rainGrip = 0.9f;          // tyre grip in the rain
+    float speedGripLoss = 0.0f;     // side grip lost at 300 km/h (with the square of the speed)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
+    float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD

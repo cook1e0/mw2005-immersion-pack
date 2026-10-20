@@ -158,7 +158,7 @@ static bool AnyUsable(const std::vector<Binding>& list) {
 static bool ReadSteer(float* out, float* wheelDeg) {
     for (auto& b : s_steer) {
         if (b.kind != BK_AXIS || !BindingUsable(b)) continue;
-        float v = ((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f;
+        float v = Clamp(((float)s_joy[b.joy].state.axis[b.index] - 32767.5f) / 32767.5f, -1.0f, 1.0f);
         if (b.invert) v = -v;
         *wheelDeg = v * g_cfg.wheelRotation * 0.5f;
         v *= g_cfg.wheelRotation / g_cfg.steeringLock * g_cfg.steerSensitivity;

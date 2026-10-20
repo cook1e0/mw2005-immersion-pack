@@ -256,7 +256,7 @@ void Spectator_Draw(IDirect3DDevice9* dev, const SpectatorFrame& f) {
             dev->SetPixelShader(nullptr);
             if (f.hud) {
                 SetBlend(dev, true);
-                DrawPanel(dev, f.hud, {0, g_cfg.hudHeight, -g_cfg.hudDistance}, g_cfg.hudWidth, g_cfg.hudWidth * panelAspect,
+                DrawPanel(dev, f.hud, {g_cfg.hudRight, g_cfg.hudHeight, -g_cfg.hudDistance}, g_cfg.hudWidth, g_cfg.hudWidth * panelAspect,
                           camPos, s_smoothed, tanX, tanY, vx0, vx1, H);
                 SetBlend(dev, false);
             }

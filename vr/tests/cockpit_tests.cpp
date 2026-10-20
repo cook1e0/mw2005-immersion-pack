@@ -8,6 +8,14 @@ volatile uint8_t gameAddressPadding[0x600000];
 static double testTime = 1;
 void Log(const char*, ...) {}
 void ConfigFile(const char*, char* out, bool) { strcpy(out, "missing-cockpit-test.ini"); }
+void D3D_AddMirror(void*, const float*, int, const float*, int) {}
+void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}
+void D3D_SetGlassCorners(void*, int, const float*) {}
+void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
+void D3D_RegisterWheelDraw(void*, int) {}
+void D3D_AddDash(void*, const float*, const float*, const float*, const float*) {}
+void D3D_AddColorTris(void*, const float*, int, uint32_t) {}
+void D3D_DrawOverlay(const float*, int, uint32_t) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
 static void* moverVtbl[8];
@@ -23,6 +31,16 @@ static void Check(bool ok, const char* message) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", message); exit(1); }
 }
 static void Near(float a, float b, const char* message) { Check(fabsf(a - b) < 0.0002f, message); }
+static void TestWheelOctants() {
+    for (int x = -20; x <= 20; x++) {
+        for (int y = -20; y <= 20; y++) {
+            float du = x * 0.13f, dw = y * 0.17f;
+            int expected = (int)((atan2f(dw, du) + 3.14159265f) / (3.14159265f / 4)) & 7;
+            Check(WheelOctant(du, dw) == expected, "fast wheel-search octant matches the angular bin");
+        }
+    }
+}
+
 static M4 Identity() {
     M4 m = {};
     for (int i = 0; i < 4; i++) m.m[i][i] = 1;
@@ -106,10 +124,12 @@ static void TestReloadedDriver() {
     Check(first && first->ok && first->body[0] == 1 && first->heads[0] == 1 && indices[0] == 0 && ib.data[3] == 3, "driver head reordered last");
     Check(GetDriver(solid) == first, "unchanged driver stays cached");
 
-    // Reloaded in place: same pointers, original triangle order and a new vertex buffer.
+    // Reloaded in place: same pointers, original triangle order and a new vertex buffer. Models are
+    // streamed between frames, so the change is looked for at the frame boundary.
     memcpy(indices, original, sizeof(indices));
     memcpy(ib.data, original, sizeof(indices));
     At<uintptr_t>(entry, 0x54) = 0x2222;
+    Cockpit_EndFrame();
     Driver* second = GetDriver(solid);
     Check(second && second != first && second->ok && indices[0] == 0 && s_retired.size() == 1, "reloaded driver prepared again");
 
@@ -270,10 +290,250 @@ static void TestSteeringWheel() {
     for (int c = 0; c < 3; c++) out[c] = top[0] * turned[c] + top[1] * turned[4 + c] + top[2] * turned[8 + c] + turned[12 + c];
     Check(out[1] < w->centre[1] - radius * 0.9f, "turning right moves the top of the wheel right");
     Near(out[0] * n[0] + out[2] * n[2], w->centre[0] * n[0] + w->centre[2] * n[2], "wheel stays in its plane");
+
+    static uint8_t reloadedSolid[0x100], reloadedPlat[0x40], reloadedEntry[kEntrySize], reloadedFormat[16];
+    static float reloadedVerts[4096 * 3];
+    static uint16_t reloadedIndices[4096];
+    static FakeIb reloadedIb;
+    Check(ni <= 4096, "wheel cache reload fixtures fit test buffers");
+    memset(reloadedVerts, 0, sizeof(reloadedVerts));  // A cache hit must not run wheel discovery again.
+    strcpy((char*)reloadedSolid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(reloadedSolid, kSolidPlat) = reloadedPlat;
+    At<int>(reloadedPlat, kPlatNumEntries) = 1;
+    At<uint8_t*>(reloadedPlat, kPlatEntries) = reloadedEntry;
+    At<uint16_t*>(reloadedPlat, kPlatIndices) = reloadedIndices;
+    At<IDirect3DIndexBuffer9*>(reloadedPlat, kPlatIndexBuffer) = &reloadedIb;
+    At<int>(reloadedPlat, kPlatNumIndices) = ni;
+    memcpy(reloadedEntry, entry, kEntrySize);
+    memcpy(reloadedFormat, format, sizeof(format));
+    At<uint8_t*>(reloadedEntry, kEntryFormat) = reloadedFormat;
+    At<float*>(reloadedEntry, kEntryVertices) = reloadedVerts;
+    memset(reloadedIndices, 0, ni * sizeof(uint16_t));
+    memset(reloadedIb.data, 0, ni * sizeof(uint16_t));
+    reloadedIb.size = ni * sizeof(uint16_t);
+    SolidInfo* reloaded = GetSolid(reloadedSolid);
+    Check(reloaded->wheel && reloaded->wheel->ok, "reloaded interior reuses cached wheel preparation");
+    Check(reloaded->wheel->turned[0] == w->turned[0] &&
+          memcmp(reloadedIndices, indices, ni * sizeof(uint16_t)) == 0,
+          "reloaded model receives cached wheel split and index order");
+
+    EditSet& edits = EditsFor("TESTCAR_KIT00_INTERIOR_A");
+    edits.wheel.insert(TriId(indices[0], indices[1], indices[2]));
+    ApplyEditsTo("TESTCAR_KIT00_INTERIOR_A", true);
+    Check(info->wheel && info->wheel->turned[0] == 193, "wheel triangle picker edit rebuilds prepared wheel");
+
+    static uint8_t editedReloadSolid[0x100], editedReloadPlat[0x40], editedReloadEntry[kEntrySize], editedReloadFormat[16];
+    static uint16_t editedReloadIndices[4096];
+    static FakeIb editedReloadIb;
+    strcpy((char*)editedReloadSolid + kSolidName, "TESTCAR_KIT00_INTERIOR_A");
+    At<uint8_t*>(editedReloadSolid, kSolidPlat) = editedReloadPlat;
+    At<int>(editedReloadPlat, kPlatNumEntries) = 1;
+    At<uint8_t*>(editedReloadPlat, kPlatEntries) = editedReloadEntry;
+    At<uint16_t*>(editedReloadPlat, kPlatIndices) = editedReloadIndices;
+    At<IDirect3DIndexBuffer9*>(editedReloadPlat, kPlatIndexBuffer) = &editedReloadIb;
+    At<int>(editedReloadPlat, kPlatNumIndices) = ni;
+    memcpy(editedReloadEntry, entry, kEntrySize);
+    memcpy(editedReloadFormat, format, sizeof(format));
+    At<uint8_t*>(editedReloadEntry, kEntryFormat) = editedReloadFormat;
+    At<float*>(editedReloadEntry, kEntryVertices) = reloadedVerts;
+    memset(editedReloadIndices, 0, ni * sizeof(uint16_t));
+    memset(editedReloadIb.data, 0, ni * sizeof(uint16_t));
+    editedReloadIb.size = ni * sizeof(uint16_t);
+    SolidInfo* editedReload = GetSolid(editedReloadSolid);
+    Check(editedReload->wheel && editedReload->wheel->ok && editedReload->wheel->turned[0] == 193,
+          "reloaded model uses refreshed wheel-picker template");
     g_cfg.steeringWheel = false;
 }
 
+// Side mirror glass: the big rear-facing flat patch of a mirror model, its size and which way it
+// faces; a rear-facing panel that isn't a mirror (behind the cabin, too small) is not taken.
+static void AddQuad(std::vector<V3>& t, V3 c, V3 u, V3 v, float hu, float hv, bool flipWinding) {
+    V3 p[4] = {{c.x - u.x * hu + v.x * hv, c.y - u.y * hu + v.y * hv, c.z - u.z * hu + v.z * hv},
+               {c.x + u.x * hu + v.x * hv, c.y + u.y * hu + v.y * hv, c.z + u.z * hu + v.z * hv},
+               {c.x + u.x * hu - v.x * hv, c.y + u.y * hu - v.y * hv, c.z + u.z * hu - v.z * hv},
+               {c.x - u.x * hu - v.x * hv, c.y - u.y * hu - v.y * hv, c.z - u.z * hu - v.z * hv}};
+    int order[2][6] = {{0, 1, 2, 0, 2, 3}, {0, 2, 1, 0, 3, 2}};
+    for (int k : order[flipWinding]) t.push_back(p[k]);
+}
+
+static void TestMirrorGlass() {
+    // A left mirror: glass facing back and a little out (as in the game's models), a housing
+    // around it facing forward and sideways.
+    V3 n = mirror::Norm({-0.95f, 0.31f, 0.04f});
+    V3 u = mirror::Norm(mirror::Cross({0, 0, 1}, n)), v = mirror::Cross(n, u);
+    std::vector<V3> tris;
+    AddQuad(tris, {0.5f, 0.9f, 0.8f}, u, v, 0.1f, 0.06f, true);
+    AddQuad(tris, {0.55f, 0.9f, 0.8f}, {0, -1, 0}, {0, 0, 1}, 0.11f, 0.07f, false);   // housing front (+x)
+    AddQuad(tris, {0.52f, 1.0f, 0.8f}, {1, 0, 0}, {0, 0, 1}, 0.03f, 0.07f, false);    // housing side
+    MirrorGlass g = mirror::FindGlass(tris);
+    Check(g.ok, "mirror glass 1");
+    Check(fabsf(g.centre.x - 0.5f) < 0.01f && fabsf(g.centre.y - 0.9f) < 0.01f && fabsf(g.centre.z - 0.8f) < 0.01f, "mirror glass 2");
+    Check(fabsf(g.halfU - 0.1f) < 0.005f && fabsf(g.halfV - 0.06f) < 0.005f, "mirror glass 3");
+    Check(g.normal.x < -0.9f, "mirror glass 4");                          // facing the driver, whichever winding
+    Check(g.u.y < -0.2f && g.v.z > 0.9f, "mirror glass 5");               // u: to the driver's right (the car's -y), v: up
+    // Not a mirror: a rear-facing panel behind the cabin, and a tiny one.
+    std::vector<V3> junk;
+    AddQuad(junk, {-1.8f, 0.72f, 0.55f}, u, v, 0.05f, 0.05f, false);
+    Check(!mirror::FindGlass(junk).ok, "mirror glass 6");
+    std::vector<V3> tiny;
+    AddQuad(tiny, {0.5f, 0.9f, 0.8f}, u, v, 0.01f, 0.01f, false);
+    Check(!mirror::FindGlass(tiny).ok, "mirror glass 7");
+    // Rear view mirror: a wide thin sun visor strip (bigger, but not mirror-shaped) is passed over
+    // for the mirror itself; it must sit in the region ahead of the head.
+    {
+        std::vector<V3> inside;
+        V3 back = {-1, 0, 0}, ru = mirror::Norm(mirror::Cross({0, 0, 1}, back)), rv = mirror::Cross(back, ru);
+        AddQuad(inside, {0.3f, 0.0f, 1.05f}, ru, rv, 0.21f, 0.02f, false);           // visor strip, 0.42 x 0.04
+        AddQuad(inside, {0.25f, 0.0f, 1.0f}, ru, rv, 0.1f, 0.032f, true);            // mirror, 0.2 x 0.064
+        MirrorGlass r = mirror::FindGlass(inside, false, mirror::GlassKind::RearView);
+        Check(r.ok && fabsf(r.centre.x - 0.25f) < 0.01f && fabsf(2 * r.halfU - 0.2f) < 0.01f && r.normal.x < -0.9f,
+              "rear view mirror found, visor passed over");
+        Check(!mirror::FindGlass(inside, false, mirror::GlassKind::Side).ok, "rear view mirror is not a side mirror");
+        const float head[3] = {-0.2f, 0.37f, 0.97f};
+        V3 at[3] = {{0.25f, 0.05f, 1.0f}, {0.3f, -0.05f, 1.0f}, {0.25f, 0.0f, 1.05f}};
+        V3 ahead[3] = {{1.2f, 0.0f, 1.0f}, {1.3f, 0.0f, 1.0f}, {1.2f, 0.0f, 1.05f}};
+        Check(mirror::InRearViewRegion(at, head) && !mirror::InRearViewRegion(ahead, head), "rear view region");
+    }
+    // The body search region: out at the side, at mirror height.
+    V3 in[3] = {{0.5f, 0.9f, 0.8f}, {0.6f, 0.9f, 0.8f}, {0.5f, 0.95f, 0.85f}};
+    V3 low[3] = {{0.5f, 0.9f, 0.3f}, {0.6f, 0.9f, 0.3f}, {0.5f, 0.95f, 0.35f}};
+    // The body search (either winding) on a door-top strip with the glass sticking out of it.
+    std::vector<V3> body;
+    AddQuad(body, {0.0f, 0.85f, 0.85f}, {1, 0, 0}, {0, 0, 1}, 0.5f, 0.1f, false);      // door top, facing out
+    AddQuad(body, {0.5f, 0.9f, 0.8f}, u, v, 0.1f, 0.06f, false);
+    MirrorGlass b = mirror::FindGlass(body, false);
+    Check(b.ok && fabsf(b.centre.x - 0.5f) < 0.01f && b.normal.x < -0.9f, "mirror glass in the body");
+    Check(mirror::InBodyMirrorRegion(in, 1.0f) && !mirror::InBodyMirrorRegion(in, -1.0f) && !mirror::InBodyMirrorRegion(low, 1.0f), "mirror glass 8");
+}
+
+// The levelled camera stays upright when the car is on its roof (rolled 180 degrees), and a
+// half-levelled one keeps half the roll.
+static void TestLevelUpsideDown() {
+    const V3 up = {0, 0, 1};
+    auto camera = [](V3 r, V3 d, V3 f) {
+        M4 w = Identity();
+        const V3 axes[3] = {r, d, f};
+        for (int i = 0; i < 3; i++) { w.m[i][0] = axes[i].x; w.m[i][1] = axes[i].y; w.m[i][2] = axes[i].z; }
+        w.m[3][0] = 5; w.m[3][1] = 6; w.m[3][2] = 7;
+        return MInvRigid(w);
+    };
+    M4 upright = MInvRigid(LevelCamera(camera({1, 0, 0}, {0, 0, -1}, {0, 1, 0}), up, 1, 0));
+    Near(upright.m[0][0], 1, "upright camera keeps its right axis");
+    Near(upright.m[1][2], -1, "upright camera keeps down");
+    M4 roof = MInvRigid(LevelCamera(camera({-1, 0, 0}, {0, 0, 1}, {0, 1, 0}), up, 1, 0));
+    Near(roof.m[0][0], 1, "car on its roof: right axis levelled back");
+    Near(roof.m[1][2], -1, "car on its roof: down still points at the ground");
+    Near(roof.m[2][1], 1, "car on its roof: same heading");
+    Near(roof.m[3][2], 7, "levelling keeps the position");
+    const float s = 0.70710678f;
+    M4 half = MInvRigid(LevelCamera(camera({s, 0, -s}, {-s, 0, -s}, {0, 1, 0}), up, 0.5f, 0));
+    Near(half.m[0][0], cosf(3.14159265f / 8), "half levelling keeps half the roll");
+}
+
+// The dashboard panel: the first surface past the wheel along the line from the head over its top.
+static void TestDash() {
+    Wheel w;
+    w.centre[0] = 0.4f; w.centre[1] = 0.4f; w.centre[2] = 0.7f;
+    w.axis[0] = 0.94f; w.axis[1] = 0; w.axis[2] = -0.34f;
+    w.radius = 0.16f;
+    const float head[3] = {-0.1f, 0.4f, 0.95f};
+    // A cluster face at x = 0.62 (behind the wheel, draw entry 1, plus a small gauge triangle near the
+    // hit), a wall in front of the wheel at x = 0.3 and a far-off triangle of the same entry.
+    auto tri = [](V3 a, V3 b, V3 c, int entry, uint16_t v) {
+        TriRef t;
+        t.p[0] = a; t.p[1] = b; t.p[2] = c;
+        t.v[0] = v; t.v[1] = (uint16_t)(v + 1); t.v[2] = (uint16_t)(v + 2);
+        t.entry = entry;
+        t.id = TriId(t.v[0], t.v[1], t.v[2]);
+        return t;
+    };
+    std::vector<TriRef> tris = {
+        tri({0.62f, 0.0f, 0.4f}, {0.62f, 0.8f, 0.4f}, {0.62f, 0.4f, 1.2f}, 1, 0),
+        tri({0.3f, 0.0f, 0.0f}, {0.3f, 0.8f, 0.0f}, {0.3f, 0.4f, 0.2f}, 0, 3),
+        tri({0.62f, 0.35f, 0.8f}, {0.62f, 0.45f, 0.8f}, {0.62f, 0.4f, 0.85f}, 1, 6),
+        tri({0.62f, 1.5f, 0.0f}, {0.62f, 1.6f, 0.0f}, {0.62f, 1.55f, 0.1f}, 1, 9),
+    };
+    FindDash(w, tris, head, "TEST_INTERIOR");
+    Check(w.dashOk, "dashboard placed");
+    Check(w.dash.x > 0.58f && w.dash.x < 0.6f, "dashboard plane 3 cm off the cluster face, toward the driver");
+    Check(w.dashN.x < -0.8f, "dashboard faces the driver");
+    Check(w.dashUp.z > 0.9f, "dashboard upright");
+    Check(w.dashRight.y < -0.9f, "dashboard right is the driver's right");
+    bool nearOne = false, farOne = false;
+    for (uint64_t id : w.gauges) {
+        nearOne |= id == tris[2].id;
+        farOne |= id == tris[3].id;
+    }
+    Check(nearOne && !farOne, "gauge triangles: near the hit in its draw entry, not far off");
+    float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1};
+    float o[3], r[3], u[3], t[3];
+    g_cfg.dashRight = 0.1f; g_cfg.dashUp = 0;
+    DashBasis(w, m, o, r, u, t);
+    Check(fabsf(o[0] - 10 - w.dash.x) < 0.02f && fabsf(o[1] - 20 - (w.dash.y - 0.1f)) < 0.001f,
+          "plane origin in the world, moved right (the car's -y)");
+    Near(r[1], w.dashRight.y, "plane right in the world");
+    g_cfg.dashRight = 0;
+    // Turned 90 degrees about its up axis: right becomes away from the driver, the face points right.
+    g_cfg.dashYaw = 90;
+    DashBasis(w, m, o, r, u, t);
+    Near(r[0], -w.dashN.x, "yawed plane right = the old toward-driver reversed");
+    Near(t[1], w.dashRight.y, "yawed plane faces the driver's right");
+    Near(u[2], w.dashUp.z, "yaw keeps up");
+    g_cfg.dashYaw = 0;
+    g_cfg.dashPitch = 90;
+    DashBasis(w, m, o, r, u, t);
+    Near(t[2], w.dashUp.z, "pitched plane faces up");
+    Near(r[1], w.dashRight.y, "pitch keeps right");
+    g_cfg.dashPitch = 0;
+}
+
+// The HUD and dashboard panel placement stay per car, while the dashboard element layout is shared.
+static void TestPerCarDefaults() {
+    const float defW = 1.4f, defD = 1.2f, defH = -0.05f, defR = 0.0f, defZ = 1.0f;
+    // Simulate startup: the built-in defaults are captured before the ini is read.
+    g_cfg.hudWidth = defW; g_cfg.hudDistance = defD; g_cfg.hudHeight = defH; g_cfg.hudRight = defR;
+    g_cfg.dashRight = 0; g_cfg.dashUp = 0; g_cfg.dashZoom = defZ;
+    for (int i = 0; i < 6; i++) g_cfg.dashEl[i][0] = g_cfg.dashEl[i][1] = NAN;   // automatic layout
+    Cockpit_PerCarDefaults();
+    g_cfg.hudPerCar = 1.0f;
+    UpdateHudCar("PERCAR_A");
+    // The driver tunes model A (no saved line is written: the test's ini path does not exist).
+    g_cfg.hudWidth = 0.6f; g_cfg.hudDistance = 2.1f; g_cfg.hudHeight = 0.3f; g_cfg.hudRight = 0.25f;
+    g_cfg.dashRight = 0.3f; g_cfg.dashUp = -0.1f; g_cfg.dashZoom = 1.8f; g_cfg.dashDepth = 0.12f;
+    g_cfg.dashEl[0][0] = 0.11f; g_cfg.dashEl[0][1] = -0.22f; g_cfg.dashEl[0][2] = 1.7f;
+    // A different model gets independent HUD and panel placement, but keeps the shared element layout.
+    UpdateHudCar("PERCAR_B");
+    Near(g_cfg.hudWidth, defW, "a model with none saved starts at the built-in HUD size");
+    Near(g_cfg.hudDistance, defD, "HUD distance, not the previous model's");
+    Near(g_cfg.hudHeight, defH, "HUD height, not the previous model's");
+    Near(g_cfg.hudRight, defR, "HUD right, not the previous model's");
+    Near(g_cfg.dashRight, 0, "dashboard panel right position is per car");
+    Near(g_cfg.dashUp, 0, "dashboard panel up position is per car");
+    Near(g_cfg.dashZoom, defZ, "dashboard panel zoom is per car");
+    Near(g_cfg.dashDepth, 0, "dashboard panel depth is per car");
+    Near(g_cfg.dashEl[0][0], 0.11f, "dashboard element layout is shared between cars");
+    Near(g_cfg.dashEl[0][1], -0.22f, "dashboard element vertical position is shared between cars");
+    Near(g_cfg.dashEl[0][2], 1.7f, "dashboard element size is shared between cars");
+    UpdateHudCar("");
+    g_cfg.hudPerCar = 0.0f;
+}
+
+// Triangle ids ignore order and winding; the edits file's text round-trips.
+static void TestEditsText() {
+    Check(TriId(5, 2, 9) == TriId(9, 5, 2) && TriId(2, 9, 5) == TriId(2, 5, 9), "triangle id ignores order");
+    Check(TriId(1, 2, 3) != TriId(1, 2, 4), "triangle ids differ");
+    auto t = ParseTris("1.2.3, 40.50.60,7.8.9");
+    Check(t.size() == 3 && t[1][0] == 40 && t[1][2] == 60, "edits text parsed");
+    Check(TrisText(t) == "1.2.3,40.50.60,7.8.9", "edits text written back");
+    Check(IdTri(TriId(9, 4, 7))[0] == 4 && IdTri(TriId(9, 4, 7))[2] == 9, "id back to its vertices");
+}
+
 int main() {
+    TestWheelOctants();
+    TestDash();
+    TestEditsText();
+    TestLevelUpsideDown();
+    TestMirrorGlass();
     testTime = Now();
     static_assert(sizeof(void*) == 4, "test the game's 32-bit layout");
     Check((uintptr_t)gameAddressPadding < kFindConn &&
@@ -319,6 +579,12 @@ int main() {
     physicsBody.m[3][0] += 20;
     w = Apply();
     Near(w.m[3][0], 119.7f, "seat follows current frame's body");
+    // Seated, the game's "camera inside the car" test never hides the car (looking down, IS300).
+    {
+        float mn[3] = {-2, -1, 0}, mx[3] = {2, 1, 1.4f}, eye[3] = {0, 0.4f, 1.2f};
+        Check(s_seatedConn != nullptr, "seat applied this frame");
+        Check(hkCarCameraInside(mn, mx, eye, 0) == 0, "seated eyes inside the car keep it drawn");
+    }
 
     // A camera switch must choose the transform used by this draw, not last frame's POV mode.
     At<int16_t>(anchorData, kAnchorPov) = 2;
@@ -350,5 +616,6 @@ int main() {
     TestReloadedDriver();
     TestArms();
     TestSteeringWheel();
-    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers and steering wheel");
+    TestPerCarDefaults();
+    puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers, steering wheel and per-model HUD defaults");
 }

@@ -77,6 +77,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
             g_cfg.hudDistance = shm->hudDistance;
             g_cfg.hudWidth = shm->hudWidth;
             g_cfg.hudHeight = shm->hudHeight;
+            g_cfg.hudRight = shm->hudRight;
             g_cfg.screenDistance = shm->screenDistance;
             g_cfg.screenWidth = shm->screenWidth;
             Xr_EndFrame((LayerMode)shm->mode, shm->tanX, shm->tanY, shm->withHud != 0);

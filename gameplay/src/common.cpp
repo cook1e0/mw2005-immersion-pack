@@ -198,8 +198,9 @@ void LoadConfig() {
     c.damageMinImpact = Clamp(ReadFloat("Damage", "MinImpact", c.damageMinImpact), 0.0f, 100.0f);
     c.damageStrength = Clamp(ReadFloat("Damage", "Strength", c.damageStrength), 0.0f, 10.0f);
     c.damageSmoke = ReadInt("Damage", "Smoke", 1) != 0;
-    c.noSuvCops = ReadInt("Traffic", "NoSuvCops", 1) != 0;
+    c.noHeavySupport = ReadInt("Traffic", "NoHeavySupport", 1) != 0;   // replaces NoSuvCops (which also removed SUV patrols)
     c.normalDragRaces = ReadInt("Races", "NormalDragRaces", 1) != 0;
+    c.normalDragHud = ReadInt("Races", "NormalDragHud", 1) != 0;
     c.heatSmokeFrom = Clamp(ReadFloat("Engine", "SmokeFrom", c.heatSmokeFrom), 0.1f, 1.0f);
     c.smokeTrail = Clamp(ReadFloat("Damage", "SmokeTrail", c.smokeTrail), 0.0f, 1.0f);
     c.smokeFrom = Clamp(ReadFloat("Damage", "SmokeFrom", c.smokeFrom), 0.5f, 1.0f);   // the game smokes at <= 50% health
@@ -207,12 +208,18 @@ void LoadConfig() {
     c.damageLoss = Clamp(ReadFloat("Damage", "PowerLoss", c.damageLoss), 0.0f, 1.0f);
 
     c.poppedTires = ReadInt("Tires", "PoppedTires", 1) != 0;
+    c.dropHeight = Clamp(ReadFloat("Tires", "DropHeight", c.dropHeight), 0.5f, 50.0f);
     c.tireHandicap = Clamp(ReadFloat("Tires", "Handicap", c.tireHandicap), 0.0f, 3.0f);
     c.debugPopTires = ReadStr("Tires", "DebugPopTires", "");
 
     c.hudMeter = ReadInt("HUD", "Meter", 1) != 0;
     c.speedbreaker = ReadInt("HUD", "Speedbreaker", 0) != 0;
     c.hudIcon = ReadStr("HUD", "Icon", c.hudIcon.c_str());
+    c.hudHeatIcon = ReadStr("HUD", "HeatIcon", c.hudHeatIcon.c_str());
+    c.hideInfractions = ReadInt("HUD", "Infractions", 0) == 0;
+    c.hideCostToState = ReadInt("HUD", "CostToState", 0) == 0;
+    c.hideLocationNames = ReadInt("HUD", "LocationNames", 0) == 0;
+    c.hudHeatIconFrom = Clamp(ReadFloat("HUD", "HeatIconFrom", c.hudHeatIconFrom), 0.0f, 1.0f);
     c.hudHeatFrom = Clamp(ReadFloat("HUD", "HeatFrom", c.hudHeatFrom), 0.0f, 0.95f);
     c.hudWarn = Clamp(ReadFloat("HUD", "Warn", c.hudWarn), 0.0f, 1.0f);
     c.hudDepth = ReadFloat("HUD", "Depth", c.hudDepth);
@@ -225,8 +232,15 @@ void LoadConfig() {
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
     c.torqueSplit = Clamp(ReadFloat("Physics", "TorqueSplit", c.torqueSplit), 0.0f, 3.0f);
     c.drivetrain = Clamp(ReadFloat("Physics", "Drivetrain", c.drivetrain), 0.7f, 3.0f);
+    c.rearGrip = Clamp(ReadFloat("Physics", "RearGrip", c.rearGrip), 0.5f, 1.5f);
+    c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
+    c.slideGrip = Clamp(ReadFloat("Physics", "SlideGrip", c.slideGrip), 0.4f, 1.0f);
+    c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
+    c.rainGrip = Clamp(ReadFloat("Physics", "RainGrip", c.rainGrip), 0.5f, 1.0f);
+    c.speedGripLoss = Clamp(ReadFloat("Physics", "SpeedGripLoss", c.speedGripLoss), 0.0f, 0.9f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
+    c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);
 
     c.gauge = ReadInt("UI", "Gauge", 0) != 0;
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);

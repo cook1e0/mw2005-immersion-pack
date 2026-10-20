@@ -22,6 +22,7 @@ struct HudStatus {
     float damage = 0.0f;
     float heat = 0.0f;          // 0 unless engine wear applies
     int poppedTires = 0;        // tires punctured (spike strips)
+    bool engineBlown = false;   // the engine is blown (the car totaled by engine wear)
 };
 HudStatus Game_Hud();
 

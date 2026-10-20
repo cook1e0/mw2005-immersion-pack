@@ -26,8 +26,8 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   red while a tire is popped.
 - **Engine smoke**: a damaged (75%) or hot (50% heat) engine smokes, trailing behind the car.
 - **Popped tires**: spike strips leave the car drivable, with less grip and some drag.
-- **No SUV cops** (on by default): no SUV police at all; heavy support is skipped and SUV
-  patrols are replaced by other cars from the heat level.
+- **No head-on ramming SUVs** (on by default): heavy support, the SUVs a pursuit sends to ram you
+  head-on out of oncoming traffic, doesn't come. SUV patrols and SUVs in roadblocks still do.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
   drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
   the front torque share and gravity, for all cars or per car. Only your car is affected

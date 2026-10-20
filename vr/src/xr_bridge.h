@@ -51,6 +51,7 @@ struct BridgeShared {
     float   screenDistance, screenWidth;
     // Appended to keep command/result offsets stable for a helpful old-host error.
     uint32_t protocolVersion, hostProtocolVersion;
+    float   hudRight;                           // appended: sideways offset of the HUD panel
 };
 
 static_assert(sizeof(EyeView) == 18 * 4, "EyeView must be plain floats");

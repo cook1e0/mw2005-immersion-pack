@@ -36,6 +36,34 @@ static void TestBindings() {
     assert(!Down(bindings[0], true));
 }
 
+static void TestSteeringWheelAngle() {
+    s_joy[0].dev = (IDirectInputDevice8A*)1;
+    s_joy[0].ok = true;
+    assert(ParseBindings("joy0:x", s_steer, nullptr));
+    g_cfg.wheelRotation = 900.0f;
+    g_cfg.steeringLock = 540.0f;
+    g_cfg.steerSensitivity = 2.0f;
+    g_cfg.steerDeadzone = 0.0f;
+    g_cfg.steerLinearity = 1.0f;
+
+    float steer, wheelDeg;
+    s_joy[0].state.axis[0] = 0;
+    assert(ReadSteer(&steer, &wheelDeg) && fabsf(wheelDeg + 450.0f) < 0.001f);
+    s_joy[0].state.axis[0] = 32767;
+    assert(ReadSteer(&steer, &wheelDeg) && fabsf(wheelDeg) < 0.01f);
+    s_joy[0].state.axis[0] = 65535;
+    assert(ReadSteer(&steer, &wheelDeg) && fabsf(wheelDeg - 450.0f) < 0.001f);
+    s_joy[0].state.axis[0] = 70000;
+    assert(ReadSteer(&steer, &wheelDeg) && fabsf(wheelDeg - 450.0f) < 0.001f);
+
+    g_cfg.wheelRotation = 1080.0f;
+    s_joy[0].state.axis[0] = 65535;
+    assert(ReadSteer(&steer, &wheelDeg) && fabsf(wheelDeg - 540.0f) < 0.001f);
+    s_steer.clear();
+    s_joy[0].ok = false;
+    s_joy[0].dev = nullptr;
+}
+
 static void TestSmoke() {
     assert((uintptr_t)gameAddressPadding < kIsViewAnchor &&
            (uintptr_t)gameAddressPadding + sizeof(gameAddressPadding) > kIsViewAnchor + 5);
@@ -136,6 +164,6 @@ static void TestSteeringLock() {
 int main() {
     TestSteeringLock();
     static_assert(sizeof(void*) == 4, "test the game layout");
-    TestBindings(); TestSmoke(); TestMigration();
+    TestBindings(); TestSteeringWheelAngle(); TestSmoke(); TestMigration();
     puts("gameplay regression tests passed");
 }

@@ -29,6 +29,7 @@ struct Telemetry {
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
+    bool  nos;             // nitrous engaged (IEngine::IsNOSEngaged)
 
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
@@ -37,6 +38,9 @@ struct Telemetry {
     // strips) and its frequency in Hz.
     float surfaceRumble;
     float surfaceHz;
+    // Front wheels off the road ([0] left, [1] right): the surface's own name is grass, dirt, mud,
+    // gravel, sand and the like (not asphalt, concrete, cobbles, metal, wood, rumble strips).
+    bool  offroad[2];
 
     // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
     // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.
@@ -44,6 +48,16 @@ struct Telemetry {
     float    hitSpeed;     // m/s, closing speed along the contact normal
     float    hitImpulse;   // the game's impulse on the car (light objects give little)
     float    hitLat;       // -1..1: the push on the car's nose to the right (+) or left (-)
+    // Breakable props (benches, sign posts, fences, bins: the game's Smackables) knocked by the car,
+    // told apart from other contacts by the object's class, counted up in breakSeq.
+    uint32_t breakSeq;
+    float    breakSpeed;   // m/s, the car's speed at the knock
+    float    breakLat;     // -1..1: the prop is to the right (+) or left (-) of the car's nose
+    // Hits on another vehicle (traffic, cops, racers: the other object's ISimable type is
+    // SIMABLE_VEHICLE), counted up in carHitSeq; they don't count as generic hits.
+    uint32_t carHitSeq;
+    float    carHitSpeed;  // m/s, the car's speed at the hit
+    float    carHitLat;    // -1..1: the hit pushes the car to the right (+) or left (-)
     double   scrapeTime;   // Now() of the latest sliding contact
     float    scrapeSpeed;  // m/s along the wall
     float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)
