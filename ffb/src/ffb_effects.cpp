@@ -9,6 +9,22 @@ const double kTwoPi = 6.283185307179586;
 double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * hz * dt, kTwoPi); }
 // Share of a knock's full strength at the car's speed (m/s): full from 150 km/h, a tenth at least.
 float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0f); }
+const JoltShape kCrashJolt = {0.08f, 0.6f, 0.12f, 20.0f, 0.45f};
+const JoltShape kBreakJolt = {0.05f, 0.5f, 0.06f, 28.0f, 0.25f};   // short and sharp, a quick rattle
+const JoltShape kLandJolt = {0.07f, 0.7f, 0.10f, 18.0f, 0.35f};    // landings and vehicle hits
+}
+
+float Jolt::Step(double now, const JoltShape& s, float* level) {
+    if (start < 0) return 0.0f;
+    float tau = (float)(now - start);
+    if (tau > s.length || tau < 0) {
+        start = -1;
+        return 0.0f;
+    }
+    float push = tau < s.push ? sinf(3.14159265f * tau / s.push) : 0.0f;
+    float decay = expf(-tau / s.shakeTau);
+    if (level) *level = amp * decay;
+    return amp * (dir * push + s.shake * decay * sinf((float)(kTwoPi * s.shakeHz) * tau));
 }
 
 EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p) {
@@ -63,45 +79,18 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     if (t.breakSeq != lastBreakSeq_) {
         lastBreakSeq_ = t.breakSeq;
         float amp = p.breakables * SpeedShare(t.breakSpeed);
-        if (amp > 0.01f) {
-            breakStart_ = now;
-            breakAmp_ = amp;
-            breakDir_ = Clampf(t.breakLat, -1.0f, 1.0f);
-        }
+        // Toward the prop's side (the front wheel on that side takes it); straight ahead only rattles.
+        if (amp > 0.01f) break_.Start(now, amp, fabsf(t.breakLat) > 0.2f ? (t.breakLat > 0 ? 1.0f : -1.0f) : 0.0f);
     }
-    if (breakStart_ >= 0) {
-        float tau = (float)(now - breakStart_);
-        if (tau > 0.25f || tau < 0) {
-            breakStart_ = -1;
-        } else {
-            // Toward the prop's side (the front wheel on that side takes it), then a quick rattle.
-            float knock = tau < 0.05f ? sinf(3.14159265f * tau / 0.05f) : 0.0f;
-            float rattle = 0.5f * expf(-tau / 0.06f) * sinf((float)(kTwoPi * 28.0) * tau);
-            float dir = fabsf(breakDir_) > 0.2f ? (breakDir_ > 0 ? 1.0f : -1.0f) : 0.0f;
-            e.breakable = breakAmp_ * (dir * knock + rattle) * drive;
-        }
-    }
+    e.breakable = break_.Step(now, kBreakJolt) * drive;
     if (t.hitSeq != lastHitSeq_) {
         lastHitSeq_ = t.hitSeq;
         // Closing speed says how hard the hit was; the game's impulse says how heavy the thing was.
         // Light props (benches, posts) still give a clear knock from the closing speed alone.
         float amp = p.crashes * Clampf(0.45f * tanhf(t.hitSpeed / 8.0f) + 0.55f * tanhf(t.hitImpulse / 20.0f), 0.0f, 1.0f);
-        if (amp > 0.02f) {
-            hitStart_ = now;
-            hitAmp_ = amp;
-            hitDir_ = Clampf(t.hitLat, -1.0f, 1.0f);
-        }
+        if (amp > 0.02f) crash_.Start(now, amp, Clampf(t.hitLat, -1.0f, 1.0f));
     }
-    if (hitStart_ >= 0) {
-        float tau = (float)(now - hitStart_);
-        if (tau > 0.45f || tau < 0) {
-            hitStart_ = -1;
-        } else {
-            float push = tau < 0.08f ? sinf(3.14159265f * tau / 0.08f) : 0.0f;
-            float shake = 0.6f * expf(-tau / 0.12f) * sinf((float)(kTwoPi * 20.0) * tau);
-            e.crash = hitAmp_ * (hitDir_ * push + shake) * drive;
-        }
-    }
+    e.crash = crash_.Step(now, kCrashJolt) * drive;
 
     // --- off-road: an uneven rumble while front wheels are on grass, dirt, mud, gravel: two rough
     // tones and random bumps, half with one wheel off, growing with speed, eased in and out ---
@@ -129,43 +118,21 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         airTime_ += dt;
     } else {
         if (t.valid && airTime_ >= 0.15f && p.landing > 0.0f) {
-            landStart_ = now;
-            landAmp_ = p.landing * Clampf(0.55f + airTime_ * 0.6f, 0.55f, 1.2f);
             landDir_ = fabsf(t.vLatFront) > 0.3f ? (t.vLatFront > 0 ? 1.0f : -1.0f) : -landDir_;
+            land_.Start(now, p.landing * Clampf(0.55f + airTime_ * 0.6f, 0.55f, 1.2f), landDir_);
         }
         airTime_ = 0.0f;
     }
-    if (landStart_ >= 0) {
-        float tau = (float)(now - landStart_);
-        if (tau > 0.35f) {
-            landStart_ = -1;
-        } else {
-            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
-            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
-            e.landing = landAmp_ * (landDir_ * kick + shake) * drive;
-        }
-    }
+    e.landing = land_.Step(now, kLandJolt) * drive;
 
     // --- another vehicle hit: the landing's kick and shake, toward the side the car was pushed ---
     if (t.carHitSeq != lastCarHitSeq_) {
         lastCarHitSeq_ = t.carHitSeq;
-        if (p.carHits > 0.0f) {
-            carStart_ = now;
-            carAmp_ = p.carHits * SpeedShare(t.carHitSpeed);
-            carDir_ = t.carHitLat >= 0.0f ? 1.0f : -1.0f;
-        }
+        if (p.carHits > 0.0f) carHit_.Start(now, p.carHits * SpeedShare(t.carHitSpeed), t.carHitLat >= 0.0f ? 1.0f : -1.0f);
     }
-    if (carStart_ >= 0) {
-        float tau = (float)(now - carStart_);
-        if (tau > 0.35f) {
-            carStart_ = -1;
-        } else {
-            float kick = tau < 0.07f ? sinf(3.14159265f * tau / 0.07f) : 0.0f;
-            float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
-            e.carHit = carAmp_ * (carDir_ * kick + shake) * drive;
-            e.carHitLevel = carAmp_ * expf(-tau / 0.1f) * drive;
-        }
-    }
+    float carLevel = 0.0f;
+    e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
+    e.carHitLevel = carLevel * drive;
 
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
     float since = (float)(now - t.scrapeTime);

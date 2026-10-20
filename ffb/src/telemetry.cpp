@@ -134,7 +134,7 @@ void Break(const void* object, Vec3 at, const char* how) {
     s_car.breakSpeed = s_car.speed;
     Vec3 rel = at - s_car.centre;
     float side = Dot(rel, s_car.right);
-    s_car.breakLat = Clamp(side / 1.0f, -1.0f, 1.0f);
+    s_car.breakLat = Clamp(side, -1.0f, 1.0f);   // a metre or more to the side: full
     if (g_cfg.logTelemetry) Log("contact: breakable prop (%s) at %.1f m/s, side %.2f", how, s_car.speed, s_car.breakLat);
 }
 

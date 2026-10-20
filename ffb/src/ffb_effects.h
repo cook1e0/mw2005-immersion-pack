@@ -39,26 +39,32 @@ struct EffectParts {
     float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit; }
 };
 
+// How a jolt runs: a half-sine push toward its side lasting `push` s, under a shake of `shake`
+// times its strength at `shakeHz` dying away with `shakeTau` s, all over after `length` s.
+struct JoltShape { float push, shake, shakeTau, shakeHz, length; };
+
+// One running jolt (crashes, breakable props, landings, vehicle hits).
+struct Jolt {
+    double start = -1;
+    float amp = 0, dir = 0;         // strength, side (+1 right, -1 left, 0 shake only)
+    void Start(double now, float a, float d) { start = now, amp = a, dir = d; }
+    // The force now (0 once over); `level`: the strength as the shake dies away.
+    float Step(double now, const JoltShape& s, float* level = nullptr);
+};
+
 class Effects {
 public:
     // `drive` 0 (menus) .. 1 (driving), as for the model.
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
     double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0, roughPhase_[2] = {0, 0};
-    uint32_t lastSeq_ = 0, lastHitSeq_ = 0, lastBreakSeq_ = 0;
+    uint32_t lastSeq_ = 0, lastHitSeq_ = 0, lastBreakSeq_ = 0, lastCarHitSeq_ = 0;
     bool haveHitSeq_ = false;
-    double breakStart_ = -1;
     float offroadLevel_ = 0, bump_ = 0, bumpWait_ = 0;
     uint32_t rand_ = 12345;
-    float breakAmp_ = 0, breakDir_ = 0;
-    float airTime_ = 0, landAmp_ = 0, landDir_ = 1;
-    double landStart_ = -1;
-    uint32_t lastCarHitSeq_ = 0;
-    float carAmp_ = 0, carDir_ = 0;
-    double carStart_ = -1;
+    float airTime_ = 0, landDir_ = 1;
     float kerbKick_ = 0, kerbShake_ = 0;
-    double hitStart_ = -1;
-    float hitAmp_ = 0, hitDir_ = 0;
+    Jolt crash_, break_, land_, carHit_;
 };
 
 }  // namespace ffb
