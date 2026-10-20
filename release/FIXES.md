@@ -1,210 +1,114 @@
-### Unreleased
+### Unreleased: car mirrors and in-car dashboard in VR, grip sliders, spin limit, new force feedback jolts
 
-- **Challenge Series: the car is handed back at the start:** time trials (toll booths) give the
-  player's car to the AI at the start (`Game.ForceAIControl`) in the same frame as the race timers
-  start, and nothing ever hands it back, so the AI drove the whole race. Rolling starts with a
-  countdown are meant to hand it back at GO (`EBecomePlayerCar`). The gameplay mod now runs the
-  game's own `EBecomePlayerCar` when the AI took the car within 2 s of the start: as soon as you
-  press a pedal or steer, and 3 s after the start at the latest. Player input left blocked is
-  unblocked with it. A car the AI takes over later (a finished race) is left alone. Every step is
-  logged as `race start:` lines in `nfsmw_gameplay.log`.
+**VR**
 
-- **VR: no more z-fighting far away with a low near plane:** the cockpit needs a near plane of
-  ~0.05-0.1 m (`NearZ`), and with one that low a 24-bit depth buffer runs out of precision a few
-  hundred metres out, so distant surfaces flickered through each other. In the driver's seat the
-  depth buffer is now split: the player view's own matrices get `[VR] WorldNearZ` (0.3 m) and the
-  far 98% of the depth range, which every game drawing path reads; your own car's objects (body,
-  interior, driver, steering wheel, recognised by the matrices they are queued with) get a
-  WorldViewProj of their own with `NearZ` and a 20 m far plane in the near 2% (hook on the
-  per-object WorldViewProj multiply at 0x6C81CA). The mod's dashboard, wheel and mirror drawing use
-  the car's projection. Your car is always drawn in front of the world, which only shows when
-  something gets inside it. If the car's draws are not recognised the split turns itself off and
-  says so in the log. `[VR] DepthSplit=0` restores one near plane.
+- **The car's own mirrors show what's behind you:** the game's rear view is drawn on the interior
+  rear view mirror (found in front of the driver's head in every car's interior but the GTO's),
+  inside a dark rim as if set into its housing. The HUD's rear view mirror is hidden in the
+  headset. `[VR] Mirrors`, `MirrorFlip`, `MirrorScale`; F4 > VR > Mirror brightness / Mirror
+  contrast; F4 > Menu and testing > Rear view mirror forward / back moves the picture per car.
+  With `[VR] GameMirrors=1` the side mirrors' glass shows the rear view too (a fixed slice each,
+  `SideMirrorWidth`), also on cars whose glass is part of the body (BMW M3 GTR); cars listed in
+  `GameMirrorsSkip` keep the game's glass. Off by default: the side mirrors are the game's own.
+- **In-car dashboard:** from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit
+  info, leaderboard and messages move onto a display over the car's gauge cluster, and the floating
+  HUD is hidden (back in the pause menu and the F4 menu). F4 > VR > In-car dashboard (`[VR] Dash`):
+  the display's size, position, angle and depth are kept per car model; its colour, a glass sheen
+  and a reflection of the world behind you are adjustable. F4 > VR > Adjust dashboard places each
+  element live (the layout is shared by all cars, `[DashLayout] Default`) and sets which part of
+  the HUD it shows.
+- **Triangle editor** (F4 > VR > Triangle editor): look at a part of your car and hide it, draw it
+  black (the car's own gauges under the display), or put it on or take it off the steering wheel;
+  restore and undo. Saved per car part in `nfsmw_vr_edits.ini`. F4 > Menu and testing > Center
+  steering wheel animation fits the wheel's turning centre, adjustable per car.
+- **No more z-fighting far away with a low near plane:** in the driver's seat the depth buffer is
+  split: your own car is drawn with `NearZ` in its own small part of the depth range, the world with
+  `[VR] WorldNearZ` (0.3 m) in the rest. `[VR] DepthSplit=0` restores one near plane.
+- **HUD:** F4 > VR > HUD left / right (`[VR] HudRight`); "Each car remembers HUD positioning"
+  (`HudPerCar`) keeps size, distance, height and side per car model (a model you haven't set up
+  starts from the defaults); "Steering wheel rendered in front of HUD" (`WheelOverHud`) draws the
+  car's wheel over the HUD panel while driving.
+- **Reflections sit still when you move your head:** car paint and window reflections use the
+  seat's view, not the head's (`[VR] StableReflections`).
+- **Both eyes see the same lights:** the game's per-frame display step (blinking lights, flares,
+  fades) runs once per frame, and each eye collects its own light flares instead of drawing the
+  first eye's again.
+- **Faster frames:** the rear view and the reflections' environment map are rendered once a frame
+  for both eyes; two of the environment map's six faces are refreshed per frame
+  (`[VR] EnvMapFacesPerFrame`, 6 = all), the rear view optionally every other frame
+  (`RearViewEvery`). Mirror shaders, dashboard textures and a reusable state block are built while
+  the game loads instead of in the frame they first appear; the dashboard's HUD probe doesn't wait
+  for the GPU; streamed-in car models reuse their steering wheel and are checked once a frame.
+- **Frame timing in the log:** every 5 s `nfsmw_vr.log` gets `perf:` lines (fps, time spent waiting
+  for the headset, rendering the eyes, waiting for the GPU, submitting, the spectator window,
+  presenting, and in the game itself, with the window's worst frame), and a `hitch:` line for a
+  frame half again as long as the average. `[VR] LogPasses=1` adds render target statistics.
+- **No cutaways from the cockpit:** the camera director's other cameras, the slow-motion moment
+  camera and the pursuit breaker cutscene (which froze the world and placed the car again) are
+  refused in the headset; the busted cutscene comes without its viewfinder frame; a career race's
+  finish no longer stays in slow motion. Story cutscenes still play.
+- **Less in your face:** no spinning direction arrow above the car (`[VR] DirectionArrow`), no sun
+  glare blob or sun lens flare on your eyes (`SunGlare`). A flat screen shows both as before.
+- **The view no longer turns over with the car:** with the horizon levelled, a car on its roof
+  kept the view upside down; "down" now always points at the ground.
+- **Your car stays drawn while seated:** looking down or leaning in a low car (IS300) made the game
+  think the camera was outside it, and the whole car vanished.
+- **Hide arms:** hands split into a draw entry of their own, and hands low on the wheel in low cars
+  (Gallardo), are hidden too.
 
-- **VR: fewer draws per frame from the reflections' environment map:** the last session's log was
-  CPU-bound on draw calls - up to about 6,000 for the left eye and 4,000 for the right in traffic and
-  pursuits, 12-17 ms of eye rendering against a 13.9 ms frame, so the headset fell to 36 fps. The
-  environment map's six cube faces (scene renders around the car, the same for both eyes) were all
-  redrawn every frame; now 2 a frame are, in turn, so each face refreshes about 24 times a second
-  (`[VR] EnvMapFacesPerFrame`, 6 = as before). Both eyes always sample the same map, so stereo is
-  unaffected. `[VR] RearViewEvery=2` optionally renders the mirrors' rear view every other frame (off
-  by default). With `LogPasses=1` the `passes per frame` line now gives each pass's draws.
+**Gameplay**
 
-- **VR: reflections sit still when you move your head, again:** a debug key added with the eye-rule
-  checks (`KeyToggleRefl`, F12 in the installed ini - also Steam's screenshot key) switched the
-  seat-view reflections (`[VR] StableReflections`) off for the rest of the session; the log showed
-  `seat-view reflections off` two seconds after start, so car paint and glass reflections turned
-  with the head. The key is gone: StableReflections is only set in the ini, on by default.
-
-- **VR: no more stutter when the HUD, the in-car dashboard or the mirrors first appear:** the mirror
-  shaders (which loaded d3dcompiler_47 and compiled three pixel shaders on first use), the dashboard's
-  textures and the reused state block were all built inside a race frame, at the exact moment the mirrors
-  or the dashboard showed up - the frame they landed in took over a second (a `game` spike with nothing
-  in the measured phases to explain it). They are built when the device is created (and again after a
-  reset), while the game is still loading; the log's `warm-up` line says what that cost.
-- **VR: the dashboard's HUD probe no longer waits for the GPU:** finding which dashboard elements are
-  showing means copying the HUD into a system-memory surface and reading it back, and both the copy and
-  the lock waited for the frame's eye renders to finish - again at the moment the HUD pops up. The copy
-  is issued a few times a second and locked with D3DLOCK_DONOTWAIT, retried on the next frame when it
-  isn't ready yet (so an element is still picked up a frame or two after it appears); if a driver never
-  reports it ready the probe falls back to waiting, once, with a line in the log.
-- **VR: less work per frame:** the rear view is copied and graded once a frame instead of once per eye
-  (it is the same picture for both), one D3D state block is captured and applied instead of a new one
-  created per draw (twice an eye with the dashboard, plus once per coloured-triangle batch), the
-  player-car anchor is checked once per car render and reused by its draw entries, and the glass
-  vertex shader dump (a shader disassembly and twenty log lines at the first mirror) is off unless
-  `[VR] LogGlassShader=1`.
-- **VR: hitches are named in the log:** the `perf:` lines now give the frame's time outside the measured
-  phases as `game avg/max ms` (it was an average only, which is where a spike without a matching phase
-  hid), a `perf worst frame` line breaks the window's longest frame into its phases, and a `hitch:` line
-  is written - at most once a second - for a frame more than half again as long as the average.
-- **VR: each eye now collects its own light flares (fixes lights that differed between the eyes):**
-  the world's light flares - street lamps, warning lights, the sun - are collected while each view's
-  scenery is culled and drawn from that pool per view, but the pool was emptied once a frame, in the
-  game's post-display step after both eyes, so the second eye found the first eye's flares still in
-  it and drew them again: doubled where the pool had room and dropped where it ran into its fifty.
-  Each eye now collects its own; `flares: pool N entries after eye 1, M after eye 2` in
-  nfsmw_vr.log shows the two counts.
-- **VR: only known eye-independent views are reused between the eyes:** the rear view and the six
-  environment-map faces are rendered for the first eye only. Other offscreen views, including
-  shadow maps, remain active for both eyes; using a camera other than the player's does not by itself
-  prove that a view's output can be shared. Views using the player's camera (such as bloom and
-  specular) are rebuilt for each eye. The PC build's view table is written to the log once per
-  session (`view NN: id ... active ... playerCam ... rt WxH`) to check the view setup.
-- **VR: per-car dashboard/HUD defaults:** each car's HUD size, distance, height and side are kept
-  per car model; a car whose line is missing or unreadable falls back to the mod's own defaults
-  instead of keeping the previous car's values.
-- **VR: one dashboard layout for every car:** Adjust dashboard element positions and sizes are
-  shared in `[DashLayout] Default`; an existing `[DashLayout] SUPRA` entry is used as the initial
-  shared layout. Panel placement, depth and size remain independently saved per car in `[Dash]`.
-- **VR: less work per draw entry:** the check that tells a streamed-in model from the one last seen
-  at the same address hashed the model's whole index buffer for every draw entry of every car; it
-  is taken once a frame per model now (the pointers are still compared every time). The D3D9 hooks
-  also look up mirror-glass and dashboard overlay jobs by index buffer instead of scanning every
-  registered job on every draw.
-- **VR: no repeated steering-wheel discovery on streamed car models:** once an interior model's
-  wheel has been found, its index ordering and wheel split are reused when that model is streamed
-  back in. Triangle-editor changes to wheel membership explicitly rebuild the cache. The eye draw
-  hook also takes a direct pass-through when there are no per-eye mirror, wheel or dashboard jobs;
-  active wheel stencil draws are looked up by index buffer and start index.
-- **VR: faster first-time steering-wheel discovery:** the wheel search scans a coarse set of wheel
-  heights, then refines around the best candidate instead of testing every height at full precision.
-  This reduces the CPU hitch when a race first streams multiple car interiors without skipping
-  either eye or any shadow views.
-- **Gameplay: HUD text diagnostics log once per object/label:** changing timer and score text no
-  longer generates a new synchronous log entry for each value while a HUD object is rendered.
-- **Force feedback: car hits come through clearly:** while the kick and shake of hitting another
-  vehicle plays, the other short effects (engine, kerbs, surface, crashes, scrapes, breakables,
-  landings) are ducked in proportion to the hit's strength, so the impact isn't buried under them.
-  The telemetry log line (`[FFB] LogTelemetry`) shows the hit (`car=`) and how much it ducks the rest
-  (`priority=`).
-- **Gameplay: steering never reads past full lock:** a wheel axis reporting values outside its range
-  is clamped, so the wheel angle handed to the game and the VR steering wheel stop at half the
-  wheel's rotation instead of turning further. Covered by a new regression test.
-- **Gameplay: free roam totaled message shortened:** a car totaled in free roam now shows "TOTALED"
-  (it said "TOTALED - JUMP TO SAFE HOUSE").
-- **VR: debug key for the shared views:** `[VR] KeyToggleShared` (e.g. 122 = F11, off by default)
-  flips live which views the second eye reuses instead of rendering, to tell a view that differs
-  between the eyes from one that doesn't.
-- **VR: no direction arrow above the car:** the spinning direction-aid arrow the game floats above
-  the player's car sat right in front of your face from the cockpit. It is hidden in the headset;
-  `[VR] DirectionArrow=1` brings it back. A flat screen always shows it.
-- **VR: no blinding sun glare:** besides the sun's lens flare (already off in VR), the game draws a
-  white blob on the screen where the sun is. In a headset it sat flat on your eyes instead of in the
-  sky. It is skipped in the headset (the sun set the pass selects is still selected);
-  `[VR] SunGlare=1` brings it back. A flat screen always shows it.
-- **Gameplay: SUV cops are back; only the head-on rammers are gone:** "No SUV cops" removed every
-  SUV (heavy support skipped, SUV patrols and roadblock SUVs swapped for other cars). It is now
-  **No head-on ramming SUVs** (`[Traffic] NoHeavySupport=1`, on by default): only heavy support, the
-  SUVs a pursuit sends to ram you head-on out of oncoming traffic, is dropped; SUV patrols and SUVs
-  in roadblocks come as the game sends them. `NoSuvCops` is no longer read. The log notes each
-  heavy support request it drops.
-- **Gameplay HUD: engine warning icon:** above the car icon, where the spike strip icon was (which
-  moves to its left, same spacing), the drag HUD's engine icon (`ENGINE_HEAT_ICON`) flashes red like
-  the spike icon while the engine heat is at `[HUD] HeatIconFrom` (50%) or above, or once the engine is blown.
-  Otherwise it is invisible. Its texture pack (HUDTEXDRAG.BIN) is loaded with the race HUD's and
-  freed with it; until it is there the in-game `HEAT_ICON` stands in. `[HUD] HeatIcon` lists the
-  textures to try; the log says which one is used.
-- **Gameplay HUD: the damage / heat bar fills all the way to the arrow:** filling up (`[HUD] FillUp`,
-  the default) turned the mask only to -5 degrees at 100%, so the last stretch of the arc, up to the
-  arrow at its end, never filled. It now turns to 0, the game's own full position.
-- **F4 help texts for the in-car dashboard corrected:** the display's size and position are always
-  saved per car model (not only with "Each car remembers HUD positioning", which is for the floating
-  HUD), and the element layout and HUD crops are the same for every car. The saving itself was
-  already like that.
-- **Gameplay: drag races with the normal race HUD:** with the drag mechanics already off for your
-  car, drag races now show the normal race HUD (tachometer, speedometer, minimap, damage meter and
-  the mod's icons) instead of the drag HUD. `[Races] NormalDragHud=1`, on by default, also in F4.
-  The HUD type the game asks for (2, drag) becomes the normal one (1), which picks the package,
-  its elements and its texture pack together. Applies from the next race.
-  The turbo dial, shared by both HUDs, picked its needle's angle range by the race type, so in a
-  drag race the needle sat in the wrong place on the race HUD's dial; it now uses the race range there.
-- **Gameplay HUD: the meter's arrow glows with the car icon, and the icons sit clear of it:** the
-  small arrow at the damage / heat meter's end takes the car icon's colour (grey, beige once damaged,
-  the same red pulse from 75%), in step with it. The car icon and the warning icons above it are moved
-  a little to the right (`[HUD] IconShift`, 4 HUD units) so the car icon no longer overlaps the arrow.
-- **VR: the in-car dashboard can be angled per car:** F4 > VR > *Dashboard angle left / right* and
-  *up / down* turn the whole display (glass and elements with it) about its centre, saved per car
-  model with its size and position (`[Dash]` lines gain two values; older lines start at 0). A
-  value missing from an older `[Dash]` or `[Hud]` line now starts from the mod's built-in default,
-  never from the car driven before.
-- **Gameplay HUD: no infractions, cost to state or area name popups:** the infractions list, the
-  cost to state counter and the area name shown on entering a neighbourhood ("Ocean View") are left
-  out of the HUD (`[HUD] Infractions=0`, `CostToState=0`, `LocationNames=0`; 1 shows them again).
-  The pursuit itself and the rap sheet still count them. The log notes how many HUD objects each
-  hidden popup has. Area names are dropped by their own message style, so every other message
-  (totaled, busted, cops taken out, the free roam "TOTALED") still shows; a first version hid the
-  message text object itself and with it every message.
-
-### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
-
-- **VR: the car's own mirrors show what's behind you:** the game's rear view is drawn on the
-  interior rear view mirror and on both side mirrors' glass in the player car (static slices of the
-  rear view, `[VR] SideMirrorWidth`), with a dark rim around the side mirror glass. The game's
-  MIRROR material no longer tints the picture; F4 > VR > Mirror brightness / Mirror contrast.
-  Works on cars whose mirror glass is part of the body (BMW M3 GTR). `[VR] GameMirrorsSkip` lists
-  cars to leave with the game's own glass. The HUD's rear view mirror is hidden in VR.
-- **VR: Fiat Punto rear view mirror:** its own glass was drawn after the rear view picture and
-  covered it with a reflective surface; the picture is now drawn after every draw of the model.
-- **VR: faster frames:** the rear view and the environment map are rendered once a frame instead
-  of once per eye, and the game's pre-display pass (lights, flares, fades) runs once, so both eyes
-  also see the same lights. Frame timing is in nfsmw_vr.log ("perf:" lines).
-- **VR: no cutaways:** no camera flip when the car rolls, no pursuit breaker cutscene, cutaway or
-  cop camera, no busted viewfinder frame while the headset runs.
-- **VR: HUD:** F4 > VR > HUD left / right; "Each car remembers HUD positioning" keeps size,
-  distance, height and side per car; "Steering wheel rendered in front of HUD" draws the car's
-  wheel over the HUD panel while driving (not in menus).
-- **VR: driver's hand leftovers hidden:** a hand split into its own draw entry was left floating on
-  some cars; it is hidden with the arms.
 - **Physics: spin limit (fixes the pinball):** a car spinning fast (launched by props, landing while
-  rotating) could get caught in a collision loop and be thrown across the map. The player's car
-  never spins faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 8 rad/s), checked before
-  and after each physics step, with the torque limited too.
+  rotating) could get caught in a collision loop and be thrown across the map. Your car never spins
+  faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 8 rad/s), with the torque limited too.
 - **Physics: new grip sliders,** all per car with "Settings for this car only":
   - Rear grip (oversteer): the rear tyres' grip relative to the front.
-  - Offroad grip: grip on grass, dirt, mud, gravel and sand.
-  - Slide grip: a tyre that has broken loose slides on less grip than its peak.
+  - Offroad grip: grip on grass, dirt, mud, gravel and sand (75%).
+  - Slide grip: a tyre that has broken loose slides on less grip than its peak (85%).
   - Slide oversteer: the rear tyres' side grip under throttle, as on grass (front drive cars:
-    lifting off), fading as the slide passes 20-45 degrees, so it stays catchable.
-  - Rain grip: grip in the rain (90% = 10% less).
+    lifting off), coming back as the slide passes 20-45 degrees, so it stays catchable (80%).
+  - Rain grip: 10% less grip in the rain.
   - Grip loss at speed: cornering grip falls with the square of the speed; launching and braking
-    keep their grip (`[Physics] SpeedGripLoss`, the share gone at 300 km/h).
-- **Per-car physics covers every physics slider.**
-- **Testing: Drop from air** (F4 > Menu and testing): lifts your car and lets it fall.
-- **Sequential shifting has neutral and reverse:** shift down from 1st to N, then R; the
-  automatic reverse no longer kicks in with a manual gearbox.
+    keep their grip (`[Physics] SpeedGripLoss`, the share gone at 300 km/h, off by default).
+- **Sequential shifting has neutral and reverse:** with manual shifting, down from first is neutral,
+  then reverse; gas drives in reverse, and holding the brake no longer reverses.
 - **Engine heat:** nitrous on the rev limiter heats the engine twice as fast (a third faster on a
-  car over 75% damage); no heat for 8 s after a race start, restart or respawn reset, or in a
-  cutscene.
+  car over 75% damaged). No heat for 8 s after a race start, restart or respawn (a rolling start in
+  the shifter's gear blew the engine at challenge race starts), nor in cutscenes.
+- **Challenge Series time trials hand the car back:** the race script gave your car to the AI at
+  the start and never took it back. The game's own hand-back now runs as soon as you press a pedal
+  or steer, and 3 s after the start at the latest (`race start:` lines in the log).
+- **First safehouse visit:** a career whose "intro done" mark was set at the prologue's bin (a
+  prepared profile) skipped Mia's intro and could not go on; the mark is cleared, and the safehouse
+  door starts the intro if the career script didn't. Story movies play even when the widescreen
+  fix's intro skip left movie skipping on.
+- **HUD:** an engine warning icon flashes above the car icon from `[HUD] HeatIconFrom` (50%) heat or
+  with a blown engine (the spike strip icon moves to its left and shows only with a popped tyre);
+  the meter's arrow glows with the car icon; the meter fills all the way to the arrow; no
+  infractions, cost to state or area name popups (`[HUD] Infractions`, `CostToState`,
+  `LocationNames`); free roam's totaled message is just "TOTALED".
+- **Drag races with the normal race HUD** (`[Races] NormalDragHud`, on), the turbo dial's needle in
+  the right place on it.
+- **No head-on ramming SUVs** (`[Traffic] NoHeavySupport`, replaces `NoSuvCops`): only heavy
+  support is dropped; SUV patrols and roadblock SUVs come as the game sends them.
+- **Clutter gone:** the EA Trax "now playing" banner and the loading screen's red "EVENT HANDLER"
+  developer text.
 - **Smoke:** engine smoke no longer hangs in the air where it stopped; a missed shift no longer
-  leaves a smoke trail.
-- **Force feedback:** off-road vibration (replaces the grass pull), the wheel goes lighter with
-  nitrous (F4 > Force feedback > NOS), a hard jolt on landing, and the same jolt when you hit
-  another vehicle (traffic, cops, racers, told apart by the game's own object type). Vehicle hits
-  and breakable objects are at full strength from 150 km/h.
+  leaves a smoke trail (the grind sound stays).
+- **Steering never reads past full lock:** a wheel axis reporting values outside its range is
+  clamped.
+- **Testing: Drop from air** (F4 > Menu and testing) lifts your car `[Tires] DropHeight` (5 m) and
+  lets it fall.
 
-Known issue: in a new career, entering the safehouse after buying the first car can skip the
-first-visit scene with Mia and go to the safehouse menu. Being investigated.
+**Force feedback**
+
+- **New jolts:** breakable props (benches, sign posts, fences, bins: the game's own breakable
+  objects, `Breakables`), landing after a jump (`Landing`), and hitting another vehicle (traffic,
+  cops, racers, told apart by the game's object type, `CarHits`), which ducks the other short
+  effects while it plays. Vehicle hits and breakables are at full strength from 150 km/h.
+- **Off-road vibration** on grass, dirt, mud, gravel and sand, by the surface's own name under each
+  front tyre (`OffroadVibration`).
+- **Lighter steering with nitrous** (`NosLighter`, 30%).
 
 ### v0.13.0: direct wheel steering, turning steering wheel, new force feedback
 
@@ -250,133 +154,6 @@ first-visit scene with Mia and go to the safehouse menu. Being investigated.
   steering tuning; the front wheels always follow the wheel in proportion, and in a slide the
   lock widens with the slide on both sides alike. Set Steering linearity back to 1.0 if you used
   it to compensate. The drift assist and stability control are left as the game has them.
-- **Force feedback: breakable objects:** smashing a bench, sign post, fence or bin gives a sharp
-  knock toward that side (F4 > Force feedback > Breakable objects, `[FFB] Breakables`). These are
-  recognised as the game's own breakable props (Smackables), by their class in the collision
-  report or when one is knocked loose where your car is, not guessed from light contacts.
-- **Sequential shifting has neutral and reverse:** with manual shifting (sequential mode or the
-  game's manual gearbox), shifting down from first goes to neutral, then reverse, and up again the
-  same way; in reverse the gas pedal drives backwards. Holding the brake no longer reverses.
-- **VR: side mirrors look like mirrors:** the glass is drawn with a plain shader showing the rear
-  view as it is, without the car paint's gloss and reflections that washed it out (the brightness
-  and contrast sliders may want lowering now).
-- **Physics: no more pinballing around the map:** the game lets a car spin at up to 30 rad/s; once
-  the player's car spins that fast (props launching it, landing while rotating, with low aids),
-  every step turns it deep into walls and the ground and the push-out adds speed, so it tumbles
-  around the map gaining speed with nobody driving (logged at 15-23 rad/s, hits up to 76 m/s). The
-  player's spin is now limited to 8 rad/s (normal driving stays under 5). F4 > Physics > Spin
-  limit, `[Physics] MaxSpin` (0 = the game's).
-- **VR: pursuit breakers no longer freeze the game and respawn the car:** besides the camera, a
-  pursuit breaker starts an NIS (ETriggerMomentNIS), which paused the world for ~10 s and then
-  placed the car again; in VR that trigger is now dropped.
-- **Physics: rear grip (oversteer) and off-road grip:** F4 > Physics > Rear grip scales the rear
-  tyres' grip against the front (below 100% the rear steps out, front drive too, `[Physics] RearGrip`);
-  Offroad grip scales grip on grass, dirt, mud, gravel and sand by each tyre's surface
-  (`[Physics] OffroadGrip`, 75%).
-- **Physics: slide grip:** a tyre that breaks loose now slides with less grip than its peak
-  (F4 > Physics > Slide grip, `[Physics] SlideGrip`, 85%), so with a lower Rear grip the
-  car goes into a slide you can catch instead of snapping into the turn.
-- **VR: vanilla side mirrors:** the side mirrors are the game's own again (`[VR] GameMirrors=0`); the
-  interior rear view mirror stays.
-- **Force feedback: landing:** a hard kick and a short shake in the wheel when the car lands after a
-  jump, stronger the longer it flew (F4 > Force feedback > Landing, `[FFB] Landing`).
-- **Force feedback: vehicle hits:** the landing's kick and shake when you hit another vehicle
-  (traffic, cops, racers), toward the side you were pushed; recognised by the other object's own
-  type (SIMABLE_VEHICLE), and no longer counted as a generic crash (F4 > Force feedback > Vehicle
-  hits, `[FFB] CarHits`).
-- **Physics: "Settings for this car" covers every physics slider:** Rear grip, Offroad grip, Slide
-  grip, Slide oversteer, Rain grip and Spin limit are kept per car too (a car's section without them
-  uses the [Physics] values).
-- **VR: side mirrors show a wider, fixed view:** each shows `[VR] SideMirrorWidth` (60%) of the rear
-  view from its side, full height.
-- **VR: side mirrors per car:** with `[VR] GameMirrors=1`, cars listed in `GameMirrorsSkip` (e.g.
-  `BMWM3GTRE46,SLR`) keep the game's own side mirrors.
-- **VR: no stray hand pieces with Hide arms on:** some drivers have their hands in a second draw entry
-  (a second DRIVER_PLAYER material); an entry that is mostly arms is now hidden whole, and hands
-  low on the wheel in low cars (Gallardo) count as arms.
-- **Vehicle hit and breakable jolts scale with speed:** full slider strength from 150 km/h, less
-  below it (a tenth at least).
-- **Challenge races no longer end with a blown engine at the start:** a rolling start put the car at
-  speed in the shifter's gear (2nd at 170 km/h blew the engine in 4 s and knocked the car out of the
-  race). Engine heat now waits 8 s after the game resets the car (race start, restart, respawn) and
-  doesn't rise during cutscenes.
-- **No smoke left behind by a missed shift:** the drag race "missed shift" event isn't sent any more
-  (its exhaust smoke stayed where the shift was missed); the grind sound stays.
-- **Physics: slide oversteer you can catch:** the rear's lost side grip now follows the throttle
-  (lifting off in front drive cars) and comes back as the slide passes 20-45 degrees, so lifting
-  or countersteering recovers it instead of the car spinning.
-- **Engine heat: nitrous on the limiter:** with engine wear on, the nitrous at maximum revs heats the
-  engine twice as fast; on a car over 75% damaged (whose engine already heats a third faster) it
-  adds only a third more, so the two don't pile up.
-- **Physics: slide oversteer:** the rear tyres lose side grip the way they do on grass while keeping
-  their drive grip, so the rear slides out under power on the road too (F4 > Physics > Slide
-  oversteer, `[Physics] SlideOversteer`, 80%; 100% = off).
-- **Physics: rain grip:** tyres have 10% less grip in the rain (`[Physics] RainGrip`, 90%).
-- **Engine smoke no longer hangs in the air:** when the smoke stopped (repair, respawn, engine cooled)
-  the game switched the effect off without updating it again, freezing its last puffs in place for
-  good; they now drift and fade out.
-- **VR: frame timing in the log:** every 5 s `nfsmw_vr.log` gets a "perf:" line: fps, and the
-  average and worst milliseconds spent waiting for the headset, rendering the eyes, waiting for the
-  GPU, submitting, drawing the spectator window, presenting, and in the game itself.
-- **Testing: Drop from air:** F4 > Menu and testing > "Drop from air" lifts the car straight up by
-  "Drop height" (`[Tires] DropHeight`, 5 m) and lets it fall, keeping its forward speed, to test
-  landings anywhere.
-- **Force feedback: NOS FFB:** the steering goes lighter while the nitrous is on (the game's own
-  IsNOSEngaged), eased in and out. F4 > Force feedback > NOS FFB, `[FFB] NosLighter` (0..0.9).
-- **VR: HUD left / right:** F4 > VR > HUD left / right (`[VR] HudRight`), also kept per car.
-- **Force feedback: off-road vibration:** the game's own surface name under each front tyre tells
-  grass, dirt, mud, gravel and sand apart from the road: the wheel rumbles unevenly (two rough
-  tones and random bumps), half with one wheel off, growing with speed. F4 > Force feedback >
-  Offroad vibration, `[FFB] OffroadVibration`.
-- **VR: each car remembers its HUD:** F4 > VR > "Each car remembers HUD positioning"
-  (`[VR] HudPerCar`): like the seat, the HUD size, distance and height are saved per car
-  (`[Hud]`); a car without its own yet keeps the last HUD you used.
-- **VR: steering wheel in front of the HUD:** F4 > VR > "Steering wheel rendered in front of HUD"
-  (`[VR] WheelOverHud`). While driving, the HUD panel is drawn into the picture behind the car's
-  steering wheel; in the pause menu, other menus and while the F4 menu is open it is the usual
-  panel on top again.
-- **VR: the view no longer turns over with the car:** with the horizon levelled (`LevelRoll`), a car
-  on its roof or barrel-rolling kept the view upside down; now "down" always points at the ground.
-- **VR: pursuit breakers no longer cut away:** the slow-motion moment camera (CDActionTrackCar) and
-  any other camera set directly, not only through the camera director's selection, is refused in
-  VR (the game's own NIS cutscenes still play).
-- **VR: busted cutscene without the viewfinder frame:** the BUSTED_OVERLAY square over the scene is
-  not shown in VR.
-- **VR: faster frames:** the rear view mirror and the six faces of the reflections' environment
-  map were rendered again for the second eye (seven extra scene renders a frame, none of which
-  depend on the eye). They are rendered once a frame now and both eyes use them.
-  `[VR] SharedViewsOnce`.
-- **VR: both eyes see the same lights:** each eye runs the game's frame drawing, which starts by
-  stepping per-frame state (animated world models, the sun flare, light flare parameters, tunnel
-  bloom and tinting fades, sound). Done twice, the second eye saw a later step than the first, so
-  blinking lights, flares and fades differed between the eyes. It runs once per frame now.
-- **VR: reflections sit still when you move your head:** the car paint and window shaders turn
-  their reflections with the view's rotation (WorldView), which in the headset is your head's. While
-  the eyes render, that one matrix now comes from the seat (the game camera without your head),
-  so reflections stay put as you look around; positions are untouched. `[VR] StableReflections`.
-- **VR: rear view mirror inside the car:** the interior's rear view mirror is found in front of the
-  driver's head on the centre line (about 0.2 x 0.06 m, facing back; sun visors and roof strips
-  around it are passed over) and shows the whole rear view. Found offline in every car's interior
-  except the GTO's.
-- **The game's own side mirrors show the rear view (VR):** the side mirror glass is its own draw
-  entry in each car's model, with the "MIRROR" material (in the game: black, a white glow and no
-  reflection). The game now draws that glass itself with the rear view as its texture: its
-  vertices get texture coordinates across the glass (the left mirror the left half of the rear
-  view, the right the right half) and the material is plain white while it does, so it is the
-  game's own glass, shaded like the rest of the car, not a picture laid over it. `[VR] GameMirrors`.
-- **VR: working side mirrors:** in the headset the game's rear view mirror image is shown on the
-  player car's side mirrors instead of at the top of the HUD (hidden in VR whatever the game's
-  option). The mirror glass is found in each car's model (checked offline on every car, including
-  the few that have their mirrors in the body); the left mirror shows the left half of the rear
-  view, the right one the right half. `[VR] Mirrors`, `MirrorSplit`, `MirrorFlip` (if the image
-  is the wrong way round), `MirrorBrightness`. The image is taken from the rear view's own render
-  target. The game only renders the rear view outside the in-car cameras and only while the race
-  HUD allows it, so in the headset it never rendered and the mirrors showed the game's own glass;
-  in VR it now always renders, and the HUD's mirror is left out by the d3d9 wrapper instead
-  (also the copy the HUD drew from the rear view's own texture, under the cop radar). The image is
-  drawn on the glass's own triangles right after the game draws that mirror's model, with the
-  scene's depth, so it has the glass's outline and the door, pillars and housing cover it as they
-  should (the first version laid a rectangle over the finished picture).
 - **Drivetrain multiplication:** F4 > Physics > Drivetrain multiplication (`[Physics] Drivetrain`,
   also per car) exaggerates how the driven wheels lose side grip under power: at 2x a rear drive
   car's power oversteer and a front drive car's understeer are doubled, all-wheel drive cars get
@@ -392,8 +169,8 @@ first-visit scene with Mia and go to the safehouse menu. Being investigated.
   F4 > Traffic and HUD > Drive drag races normally, `[Races] NormalDragRaces`.
 - **Damage meter car icon back to the game's look:** it was drawn opaque with a black outline,
   which looked harsh. It now uses the HUD's own colours: gray with no damage, the HUD's beige when
-  damaged, pulsing red like the damage arc from 75%. The spike strip icon shows only while a tyre
-  is popped, flashing red, without the outline.
+  damaged, pulsing red like the damage arc from 75%. The spike strip icon matches it: always
+  shown, gray, flashing red while a tyre is popped, no outline.
 - **VR: no more occasional cutscene camera at pursuit breakers:** the camera director had other
   ways off the driving camera (the cinematic camera when a moment or the game asks for it). In VR
   the player's camera is now turned straight back to the driving camera whatever picks another,
