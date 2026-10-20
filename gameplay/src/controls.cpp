@@ -17,6 +17,7 @@
 #include "controls.h"
 #include "common.h"
 #include "input.h"
+#include "patch.h"
 #include <math.h>
 
 // Steering type for SuspensionRacer::DoHumanSteering: -1 = the game's (gamepad on PC, as no
@@ -194,25 +195,6 @@ void __cdecl Hook_DoFetchInput(void* ip) {
     if (!ip) return;
     Inject(ip);
     ((void(__thiscall*)(void*))(*(void***)ip)[4])(ip);   // IInputPlayer::FetchInput
-}
-
-bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
-    const uint8_t* p = (const uint8_t*)at;
-    size_t i = 0;
-    for (uint8_t b : bytes)
-        if (p[i++] != b) return false;
-    return true;
-}
-
-void WriteRel(uintptr_t at, uint8_t op, const void* target) {
-    uint8_t code[5] = {op};
-    int32_t rel = (int32_t)((uintptr_t)target - (at + 5));
-    memcpy(code + 1, &rel, 4);
-    DWORD old;
-    VirtualProtect((void*)at, 5, PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)at, code, 5);
-    VirtualProtect((void*)at, 5, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)at, 5);
 }
 
 }  // namespace

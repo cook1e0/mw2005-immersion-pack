@@ -27,6 +27,11 @@ void ConfigFile(const char* name, char* out, bool migrate);
 double Now();
 
 template <class T> static inline T Clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
+// 0 at or below a, 1 at or above b, a smooth S-curve between.
+static inline float Smoothstep(float a, float b, float x) {
+    float t = Clamp((x - a) / (b - a), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
 
 // ---------------------------------------------------------------------------
 // Configuration (nfsmw_gameplay.ini next to speed.exe)

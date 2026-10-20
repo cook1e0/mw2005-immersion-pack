@@ -6,6 +6,7 @@
 // still come.
 #include "traffic.h"
 #include "common.h"
+#include "patch.h"
 
 namespace {
 
@@ -26,21 +27,11 @@ void* __fastcall HeavySupportByName(void* mgr, void*, const char* name) {
     return ((CopByName_t)kCopByName)(mgr, name);
 }
 
-void PatchCall(uintptr_t at, void* fn) {
-    DWORD old;
-    int32_t rel = (int32_t)((uintptr_t)fn - (at + 5));
-    VirtualProtect((void*)at, 5, PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)(at + 1), &rel, 4);
-    VirtualProtect((void*)at, 5, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)at, 5);
-}
-
 void Cops_Install() {
-    if (*(uint8_t*)kHeavySupportCall != 0xE8 || kHeavySupportCall + 5 + *(int32_t*)(kHeavySupportCall + 1) != kCopByName) {
+    if (!RetargetCall(kHeavySupportCall, kCopByName, (void*)&HeavySupportByName)) {
         Log("traffic: unexpected heavy support code, heavy support stays");
         return;
     }
-    PatchCall(kHeavySupportCall, (void*)&HeavySupportByName);
     Log("traffic: heavy support (head-on ramming SUVs) %s; SUV patrols and roadblocks as the game's",
         g_cfg.noHeavySupport ? "off" : "on");
 }
@@ -99,34 +90,17 @@ static int __fastcall HkTurboRaceType(void* parms, void* edx) {
 }
 
 void Traffic_Install() {
-    if (*(uint8_t*)kCallTurboRaceType == 0xE8 && kCallTurboRaceType + 5 + *(int32_t*)(kCallTurboRaceType + 1) == kGetRaceType) {
-        int32_t rel = (int32_t)((uintptr_t)&HkTurboRaceType - (kCallTurboRaceType + 5));
-        DWORD old;
-        VirtualProtect((void*)(kCallTurboRaceType + 1), 4, PAGE_EXECUTE_READWRITE, &old);
-        memcpy((void*)(kCallTurboRaceType + 1), &rel, 4);
-        VirtualProtect((void*)(kCallTurboRaceType + 1), 4, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kCallTurboRaceType, 5);
-    } else {
+    if (!RetargetCall(kCallTurboRaceType, kGetRaceType, (void*)&HkTurboRaceType))
         Log("traffic: unexpected turbo dial code, its needle keeps the drag range in drag races");
-    }
     bool hudOk = true;
     for (uintptr_t slot : kSlotsSetHud) hudOk = hudOk && *(uintptr_t*)slot == kSetHud;
     if (hudOk) {
-        for (uintptr_t slot : kSlotsSetHud) {
-            DWORD old;
-            VirtualProtect((void*)slot, 4, PAGE_READWRITE, &old);
-            *(void**)slot = (void*)&HkSetHud;
-            VirtualProtect((void*)slot, 4, old, &old);
-        }
+        for (uintptr_t slot : kSlotsSetHud) SetSlot(slot, kSetHud, (void*)&HkSetHud);
         Log("traffic: drag races with the %s HUD", g_cfg.normalDragHud ? "normal race" : "drag");
     } else {
         Log("traffic: unexpected player code, NormalDragHud unavailable");
     }
-    if (*(uintptr_t*)kSlotSetDriverStyle == kSetDriverStyle) {
-        DWORD old;
-        VirtualProtect((void*)kSlotSetDriverStyle, 4, PAGE_READWRITE, &old);
-        *(void**)kSlotSetDriverStyle = (void*)&HkSetDriverStyle;
-        VirtualProtect((void*)kSlotSetDriverStyle, 4, old, &old);
+    if (SetSlot(kSlotSetDriverStyle, kSetDriverStyle, (void*)&HkSetDriverStyle)) {
         Log("traffic: drag races %s", g_cfg.normalDragRaces ? "with normal driving for the player" : "as the game's");
     } else {
         Log("traffic: unexpected vehicle code, NormalDragRaces unavailable");

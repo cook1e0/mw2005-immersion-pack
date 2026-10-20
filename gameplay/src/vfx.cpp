@@ -24,6 +24,7 @@
 #include "vfx.h"
 #include "common.h"
 #include "game.h"
+#include "patch.h"
 
 namespace {
 
@@ -212,40 +213,16 @@ void Vfx_Install() {
         Log("vfx: unexpected code, no engine smoke");
         return;
     }
-    uint8_t code[6] = {0xE8, 0, 0, 0, 0, 0x90};
-    int32_t rel = (int32_t)((uintptr_t)&Vfx_DamageKeyStub - (kDamageKeyLoad + 5));
-    memcpy(code + 1, &rel, 4);
-    DWORD old;
-    VirtualProtect((void*)kDamageKeyLoad, sizeof(code), PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)kDamageKeyLoad, code, sizeof(code));
-    VirtualProtect((void*)kDamageKeyLoad, sizeof(code), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)kDamageKeyLoad, sizeof(code));
-    int32_t cur = *(int32_t*)(kSmokeUpdateCall + 1);
-    if (*(uint8_t*)kSmokeUpdateCall == 0xE8 && kSmokeUpdateCall + 5 + cur == kEffectUpdate) {
-        int32_t r = (int32_t)((uintptr_t)&SmokeUpdate - (kSmokeUpdateCall + 5));
-        VirtualProtect((void*)kSmokeUpdateCall, 5, PAGE_EXECUTE_READWRITE, &old);
-        memcpy((void*)(kSmokeUpdateCall + 1), &r, 4);
-        VirtualProtect((void*)kSmokeUpdateCall, 5, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeUpdateCall, 5);
-    }
-    if (*(uint8_t*)kSmokeDisableCall == 0xE8 && kSmokeDisableCall + 5 + *(int32_t*)(kSmokeDisableCall + 1) == kGroupDisable) {
-        int32_t r = (int32_t)((uintptr_t)&SmokeDisable - (kSmokeDisableCall + 5));
-        VirtualProtect((void*)kSmokeDisableCall, 5, PAGE_EXECUTE_READWRITE, &old);
-        memcpy((void*)(kSmokeDisableCall + 1), &r, 4);
-        VirtualProtect((void*)kSmokeDisableCall, 5, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeDisableCall, 5);
-    } else {
+    WriteCallNops(kDamageKeyLoad, 6, (void*)&Vfx_DamageKeyStub);
+    RetargetCall(kSmokeUpdateCall, kEffectUpdate, (void*)&SmokeUpdate);
+    if (!RetargetCall(kSmokeDisableCall, kGroupDisable, (void*)&SmokeDisable))
         Log("vfx: unexpected code, stopped smoke may linger");
-    }
     static const uint8_t healthLoad[] = {0xD9, 0x82, 0x90, 0x00, 0x00, 0x00};   // fld [edx+0x90]
     if (memcmp((void*)kSmokeHealthLoad, healthLoad, sizeof(healthLoad)) == 0) {
         uint8_t fld[6] = {0xD9, 0x05};                                          // fld [s_smokeHealth]
         float* p = &s_smokeHealth;
         memcpy(fld + 2, &p, 4);
-        VirtualProtect((void*)kSmokeHealthLoad, sizeof(fld), PAGE_EXECUTE_READWRITE, &old);
-        memcpy((void*)kSmokeHealthLoad, fld, sizeof(fld));
-        VirtualProtect((void*)kSmokeHealthLoad, sizeof(fld), old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kSmokeHealthLoad, sizeof(fld));
+        Write(kSmokeHealthLoad, fld, sizeof(fld));
     } else {
         Log("vfx: unexpected code, no heat smoke on an undamaged car");
     }

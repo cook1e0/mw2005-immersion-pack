@@ -25,6 +25,7 @@
 #include "hud.h"
 #include "common.h"
 #include "game.h"
+#include "patch.h"
 #include <math.h>
 
 namespace {
@@ -173,6 +174,7 @@ struct {
     uint32_t heatTex = 0;           // its texture hash, 0 = none loaded
     int heatPick = -1;              // which [HUD] HeatIcon name it is (0 = the first), -1 = none
     double heatLooked = -1e9;       // when a better one was last looked for
+    bool heatMissLogged = false;    // "none loaded" logged for this HUD
     uint32_t spikeTex = 0;          // texture hash, 0 = not loaded
     bool spikeLooked = false;
     bool applied = false;           // our look is on (icon swapped, clone present)
@@ -231,7 +233,10 @@ void PickHeatIcon() {
         Log("hud: engine warning icon %s", n);
         return;
     }
-    if (s.heatPick < 0) Log("hud: engine warning icon: none of %s loaded (yet)", g_cfg.hudHeatIcon.c_str());
+    if (s.heatPick < 0 && !s.heatMissLogged) {   // looked for every second: said once per HUD
+        s.heatMissLogged = true;
+        Log("hud: engine warning icon: none of %s loaded (yet)", g_cfg.hudHeatIcon.c_str());
+    }
 }
 
 void Setup(uint8_t* meter) {
@@ -264,22 +269,18 @@ void Setup(uint8_t* meter) {
         CollectIcon(icon + kFG_Children, 0);
         // The group also holds a small image at the end of the bar; only the clock (the largest
         // image) becomes the car.
-        size_t big = 0;
-        float bigArea = -1.0f;
-        for (size_t i = 0; i < s.icon.size(); i++) {
-            uint8_t* d = Field<uint8_t*>(s.icon[i].img, kFO_Data);
-            float area = d ? fabsf(Field<float>(d, kOD_SizeX) * Field<float>(d, kOD_SizeY)) : 0.0f;
-            Log("hud: icon image %p size %.1f", s.icon[i].img, area);
-            if (area > bigArea) bigArea = area, big = i;
-        }
         // The smallest other image is the arrow at the arc's end: it glows with the car icon.
-        size_t small = big;
-        float smallArea = 1e30f;
+        std::vector<float> area(s.icon.size());
+        size_t big = 0;
         for (size_t i = 0; i < s.icon.size(); i++) {
             uint8_t* d = Field<uint8_t*>(s.icon[i].img, kFO_Data);
-            float area = d ? fabsf(Field<float>(d, kOD_SizeX) * Field<float>(d, kOD_SizeY)) : 0.0f;
-            if (i != big && area < smallArea) smallArea = area, small = i;
+            area[i] = d ? fabsf(Field<float>(d, kOD_SizeX) * Field<float>(d, kOD_SizeY)) : 0.0f;
+            Log("hud: icon image %p size %.1f", s.icon[i].img, area[i]);
+            if (area[i] > area[big]) big = i;
         }
+        size_t small = big;
+        for (size_t i = 0; i < s.icon.size(); i++)
+            if (i != big && (small == big || area[i] < area[small])) small = i;
         s.arrow = small != big ? s.icon[small] : IconImage{};
         if (!s.icon.empty()) s.icon = {s.icon[big]};
         if (!s.icon.empty()) s.iconList = FindList(icon + kFG_Children, s.icon[0].img);
@@ -287,6 +288,7 @@ void Setup(uint8_t* meter) {
     if (!s.carIcon) s.carIcon = PickIcon();
     s.heatTex = 0;
     s.heatPick = -1;
+    s.heatMissLogged = false;
     PickHeatIcon();
     if (!s.spikeLooked) {
         s.spikeLooked = true;
@@ -531,17 +533,6 @@ void __fastcall Hook_LoaderUnload(void* loader, void* edx, int type) {
     FreeDragPack();
 }
 
-bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
-    if (*(uint8_t*)site != 0xE8 || site + 5 + *(int32_t*)(site + 1) != target) return false;
-    int32_t rel = (int32_t)((uintptr_t)hook - (site + 5));
-    DWORD old;
-    VirtualProtect((void*)(site + 1), 4, PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)(site + 1), &rel, 4);
-    VirtualProtect((void*)(site + 1), 4, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)site, 5);
-    return true;
-}
-
 }  // namespace
 
 bool Hud_Message(const char* text) {
@@ -562,19 +553,14 @@ void Hud_Install() {
         Log("hud: unexpected SpeedBreakerMeter vtable, meter unchanged");
         return;
     }
-    for (auto slot : {std::make_pair(kSlotSetPursuitLevel, (void*)&Hook_SetPursuitLevel),
-                      std::make_pair(kSlotUpdate, (void*)&Hook_MeterUpdate)}) {
-        DWORD old;
-        VirtualProtect((void*)slot.first, 4, PAGE_READWRITE, &old);
-        memcpy((void*)slot.first, &slot.second, 4);
-        VirtualProtect((void*)slot.first, 4, old, &old);
-    }
+    SetSlot(kSlotSetPursuitLevel, kSetPursuitLevel, (void*)&Hook_SetPursuitLevel);
+    SetSlot(kSlotUpdate, kUpdate, (void*)&Hook_MeterUpdate);
     Log("hud: speedbreaker meter shows damage and heat (%s)", g_cfg.hudMeter ? "on" : "off");
     const char* path = *(const char**)kDragPackPath;
     if (path && !IsBadStringPtrA(path, 32) && strstr(path, "HUDTEXDRAG") &&
         RetargetCall(kCallLoaderUnload, kLoaderUnload, (void*)&Hook_LoaderUnload)) {
         if (RetargetCall(kCallLoaderLoad, kLoaderLoad, (void*)&Hook_LoaderLoad))
-            Log("hud: drag HUD textures loaded with the race HUD's (engine warning icon)");
+            Log("hud: drag HUD textures to be loaded with the race HUD's (engine warning icon)");
     } else {
         Log("hud: unexpected HUD texture loader, ENGINE_HEAT_ICON only in drag races");
     }

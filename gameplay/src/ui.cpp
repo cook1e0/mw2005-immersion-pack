@@ -438,7 +438,7 @@ int FfbDeviceName(int index, std::string* name) {
         exported = f != nullptr;
         if (f) {
             char buf[160] = {};
-            int count = ((int(__cdecl*)(int, char*, int))f)(0, buf, sizeof(buf));
+            int count = ((int(__cdecl*)(int, char*, int))f)(-1, nullptr, 0);   // count only, opens nothing
             for (int i = 0; i < count && i < 16; i++) {
                 buf[0] = 0;
                 ((int(__cdecl*)(int, char*, int))f)(i, buf, sizeof(buf));
@@ -579,7 +579,7 @@ const Item kItems[] = {
     {NUMBER, "Landing", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "NOS FFB", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
+    {NUMBER, "Lighter steering with nitrous", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -1637,8 +1637,8 @@ const struct {
     {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
     {&s_ext[VR_DASHANGLE], "Turns the whole in-car display (with its glass and elements) about its centre: its face to your right (+) or left (-). Each car model remembers its own."},
     {&s_ext[VR_DASHANGLE + 1], "Tilts the whole in-car display (with its glass and elements) about its centre: its face up (+) or down (-). Each car model remembers its own."},
-    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
-    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Dashboard zoom). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Whole dashboard size). Each car model remembers its own."},
+    {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Whole dashboard size). Each car model remembers its own."},
     {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car model remembers its own."},
     {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},

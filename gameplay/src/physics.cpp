@@ -57,13 +57,13 @@
 // surface's LATERAL_GRIP and its drive force by DRIVE_GRIP (0x69E098); grass takes more side grip
 // than drive grip, which is why a car on grass keeps driving and slides sideways. For the player's
 // rear tyres that side grip also takes [Physics] SlideOversteer, so the rear slides under power
-// on the road too, while the front steers and the drive grip is untouched.
-// Speed grip loss: every tyre's side grip (the same multiply) also takes 1 - [Physics] SpeedGripLoss
-// * (speed / 300 km/h)^2, so a car pulls away and brakes as before but corners on less and less
-// grip the faster it goes: all of SpeedGripLoss gone at 300 km/h, a quarter of it at 150. To stay drivable it is
+// on the road too, while the front steers and the drive grip is untouched. To stay drivable it is
 // power oversteer, not a loose rear: the side grip goes with the throttle (lifting off in a front
 // drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
 // degrees, so lifting or countersteering catches the slide instead of the car spinning.
+// Speed grip loss: every tyre's side grip (the same multiply) also takes 1 - [Physics] SpeedGripLoss
+// * (speed / 300 km/h)^2, so a car pulls away and brakes as before but corners on less and less
+// grip the faster it goes: all of SpeedGripLoss gone at 300 km/h, a quarter of it at 150.
 //
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
@@ -78,6 +78,7 @@
 #include "physics.h"
 #include "game.h"
 #include "input.h"
+#include "patch.h"
 #include <math.h>
 
 namespace {
@@ -226,8 +227,6 @@ bool Stock() {
            c.speedGripLoss == 0.0f;
 }
 
-// Diagnostics: the player's physics step lengths (the game's forces divide by them).
-float s_suspDT = 0.0f;                  // the player's last suspension step
 float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
 
 // Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
@@ -236,20 +235,11 @@ float SpeedGrip(float loss, float speed) {
     float r = speed / (300.0f / 3.6f);
     return Clamp(1.0f - loss * r * r, 0.1f, 1.0f);
 }
-struct {
-    float rbMin = 1e9f, rbMax = 0.0f, suspMin = 1e9f, suspMax = 0.0f;
-    int steps = 0;
-    double since = 0;
-} s_dt;
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
-    bool player = Owns(susp, Game_PlayerInterface((void*)kISuspensionHandle));
+    uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
+    bool player = Owns(susp, iface);
     s_playerSusp = player;
-    if (player) {
-        s_suspDT = dT;
-        s_dt.suspMin = std::min(s_dt.suspMin, dT);
-        s_dt.suspMax = std::max(s_dt.suspMax, dT);
-    }
     if (!player || !g.ok || !g_cfg.physics || Stock()) {
         s_origSusp(susp, dT);
         s_playerSusp = false;
@@ -265,8 +255,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
     if (g_cfg.slideOversteer != 1.0f || g_cfg.speedGripLoss > 0.0f) {
-        uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
-        for (int i = 0; i < 4; i++) s_latTires[i] = iface ? *(uint8_t**)(iface + kSuspIface_Tires + i * 4) : nullptr;
+        for (int i = 0; i < 4; i++) s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
         // How much of it now: with the throttle (rear or all-wheel drive) or lifting off (front
         // drive), less as the rear's slip angle grows past 20 degrees, none from 45.
         InputSnapshot in = Input_Get();
@@ -277,8 +266,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         float angle = 0.0f;
         for (int i = 2; i < 4; i++)
             if (s_latTires[i]) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
-        float t = Clamp((angle - 20.0f) / 25.0f, 0.0f, 1.0f);
-        float fade = 1.0f - t * t * (3.0f - 2.0f * t);
+        float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
         float rear = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
         float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
         for (int i = 0; i < 4; i++) s_latMul[i] = (i >= 2 ? rear : 1.0f) * fast;
@@ -335,20 +323,28 @@ void __cdecl Hook_BlownTire(uint8_t* tire) {
     traction *= 1.0f - std::min(kPoppedTraction * k, 0.95f);
 }
 
+// A pointer into the game's heap (not null, not a small number or garbage).
+bool Plausible(uintptr_t p) { return p >= 0x10000 && p < 0x7FFF0000; }
+
+// The rigid body's RigidBody::Volatile (position, velocities, torque), or null.
+uint8_t* RBData(uint8_t* rb) {
+    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
+    return holder ? *holder : nullptr;
+}
+
+float Length(const float* v) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
+
 // Drop from the air (testing): requested by the menu, done in the player's next OnBeginFrame.
 volatile double s_dropAt = -1;
 
-void DropIfAsked(uint8_t* rb) {
+void DropIfAsked(uint8_t* data) {
     if (s_dropAt < 0) return;
     if (Now() - s_dropAt > 2.0) {   // not in a car: forget it
         s_dropAt = -1;
         return;
     }
-    if (!Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return;
-    s_dropAt = -1;
-    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
-    uint8_t* data = holder ? *holder : nullptr;
     if (!data) return;
+    s_dropAt = -1;
     float* pos = (float*)(data + kRV_Position);
     float* vel = (float*)(data + kRV_LinearVel);
     float* av = (float*)(data + kRV_AngularVel);
@@ -359,14 +355,11 @@ void DropIfAsked(uint8_t* rb) {
 }
 
 // The player's body: its spin limited to [Physics] MaxSpin.
-void LimitSpin(uint8_t* rb) {
+void LimitSpin(uint8_t* data) {
     float limit = g_cfg.maxSpin;
-    if (limit <= 0.0f || !Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return;
-    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
-    uint8_t* data = holder ? *holder : nullptr;
-    if (!data) return;
+    if (limit <= 0.0f || !data) return;
     float* av = (float*)(data + kRV_AngularVel);
-    float w = sqrtf(av[0] * av[0] + av[1] * av[1] + av[2] * av[2]);
+    float w = Length(av);
     if (!(w > limit)) return;   // also skips NaN
     float k = limit / w;
     av[0] *= k;
@@ -376,35 +369,29 @@ void LimitSpin(uint8_t* rb) {
     if (Now() - lastLog > 1.0) {
         lastLog = Now();
         const float* v = (const float*)(data + kRV_LinearVel);
-        Log("physics: car spinning at %.1f rad/s, limited to %.1f (speed %.1f m/s, vertical %+.1f)", w, limit,
-            sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]), v[1]);
+        Log("physics: car spinning at %.1f rad/s, limited to %.1f (speed %.1f m/s, vertical %+.1f)", w, limit, Length(v), v[1]);
     }
 }
 
-// Before the player's body integrates: the torque scaled so the spin it adds stays within MaxSpin.
-// Returns the spin predicted after the step (for the check after it), or false if not limited.
-bool LimitTorque(uint8_t* rb, float dT, float predicted[3]) {
+// Before the player's body integrates: the torque scaled so the spin it adds stays within MaxSpin
+// and one step never changes the spin by more than kMaxSpinAccel * dT.
+void LimitTorque(uint8_t* rb, uint8_t* data, float dT) {
     float limit = g_cfg.maxSpin;
-    if (limit <= 0.0f || !(dT > 0.0f) || !Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) return false;
-    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
-    uint8_t* data = holder ? *holder : nullptr;
-    if (!data || data[0x5D] != 0) return false;            // not awake: no integration
+    if (limit <= 0.0f || !(dT > 0.0f) || !data || data[0x5D] != 0) return;   // +0x5D set: asleep, no integration
     float* T = (float*)(data + kRV_Torque);
     const float* av = (const float*)(data + kRV_AngularVel);
     const float* M = (const float*)(rb + kRB_InvWorldTensor);
     float d[3];
     for (int i = 0; i < 3; i++) d[i] = (T[0] * M[i] + T[1] * M[4 + i] + T[2] * M[8 + i]) * dT;
-    float w1[3] = {av[0] + d[0], av[1] + d[1], av[2] + d[2]};
-    float n1 = sqrtf(w1[0] * w1[0] + w1[1] * w1[1] + w1[2] * w1[2]);
     float s = 1.0f;
-    float dn = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    float dn = Length(d);
     const char* why = nullptr;
     if (dn > kMaxSpinAccel * dT) {
         s = kMaxSpinAccel * dT / dn;
         why = "spike";
     }
     float ws[3] = {av[0] + d[0] * s, av[1] + d[1] * s, av[2] + d[2] * s};
-    if (sqrtf(ws[0] * ws[0] + ws[1] * ws[1] + ws[2] * ws[2]) > limit) {
+    if (Length(ws) > limit) {
         why = "spin";
         // The largest share s of the torque with |av + s d| <= limit (|av| <= limit already).
         float dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
@@ -413,46 +400,23 @@ bool LimitTorque(uint8_t* rb, float dT, float predicted[3]) {
         float disc = wd * wd - dd * (ww - limit * limit);
         s = std::min(s, dd > 1e-12f && disc >= 0.0f ? std::max(0.0f, std::min(1.0f, (-wd + sqrtf(disc)) / dd)) : 0.0f);
     }
-    if (why) {
-        static double lastLog = -1e9;
-        if (Now() - lastLog > 1.0) {
-            lastLog = Now();
-            float tn = sqrtf(T[0] * T[0] + T[1] * T[1] + T[2] * T[2]);
-            Log("physics: torque %.0f N m (%s) would change the spin by %.1f to %.1f rad/s in one step: scaled to %.4f "
-                "(step %.5f s, suspension step %.5f s)", tn, why, dn, n1, s, dT, s_suspDT);
-        }
-        for (int i = 0; i < 3; i++) T[i] *= s;
-    } else if (!(n1 >= 0.0f)) {
-        return false;                                       // NaN: leave it to the game
+    if (!why) return;
+    static double lastLog = -1e9;
+    if (Now() - lastLog > 1.0) {
+        lastLog = Now();
+        float w1[3] = {av[0] + d[0], av[1] + d[1], av[2] + d[2]};
+        Log("physics: torque %.0f N m (%s) would change the spin by %.1f to %.1f rad/s in one step: scaled to %.4f (step %.5f s)",
+            Length(T), why, dn, Length(w1), s, dT);
     }
-    for (int i = 0; i < 3; i++) predicted[i] = av[i] + d[i] * s;
-    return true;
-}
-
-// After the step: how well LimitTorque predicted the spin (a few times, to confirm the layout).
-void CheckPrediction(uint8_t* rb, const float predicted[3], const float before[3]) {
-    static int checked = 0;
-    if (checked >= 3) return;
-    uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
-    uint8_t* data = holder ? *holder : nullptr;
-    if (!data) return;
-    const float* av = (const float*)(data + kRV_AngularVel);
-    float change = 0, err = 0;
-    for (int i = 0; i < 3; i++) {
-        change += (predicted[i] - before[i]) * (predicted[i] - before[i]);
-        err += (av[i] - predicted[i]) * (av[i] - predicted[i]);
-    }
-    if (sqrtf(change) < 0.05f) return;                      // too small to tell
-    checked++;
-    Log("physics: spin change predicted %.3f rad/s, off by %.4f", sqrtf(change), sqrtf(err));
+    for (int i = 0; i < 3; i++) T[i] *= s;
 }
 
 // A tyre on an off-road surface, by the surface's own name.
 bool OffroadTire(uint8_t* tire) {
     uintptr_t layout = *(uintptr_t*)(tire + kTire_Surface + 8);
-    if (layout < 0x10000 || layout >= 0x7FFF0000) return false;
+    if (!Plausible(layout)) return false;
     const char* name = *(const char**)(layout + kSurf_Name);
-    if ((uintptr_t)name < 0x10000 || (uintptr_t)name >= 0x7FFF0000 || IsBadStringPtrA(name, 32)) return false;
+    if (!Plausible((uintptr_t)name) || IsBadStringPtrA(name, 32)) return false;
     static const char* const kWords[] = {"grass", "dirt", "mud", "gravel", "sand", "soil", "earth", "field",
                                          "offroad", "off_road", "forest", "bush", "shrub", "snow", "rock"};
     char low[48] = {};
@@ -465,7 +429,7 @@ bool OffroadTire(uint8_t* tire) {
 // Rain intensity in the player's view (0 = dry), checked against nonsense.
 float RainIntensity() {
     uintptr_t rain = *(uintptr_t*)kPlayerRain;
-    if (rain < 0x10000 || rain >= 0x7FFF0000) return 0.0f;
+    if (!Plausible(rain)) return 0.0f;
     float v = *(float*)(rain + kRain_Intensity);
     float r = v >= 0.0f && v <= 10.0f ? v : 0.0f;
     static float logged = -1.0f;
@@ -489,7 +453,7 @@ void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     if (!iface) return;
     for (int i = 0; i < 4; i++) {
         uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
-        if ((uintptr_t)tire < 0x10000 || (uintptr_t)tire >= 0x7FFF0000) continue;
+        if (!Plausible((uintptr_t)tire)) continue;
         float k = (i >= 2 ? rear : 1.0f) * wet;
         if (off != 1.0f && OffroadTire(tire)) k *= off;
         Field<float>(tire, kTire_Traction) *= k;
@@ -497,36 +461,17 @@ void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
 }
 
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
-    DropIfAsked(rb);
-    if (Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle))) {
-        uint8_t** holder = Field<uint8_t**>(rb, kRB_Data);
-        if (holder && *holder) {
-            const float* v = (const float*)(*holder + kRV_LinearVel);
-            s_playerSpeed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-        }
-        s_dt.rbMin = std::min(s_dt.rbMin, dT);
-        s_dt.rbMax = std::max(s_dt.rbMax, dT);
-        s_dt.steps++;
-        if (Now() - s_dt.since > 10.0) {
-            if (s_dt.since > 0)
-                Log("physics: %d steps in %.0f s, step %.5f..%.5f s, suspension step %.5f..%.5f s", s_dt.steps,
-                    Now() - s_dt.since, s_dt.rbMin, s_dt.rbMax, s_dt.suspMin, s_dt.suspMax);
-            s_dt = {};
-            s_dt.since = Now();
-        }
-    }
-    LimitSpin(rb);
-    float predicted[3], before[3] = {0, 0, 0};
-    bool limited = LimitTorque(rb, dT, predicted);
-    if (limited) {
-        const float* av = (const float*)(*Field<uint8_t**>(rb, kRB_Data) + kRV_AngularVel);
-        for (int i = 0; i < 3; i++) before[i] = av[i];
+    bool player = Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle));
+    uint8_t* data = player ? RBData(rb) : nullptr;
+    if (data) {
+        DropIfAsked(data);
+        s_playerSpeed = Length((const float*)(data + kRV_LinearVel));
+        LimitSpin(data);
+        LimitTorque(rb, data, dT);
     }
     float k = g_cfg.gravity;
     uint8_t* specs = Field<uint8_t*>(rb, kRB_Specs);
-    if (!g_cfg.physics || k == 1.0f || !specs ||
-        !(g_cfg.gravityAll ? Game_PlayerInterface(nullptr) != nullptr   // in game, any car
-                           : Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle)))) {
+    if (!g_cfg.physics || k == 1.0f || !specs || !(g_cfg.gravityAll ? Game_PlayerInterface(nullptr) != nullptr : player)) {
         s_origRB(rb, dT);
     } else {
         float& gravity = Field<float>(specs, 0xF0);
@@ -535,38 +480,7 @@ void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
         s_origRB(rb, dT);
         gravity = saved;
     }
-    if (limited) CheckPrediction(rb, predicted, before);
-    LimitSpin(rb);   // after integrating: the next suspension step starts from a sane spin
-}
-
-bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
-    size_t i = 0;
-    for (uint8_t b : bytes) {
-        if (((uint8_t*)at)[i] != b) {
-            Log("physics: unexpected code at 0x%06X+%u", (unsigned)at, (unsigned)i);
-            return false;
-        }
-        i++;
-    }
-    return true;
-}
-
-// Jumps from `at` to `hook`; returns a trampoline running the `stolen` bytes and jumping back.
-void* Detour(uintptr_t at, size_t stolen, void* hook) {
-    uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (!tramp) return nullptr;
-    memcpy(tramp, (void*)at, stolen);
-    tramp[stolen] = 0xE9;
-    *(int32_t*)(tramp + stolen + 1) = (int32_t)((at + stolen) - ((uintptr_t)tramp + stolen + 5));
-    DWORD old;
-    VirtualProtect((void*)at, stolen, PAGE_EXECUTE_READWRITE, &old);
-    uint8_t* p = (uint8_t*)at;
-    p[0] = 0xE9;
-    *(int32_t*)(p + 1) = (int32_t)((uintptr_t)hook - (at + 5));
-    for (size_t i = 5; i < stolen; i++) p[i] = 0x90;
-    VirtualProtect((void*)at, stolen, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)at, stolen);
-    return tramp;
+    LimitSpin(data);   // after integrating: the next suspension step starts from a sane spin
 }
 
 void InstallBlownTire() {
@@ -595,11 +509,7 @@ void InstallBlownTire() {
     *p++ = 0x59;                                        // pop ecx
     *p++ = 0xE9;                                        // jmp past the original code
     *(int32_t*)p = (int32_t)((kBlownTire + kBlownTireLen) - (kBlownTire + (p + 4 - code)));
-    DWORD old;
-    VirtualProtect((void*)kBlownTire, sizeof(code), PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)kBlownTire, code, sizeof(code));
-    VirtualProtect((void*)kBlownTire, sizeof(code), old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)kBlownTire, sizeof(code));
+    Write(kBlownTire, code, sizeof(code));
     Log("physics: popped tires %s (handicap %.2f)", g_cfg.poppedTires ? "drivable" : "as in the game", g_cfg.tireHandicap);
 }
 
@@ -706,34 +616,16 @@ void Physics_Install() {
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
     InstallBlownTire();
     if (Expect(kSlideFriction, {0xD8, 0x8E, 0xEC, 0x00, 0x00, 0x00})) {
-        uint8_t code[6] = {0xE8, 0, 0, 0, 0, 0x90};
-        int32_t rel = (int32_t)((uintptr_t)&SlideFrictionStub - (kSlideFriction + 5));
-        memcpy(code + 1, &rel, 4);
-        DWORD old;
-        VirtualProtect((void*)kSlideFriction, sizeof(code), PAGE_EXECUTE_READWRITE, &old);
-        memcpy((void*)kSlideFriction, code, sizeof(code));
-        VirtualProtect((void*)kSlideFriction, sizeof(code), old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kSlideFriction, sizeof(code));
+        WriteCallNops(kSlideFriction, 6, (void*)&SlideFrictionStub);
         Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
         if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
-            uint8_t lat[6] = {0xE8, 0, 0, 0, 0, 0x90};
-            int32_t r = (int32_t)((uintptr_t)&LateralGripStub - (kLateralGrip + 5));
-            memcpy(lat + 1, &r, 4);
-            VirtualProtect((void*)kLateralGrip, sizeof(lat), PAGE_EXECUTE_READWRITE, &old);
-            memcpy((void*)kLateralGrip, lat, sizeof(lat));
-            VirtualProtect((void*)kLateralGrip, sizeof(lat), old, &old);
-            FlushInstructionCache(GetCurrentProcess(), (void*)kLateralGrip, sizeof(lat));
+            WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
             Log("physics: slide oversteer ready (%.2f)", g_cfg.slideOversteer);
         }
     } else {
         Log("physics: slide grip unavailable");
     }
-    if (Expect(kCallDoDrifting, {0xE8}) && kCallDoDrifting + 5 + *(int32_t*)(kCallDoDrifting + 1) == kDoDrifting) {
-        DWORD old;
-        VirtualProtect((void*)kCallDoDrifting, 5, PAGE_EXECUTE_READWRITE, &old);
-        *(int32_t*)(kCallDoDrifting + 1) = (int32_t)((uintptr_t)&Hook_DoDrifting - (kCallDoDrifting + 5));
-        VirtualProtect((void*)kCallDoDrifting, 5, old, &old);
-        FlushInstructionCache(GetCurrentProcess(), (void*)kCallDoDrifting, 5);
+    if (RetargetCall(kCallDoDrifting, kDoDrifting, (void*)&Hook_DoDrifting)) {
         Log("physics: grip balance ready (rear grip %.2f, off-road grip %.2f)", g_cfg.rearGrip, g_cfg.offroadGrip);
     } else {
         Log("physics: grip balance unavailable");
@@ -743,13 +635,8 @@ void Physics_Install() {
         *(float*)kEllipseRatio > 1.0f) {
         s_ellipseGame = s_ellipse = *(float*)kEllipseRatio;
         s_ellipseInv = 1.0f / s_ellipse;
-        for (auto at : {std::make_pair(kEllipseMul, &s_ellipse), std::make_pair(kEllipseDiv, &s_ellipseInv)}) {
-            DWORD old;
-            VirtualProtect((void*)(at.first + 2), 4, PAGE_EXECUTE_READWRITE, &old);
-            *(float**)(at.first + 2) = at.second;
-            VirtualProtect((void*)(at.first + 2), 4, old, &old);
-            FlushInstructionCache(GetCurrentProcess(), (void*)at.first, 6);
-        }
+        for (auto at : {std::make_pair(kEllipseMul, &s_ellipse), std::make_pair(kEllipseDiv, &s_ellipseInv)})
+            Write(at.first + 2, &at.second, 4);
         Log("physics: drivetrain multiplication ready (ellipse ratio %.2f)", s_ellipseGame);
     } else {
         Log("physics: unexpected tire code, drivetrain multiplication unavailable");

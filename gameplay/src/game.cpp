@@ -5,8 +5,9 @@
 // pedals while reversing). With the H-shifter active both calls are replaced: the gear comes
 // from the stick through ITransmission::Shift, neutral and reverse included, and the pedals keep
 // their meaning in reverse. Manual sequential shifting works the same way: down from first is
-// neutral, then reverse (up from reverse back through neutral), and gas drives in reverse. InputPlayer::IsAutomaticShift reports false so EngineRacer's
-// automatic gearbox (which also skips neutral) stays out of the way.
+// neutral, then reverse (up from reverse back through neutral), and gas drives in reverse.
+// InputPlayer::IsAutomaticShift reports false so EngineRacer's automatic gearbox (which also skips
+// neutral) stays out of the way.
 //
 // Clutch: EngineRacer models a friction clutch. In its ENGAGING state the torque passed between
 // engine and gearbox is (engine w - gearbox w) * ClutchStiffness * Clutch::Update(), and the
@@ -42,6 +43,7 @@
 #include "traffic.h"
 #include "controls.h"
 #include "flow.h"
+#include "patch.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -78,8 +80,6 @@ constexpr uintptr_t kGetTireDamage = 0x68CC80;     // eTireDamage DamageRacer::G
 constexpr uintptr_t kISpikeableHandle = 0x68CC70;  // ISpikeable::_IHandle; vtbl[1] GetTireDamage, [3] Puncture
 constexpr uintptr_t kPuncture = 0x69C730;           // void DamageRacer::Puncture(unsigned wheel) (ISpikeable this)
 constexpr uintptr_t kCanDoGameBreaker = 0x6EDC90;   // bool LocalPlayer::CanDoGameBreaker()
-constexpr uintptr_t kEventNew = 0x627400;          // void* Event::operator new(size_t) (queued, game thread)
-constexpr uintptr_t kEMissShift = 0x6226F0;        // EMissShift::EMissShift(HSIMABLE, float), as in drag races
 constexpr uintptr_t kMomentGetKind = 0x469B10;     // UCrc32 MGamePlayMoment::_GetKind() (returned through a pointer)
 constexpr uintptr_t kMessageDeliver = 0x65FAF0;     // void Hermes::Message::Deliver()
 constexpr uintptr_t kStringHash32 = 0x5CC240;       // unsigned stringhash32(const char*)
@@ -826,41 +826,6 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
 void __cdecl Hook_RenderHud(int arg) {
     ((RenderHud_t)kRenderHud)(arg);
     Ui_Frame();
-}
-
-// --- patching ----------------------------------------------------------------------------
-bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
-    const uint8_t* p = (const uint8_t*)at;
-    size_t i = 0;
-    for (uint8_t b : bytes) {
-        if (p[i] != b) {
-            Log("unexpected code at 0x%06X+%u: %02X (want %02X)", (unsigned)at, (unsigned)i, p[i], b);
-            return false;
-        }
-        i++;
-    }
-    return true;
-}
-
-bool ExpectPtr(uintptr_t at, uintptr_t value) {
-    if (*(uintptr_t*)at == value) return true;
-    Log("unexpected data at 0x%06X: %08X (want %08X)", (unsigned)at, (unsigned)*(uintptr_t*)at, (unsigned)value);
-    return false;
-}
-
-void Write(uintptr_t at, const void* data, size_t n) {
-    DWORD old;
-    VirtualProtect((void*)at, n, PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)at, data, n);
-    VirtualProtect((void*)at, n, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)at, n);
-}
-
-void WriteRel(uintptr_t at, uint8_t op, const void* target) {
-    uint8_t code[5] = {op};
-    int32_t rel = (int32_t)((uintptr_t)target - (at + 5));
-    memcpy(code + 1, &rel, 4);
-    Write(at, code, 5);
 }
 
 // Trampoline that runs the `stolen` original bytes at `at` and continues after them.

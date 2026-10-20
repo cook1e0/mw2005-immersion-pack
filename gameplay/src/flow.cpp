@@ -1,6 +1,8 @@
-// Career flow: the first safehouse visit (and, further down, the car handed back at a race start).
+// Game flow fixes, each with its own notes below: the first safehouse visit (Mia's intro), the
+// loading screen's "EVENT HANDLER" developer text, HUD popups (infractions, cost to state, area
+// names), the EA Trax song banner, and the car handed back at a race start.
 //
-// After the prologue (D-Day) and the first car from the car lot, the career runs the gameplay
+// The first safehouse visit. After the prologue (D-Day) and the first car from the car lot, the career runs the gameplay
 // script "drive_to_target": GPS to the safehouse, and on arrival (its trigger) at_target calls
 // Game.DoSafeHouseIntro, which plays Mia's movie (storyfmv_saf25), then SafeHouseRivalBio.fng and
 // the rival flow, which ends the career intro (CareerSettings flag CS_INTRO_DONE, bin 16 -> 15).
@@ -21,12 +23,10 @@
 #include "common.h"
 #include "game.h"
 #include "input.h"
+#include "patch.h"
 #include <math.h>
-#include <cstring>
 #include <cwchar>
-#include <initializer_list>
 #include <set>
-#include <cstdlib>
 
 namespace {
 
@@ -47,32 +47,6 @@ constexpr const char* kDDayEndRace = "16.2.1";        // GRaceDatabase::GetDDayE
 // Why the career script would skip the intro (Game_SkipCareerIntro, 0x612490), logged.
 constexpr uintptr_t kSkipFE = 0x926064, kSkipCareerIntroCheat = 0x926125, kSkipDDayRaces = 0x926126;
 constexpr uintptr_t kSkipNISs = 0x9260A4, kSkipMovies = 0x926144;
-
-bool Expect(uintptr_t at, std::initializer_list<uint8_t> bytes) {
-    const uint8_t* p = (const uint8_t*)at;
-    size_t i = 0;
-    for (uint8_t b : bytes)
-        if (p[i++] != b) return false;
-    return true;
-}
-
-// Jumps from `at` to `hook`; returns a trampoline running the `stolen` bytes and jumping back.
-void* Detour(uintptr_t at, size_t stolen, void* hook) {
-    uint8_t* tramp = (uint8_t*)VirtualAlloc(nullptr, 32, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
-    if (!tramp) return nullptr;
-    memcpy(tramp, (void*)at, stolen);
-    tramp[stolen] = 0xE9;
-    *(int32_t*)(tramp + stolen + 1) = (int32_t)((at + stolen) - ((uintptr_t)tramp + stolen + 5));
-    DWORD old;
-    VirtualProtect((void*)at, stolen, PAGE_EXECUTE_READWRITE, &old);
-    uint8_t* p = (uint8_t*)at;
-    p[0] = 0xE9;
-    *(int32_t*)(p + 1) = (int32_t)((uintptr_t)hook - (at + 5));
-    for (size_t i = 5; i < stolen; i++) p[i] = 0x90;
-    VirtualProtect((void*)at, stolen, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)at, stolen);
-    return tramp;
-}
 
 void(__fastcall* s_requestDoAction)(void*, void*);
 void(__cdecl* s_doSafeHouseIntro)(void*);
@@ -184,38 +158,6 @@ constexpr uintptr_t kRenderObject = 0x516630;         // cFEngGameInterface::Ren
 constexpr int kObjType = 0x18;                        // FEObject: 2 = FEString
 constexpr int kStringText = 0x64;                     // FEString: FEWideString, +0 the characters
 
-// The HUD's texts, for hiding one by its object (the location name): each new text is logged with
-// its object's name hash (+0x10) and the string's label hash (FEString +0x60), and objects listed in
-// [HUD] HideText (name hashes, hex, comma separated) aren't drawn.
-constexpr int kObjNameHash = 0x10;
-constexpr int kStringLabel = 0x60;
-
-const std::set<uint32_t>& HiddenTexts() {
-    static std::set<uint32_t> hidden;
-    static bool read;
-    if (!read) {
-        read = true;
-        char ini[MAX_PATH], buf[1024];
-        ConfigFile("nfsmw_gameplay.ini", ini, false);
-        GetPrivateProfileStringA("HUD", "HideText", "", buf, sizeof(buf), ini);
-        for (char* t = strtok(buf, ", "); t; t = strtok(nullptr, ", ")) hidden.insert((uint32_t)strtoul(t, nullptr, 16));
-        if (!hidden.empty()) Log("flow: %u HUD texts hidden ([HUD] HideText)", (unsigned)hidden.size());
-    }
-    return hidden;
-}
-
-void NoteText(uint8_t* obj, const wchar_t* text) {
-    static std::set<uint64_t> seen;
-    if (seen.size() >= 400 || !text[0]) return;
-    uint32_t name = *(uint32_t*)(obj + kObjNameHash), label = *(uint32_t*)(obj + kStringLabel);
-    if (!seen.insert(((uint64_t)name << 32) | label).second) return;
-    char narrow[96];
-    int n = 0;
-    for (const wchar_t* c = text; *c && n < 90; c++) narrow[n++] = *c >= 32 && *c < 127 ? (char)*c : '?';
-    narrow[n] = 0;
-    Log("flow: HUD text object %08X label %08X: \"%s\"", name, label, narrow);
-}
-
 // HUD popups left out ([HUD] Infractions / CostToState / LocationNames = 0): the infractions list
 // (Hud_Infractions, built at 0x5A1380) and the cost to state counter (Hud_CostToState, CTS_GROUP,
 // built at 0x59D0C0) are HUD elements: each keeps the FE objects it drives in a list at +8
@@ -277,11 +219,7 @@ void __fastcall Hook_RenderObject(void* fe, void* edx, uint8_t* obj) {
     if (obj && (s_hiddenInfractions.count(obj) || s_hiddenCts.count(obj))) return;
     if (obj && *(int*)(obj + kObjType) == 2) {
         const wchar_t* text = *(const wchar_t**)(obj + kStringText);
-        if (text && !IsBadReadPtr(text, 2)) {
-            if (!IsBadReadPtr(text, 28) && wcscmp(text, L"EVENT HANDLER") == 0) return;
-            NoteText(obj, text);
-            if (HiddenTexts().count(*(uint32_t*)(obj + kObjNameHash))) return;
-        }
+        if (text && text[0] == L'E' && wcscmp(text, L"EVENT HANDLER") == 0) return;
     }
     ((void(__fastcall*)(void*, void*, uint8_t*))kRenderObject)(fe, edx, obj);
 }
@@ -295,11 +233,8 @@ void HideSongBanner() {
         Log("flow: song banner code not as expected, left on");
         return;
     }
-    DWORD old;
-    VirtualProtect((void*)kSummonChyron, 1, PAGE_EXECUTE_READWRITE, &old);
-    *(uint8_t*)kSummonChyron = 0xC3;   // ret
-    VirtualProtect((void*)kSummonChyron, 1, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)kSummonChyron, 1);
+    const uint8_t ret = 0xC3;
+    Write(kSummonChyron, &ret, 1);
     Log("flow: song banner (EA Trax now playing) hidden");
 }
 
@@ -330,7 +265,7 @@ constexpr uintptr_t kIInputPlayerHandle = 0x403F80;   // IInputPlayer::_IHandle;
 constexpr uintptr_t kSimTime = 0x9885D8;              // float: game time (Sim::GetTime), stops while paused
 constexpr uintptr_t kRaceStatus = 0x91E000;           // GRaceStatus*: +0x1960 mPlayMode (0 = roaming)
 constexpr float kHandBackAfter = 3.0f;                // seconds after GO at the latest
-constexpr float kHandBackUntil = 30.0f;
+constexpr float kHandBackUntil = 30.0f;               // no hand-back once GO is this old (the step wasn't running)
 constexpr float kAiAroundGo = 2.0f;                   // AI take-over this close to GO is the race start's
 
 int(__cdecl* s_startRaceTimers)(void*);
@@ -392,18 +327,6 @@ void __cdecl Hook_ForceAIControl(int player) {
 void __cdecl Hook_ClearAIControl(int player) {
     Log("race start: script Game.ClearAIControl(%d) at %.2f (%s)", player, SimTime(), RaceState());
     s_clearAIControl(player);
-}
-
-// Retargets the call at `site` to `hook` if it still calls `target`.
-bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
-    if (*(uint8_t*)site != 0xE8 || site + 5 + *(int32_t*)(site + 1) != target) return false;
-    int32_t rel = (int32_t)((uintptr_t)hook - (site + 5));
-    DWORD old;
-    VirtualProtect((void*)(site + 1), 4, PAGE_EXECUTE_READWRITE, &old);
-    memcpy((void*)(site + 1), &rel, 4);
-    VirtualProtect((void*)(site + 1), 4, old, &old);
-    FlushInstructionCache(GetCurrentProcess(), (void*)site, 5);
-    return true;
 }
 
 void RaceStart_Install() {
@@ -471,22 +394,10 @@ void Flow_Install() {
         Log("flow: unexpected HUD code, infractions popup left");
     if (!RetargetCall(kCallBuildCostToState, kBuildCostToState, (void*)&Hook_BuildCostToState))
         Log("flow: unexpected HUD code, cost to state popup left");
-    if (*(uintptr_t*)kSlotRequestMessage == kRequestMessage) {
-        void* p = (void*)&Hook_RequestMessage;
-        DWORD old;
-        VirtualProtect((void*)kSlotRequestMessage, 4, PAGE_READWRITE, &old);
-        memcpy((void*)kSlotRequestMessage, &p, 4);
-        VirtualProtect((void*)kSlotRequestMessage, 4, old, &old);
-    } else {
+    if (!SetSlot(kSlotRequestMessage, kRequestMessage, (void*)&Hook_RequestMessage))
         Log("flow: unexpected generic message code, area names left");
-    }
     RaceStart_Install();
-    if (*(uintptr_t*)kSlotRenderObject == kRenderObject) {
-        void* p = (void*)&Hook_RenderObject;
-        DWORD old;
-        VirtualProtect((void*)kSlotRenderObject, 4, PAGE_READWRITE, &old);
-        memcpy((void*)kSlotRenderObject, &p, 4);
-        VirtualProtect((void*)kSlotRenderObject, 4, old, &old);
+    if (SetSlot(kSlotRenderObject, kRenderObject, (void*)&Hook_RenderObject)) {
         Log("flow: loading screen's \"EVENT HANDLER\" text hidden");
     } else {
         Log("flow: unexpected frontend renderer, \"EVENT HANDLER\" text left");
