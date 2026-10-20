@@ -263,7 +263,6 @@ constexpr struct {
     {MOD_FFB, "Landing", 0.8f},
     {MOD_FFB, "CarHits", 0.8f},
     {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
-    {MOD_VR, "DashCover", 1.3f},
     {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
     {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
     {MOD_VR, "DashSpeedoX", 0.0f}, {MOD_VR, "DashSpeedoY", 0.0f}, {MOD_VR, "DashSpeedoSize", 1.0f},
@@ -271,7 +270,6 @@ constexpr struct {
     {MOD_VR, "DashBoardX", 0.0f}, {MOD_VR, "DashBoardY", 0.0f}, {MOD_VR, "DashBoardSize", 1.0f},
     {MOD_VR, "DashAdjust", 0.0f}, {MOD_VR, "DashHighlight", -1.0f},   // live: the Adjust dashboard page is open
     {MOD_VR, "EditorOn", 0.0f}, {MOD_VR, "EditCommand", 0.0f},        // live: the Triangle editor page, its command
-    {MOD_VR, "EditBrush", 0.0f},
     {MOD_VR, "EditPicking", 0.0f}, {MOD_VR, "EditLayer", 0.0f},   // live: picking with the menu hidden
     {MOD_VR, "EditMode", 0.0f}, {MOD_VR, "EditPicked", 0.0f},
     {MOD_VR, "DashDepth", 0.0f},
@@ -284,7 +282,6 @@ constexpr struct {
     {MOD_VR, "DashMsgL", 0.300f}, {MOD_VR, "DashMsgT", 0.210f}, {MOD_VR, "DashMsgR", 0.700f}, {MOD_VR, "DashMsgB", 0.590f},
     {MOD_VR, "MirrorOffset", 0.0f},
     {MOD_VR, "DashBox", 0.85f},
-    {MOD_VR, "DashBottomBox", 1.0f}, {MOD_VR, "DashRadarBox", 1.0f}, {MOD_VR, "DashBoardBox", 1.0f}, {MOD_VR, "DashMsgBox", 0.0f},
     {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
     {MOD_VR, "DashGlass", 0.35f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
     {MOD_VR, "DashGlassDepth", 0.01f}, {MOD_VR, "DashReflect", 0.3f},
@@ -297,16 +294,15 @@ enum {
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
     FFB_CENTREWEIGHT, FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
     VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS,
-    VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM, VR_DASHCOVER,
+    VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM,
     VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
-    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND, VR_EDITBRUSH,
+    VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND,
     VR_EDITPICKING, VR_EDITLAYER, VR_EDITMODE, VR_EDITPICKED, VR_DASHDEPTH,
     VR_DASHMSG,                 // 3: the messages element's X, Y, Size
     VR_DASHCROP = VR_DASHMSG + 3,   // 24: each element's crop of the HUD (left, top, right, bottom)
     VR_MIRROROFFSET = VR_DASHCROP + 24,
     VR_DASHBOX,
-    VR_DASHELBOX,               // 4: the box behind the bottom HUD, cop radar, leaderboard, messages
-    VR_DASHSCREEN = VR_DASHELBOX + 4,   // 2: the display's width, height
+    VR_DASHSCREEN,              // 2: the display's width, height
     VR_DASHGLASS = VR_DASHSCREEN + 2,
     VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
     VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
@@ -321,7 +317,7 @@ static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
 static_assert(KeyIs(kExt[VR_DASHEL].key, "DashMapX"), "kExt out of order at VR_DASHEL");
 static_assert(KeyIs(kExt[VR_DASHEL + 14].key, "DashBoardSize"), "kExt out of order at VR_DASHEL + 14");
 static_assert(KeyIs(kExt[VR_DASHADJUST].key, "DashAdjust"), "kExt out of order at VR_DASHADJUST");
-static_assert(KeyIs(kExt[VR_EDITBRUSH].key, "EditBrush"), "kExt out of order at VR_EDITBRUSH");
+static_assert(KeyIs(kExt[VR_EDITPICKING].key, "EditPicking"), "kExt out of order at VR_EDITPICKING");
 static_assert(KeyIs(kExt[VR_EDITPICKED].key, "EditPicked"), "kExt out of order at VR_EDITPICKED");
 static_assert(KeyIs(kExt[VR_DASHDEPTH].key, "DashDepth"), "kExt out of order at VR_DASHDEPTH");
 static_assert(KeyIs(kExt[VR_DASHMSG].key, "DashMsgX"), "kExt out of order at VR_DASHMSG");
@@ -332,8 +328,6 @@ static_assert(KeyIs(kExt[VR_DASHCROP + 12].key, "DashPursuitL"), "kExt out of or
 static_assert(KeyIs(kExt[VR_DASHCROP + 23].key, "DashMsgB"), "kExt out of order at VR_DASHCROP + 23");
 static_assert(KeyIs(kExt[VR_MIRROROFFSET].key, "MirrorOffset"), "kExt out of order at VR_MIRROROFFSET");
 static_assert(KeyIs(kExt[VR_DASHBOX].key, "DashBox"), "kExt out of order at VR_DASHBOX");
-static_assert(KeyIs(kExt[VR_DASHELBOX].key, "DashBottomBox"), "kExt out of order at VR_DASHELBOX");
-static_assert(KeyIs(kExt[VR_DASHELBOX + 3].key, "DashMsgBox"), "kExt out of order at VR_DASHELBOX + 3");
 static_assert(KeyIs(kExt[VR_DASHSCREEN].key, "DashScreenW"), "kExt out of order at VR_DASHSCREEN");
 static_assert(KeyIs(kExt[VR_DASHGLASS].key, "DashGlass"), "kExt out of order at VR_DASHGLASS");
 static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of order at VR_WHEELPIVOT + 1");
@@ -1030,7 +1024,6 @@ std::string ValueText(const Item& it, int index) {
     for (int el = 0; el < 5; el++)
         if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
     if (it.value == &s_ext[VR_DASHMSG + 2] && v <= 0.001f) return "Hidden";
-    if (it.value == &s_ext[VR_EDITBRUSH] && v <= 0.0f) return "1 triangle";
     if (it.value == &s_ext[VR_EDITMODE]) return kPickSizes[std::max(0, std::min(5, (int)lrintf(v)))];
     if (it.flags & BF_ONOFF) return v > 0.5f ? "On" : "Off";
     if (it.value == &s_ext[FFB_DEVICE]) {
@@ -1274,7 +1267,6 @@ void Change(int index, int dir) {
             static const struct { const char* key; int cmd; const char* note; } kEd[] = {
                 {"EdHide", 1, "Hidden"}, {"EdBlack", 2, "Drawn black"}, {"EdWheel", 3, "On the steering wheel"},
                 {"EdNoWheel", 4, "Off the steering wheel"}, {"EdRestore", 5, "Restored"}, {"EdUndo", 6, "Undone"},
-                {"EdDash", 7, "Added to the dashboard blackout"}, {"EdNoDash", 8, "Taken off the dashboard blackout"},
                 {"EdWheelPivot", 10, "Steering wheel animation centred"}, {"EdWheelPivotReset", 11, "Steering wheel centre reset"}};
             if (strcmp(it.key, "EdPick") == 0) {
                 StartPicking();
@@ -1402,9 +1394,6 @@ void UpdateVrPages() {
             if (v == &s_ext[VR_DASHMSG + k]) *highlight = 5;
         for (int k = 0; k < 24 && v; k++)
             if (v == &s_ext[VR_DASHCROP + k]) *highlight = (float)(k / 4);
-        const int boxElement[4] = {0, 1, 4, 5};
-        for (int k = 0; k < 4 && v; k++)
-            if (v == &s_ext[VR_DASHELBOX + k]) *highlight = (float)boxElement[k];
     }
 }
 
@@ -1640,7 +1629,6 @@ const struct {
     {&s_ext[VR_DASHSCREEN], "Width of the in-car display (scaled by Whole dashboard size). Each car model remembers its own."},
     {&s_ext[VR_DASHSCREEN + 1], "Height of the in-car display (scaled by Whole dashboard size). Each car model remembers its own."},
     {&s_ext[VR_DASHDEPTH], "Moves the in-car dashboard's HUD toward you (+) or into the dashboard (-), from 3 cm off the gauges. Each car model remembers its own."},
-    {&s_ext[VR_EDITBRUSH], "Triangles within this distance of the point you look at are picked too (0 = only the one looked at)."},
     {&s_ext[VR_EDITMODE], "How much one pick selects: one triangle, all within 2 / 5 / 10 cm, the connected piece (a gauge, a wheel spoke) or the whole draw entry. Also Left / Right while picking."},
     {&s_ext[VR_MIRRORBRIGHTNESS], "Brightness of the rear view in the side mirrors and the rear view mirror."},
     {&s_ext[VR_MIRRORCONTRAST], "Contrast of the rear view in the side mirrors and the rear view mirror."},

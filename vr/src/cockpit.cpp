@@ -107,7 +107,6 @@ struct Wheel {
     // driver: centre, normal toward the head, the panel's right and up (model space).
     bool dashOk = false;
     V3 dash, dashN, dashRight, dashUp;
-    std::vector<uint64_t> gauges;                   // the car's own gauges (TriId): drawn black with the dashboard
     std::vector<int> kept, turned;                  // per entry: triangles before the wheel, wheel triangles
     std::vector<uint8_t> parts;                     // per entry: the entry without the wheel, the wheel alone
 };
@@ -145,12 +144,13 @@ struct TriRef {
 
 // The triangle editor's changes to one solid (by name, e.g. IS300_KIT00_INTERIOR_A), saved in
 // nfsmw_vr_edits.ini: hidden (made degenerate in the index buffer), drawn black, added to or taken
-// off the steering wheel, and kept out of the automatic gauge blackout.
+// off the steering wheel. (Dash and NoAuto lines left by an earlier gauge blackout are not read.)
 struct EditSet {
     std::map<uint64_t, std::array<uint16_t, 3>> hide;   // with the original winding, to put it back
-    std::set<uint64_t> black, wheel, noWheel, noAuto, dash;   // dash: added to the dashboard blackout
+    std::set<uint64_t> black, wheel, noWheel;
     bool loaded = false;
 };
+const char* const kEditKeys[3] = {"Black", "Wheel", "NoWheel"};
 std::unordered_map<std::string, EditSet> s_edits;
 
 const char* EditsPath() {
@@ -205,11 +205,10 @@ EditSet& EditsFor(const std::string& solidName) {
         return ParseTris(buf.data());
     };
     for (auto& t : read("Hide")) e.hide[TriId(t[0], t[1], t[2])] = t;
-    std::set<uint64_t>* sets[5] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto, &e.dash};
-    const char* keys[5] = {"Black", "Wheel", "NoWheel", "NoAuto", "Dash"};
-    for (int k = 0; k < 5; k++)
-        for (auto& t : read(keys[k])) sets[k]->insert(TriId(t[0], t[1], t[2]));
-    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size() + e.noAuto.size() + e.dash.size();
+    std::set<uint64_t>* sets[3] = {&e.black, &e.wheel, &e.noWheel};
+    for (int k = 0; k < 3; k++)
+        for (auto& t : read(kEditKeys[k])) sets[k]->insert(TriId(t[0], t[1], t[2]));
+    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size();
     if (n) Log("editor: %s: %u edited triangles loaded", solidName.c_str(), (unsigned)n);
     return e;
 }
@@ -218,13 +217,12 @@ void SaveEdits(const std::string& solidName) {
     const EditSet& e = EditsFor(solidName);
     std::vector<std::array<uint16_t, 3>> hide;
     for (auto& h : e.hide) hide.push_back(h.second);
-    const std::set<uint64_t>* sets[5] = {&e.black, &e.wheel, &e.noWheel, &e.noAuto, &e.dash};
-    const char* keys[5] = {"Black", "Wheel", "NoWheel", "NoAuto", "Dash"};
+    const std::set<uint64_t>* sets[3] = {&e.black, &e.wheel, &e.noWheel};
     WritePrivateProfileStringA(solidName.c_str(), "Hide", hide.empty() ? nullptr : TrisText(hide).c_str(), EditsPath());
-    for (int k = 0; k < 5; k++) {
+    for (int k = 0; k < 3; k++) {
         std::vector<std::array<uint16_t, 3>> v;
         for (uint64_t id : *sets[k]) v.push_back(IdTri(id));
-        WritePrivateProfileStringA(solidName.c_str(), keys[k], v.empty() ? nullptr : TrisText(v).c_str(), EditsPath());
+        WritePrivateProfileStringA(solidName.c_str(), kEditKeys[k], v.empty() ? nullptr : TrisText(v).c_str(), EditsPath());
     }
 }
 
@@ -253,7 +251,6 @@ struct SolidInfo {
     std::vector<TriRef> tris;
     bool trisDirty = true;
     std::map<uint64_t, std::array<uint16_t, 3>> hidden;
-    int hiddenDash = -1;                            // the dashboard's state (on / off) the hides were applied for
     std::vector<V3> black;                          // model space, 3 points per triangle
     bool blackDirty = true;
 };
@@ -338,8 +335,7 @@ void SaveOffset() {
 // settled for a second.
 // [Hud]: size, distance, height, right (per car with HudPerCar); [Dash]: the display's placement
 // and size, always per car model; [DashLayout] Default: element positions and sizes shared by all
-// cars (legacy values from SUPRA migrate; other per-car lines there are no longer read). The
-// elements' HUD crops are global [VR] keys, the same for every car.
+// cars. The elements' HUD crops are global [VR] keys, the same for every car.
 struct PerCar {
     const char* section;
     const char* what;
@@ -349,9 +345,7 @@ struct PerCar {
     int least;                                      // values a line needs (older lines lack the last ones)
     bool nanOk;                                     // NaN accepted (automatic placement)
     bool always = false;                            // per car whatever HudPerCar says (like the seat)
-    bool zeroBase = false;                          // always start at 0, not the captured base (the wheel pivot)
-    const char* fallbackKey = nullptr;              // older shared layout to read if the new global entry is absent
-    bool preserveBaseIfMissing = false;             // global config values already loaded by LoadConfig
+    bool keepIfMissing = false;                     // no line: keep the values from the ini, not the built-in ones
     std::string car;
     float seen[20] = {};
     bool dirty = false;
@@ -360,8 +354,9 @@ struct PerCar {
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
+float s_retiredDashCover = 1.3f;                    // a retired size, kept so saved [Dash] lines read the same
 PerCar s_dashCar = {"Dash", "dashboard", 9,
-                    {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &g_cfg.dashCover, &g_cfg.dashDepth,
+                    {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &s_retiredDashCover, &g_cfg.dashDepth,
                      &g_cfg.dashScreenW, &g_cfg.dashScreenH, &g_cfg.dashYaw, &g_cfg.dashPitch},
                     {-1, -1, 0.2f, 1, -0.2f, 0.02f, 0.02f, -90, -90}, {1, 1, 4, 4, 0.3f, 1, 1, 90, 90}, 3, false, true};
 // Each dashboard element's x, y and size (Config::dashEl), in that order per element.
@@ -372,12 +367,12 @@ PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                            &g_cfg.dashEl[4][0], &g_cfg.dashEl[4][1], &g_cfg.dashEl[4][2], &g_cfg.dashEl[5][0],
                            &g_cfg.dashEl[5][1], &g_cfg.dashEl[5][2]},
                           {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
-                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true, false, "SUPRA", true};
+                          {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true, true};
 
 PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirrorOffset}, {-0.1f}, {0.1f}, 1, false, true};
 // The steering wheel's turning centre moved (right, up; Config::wheelPivot).
 PerCar s_pivotCar = {"WheelPivot", "steering wheel turning centre", 2, {&g_cfg.wheelPivot[0], &g_cfg.wheelPivot[1]},
-                     {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true, true};
+                     {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true};
 
 void SavePerCar(PerCar& p) {
     char buf[512];
@@ -400,11 +395,6 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         p.car = car;
         char buf[512];
         GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
-        const char* source = car.c_str();
-        if (!*buf && p.fallbackKey) {
-            GetPrivateProfileStringA(p.section, p.fallbackKey, "", buf, sizeof(buf), IniPath());
-            if (*buf) source = p.fallbackKey;
-        }
         // Lines saved before a value existed lack it: those start from the mod's built-in value
         // (older [Hud]: no "right", 0; [Dash]: no angles, 0), never the car we came from.
         float x[20] = {};
@@ -422,9 +412,9 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         for (int i = 0; i < p.n && ok; i++) ok = (p.nanOk && x[i] != x[i]) || (x[i] >= p.lo[i] && x[i] <= p.hi[i]);
         if (ok) {
             for (int i = 0; i < p.n; i++) *p.v[i] = x[i];
-            Log("cockpit: %s from %s for all cars: %s", p.what, source, buf);
-        } else if (p.preserveBaseIfMissing) {
-            Log("cockpit: %s: no shared entry, current config values kept", p.what);
+            Log("cockpit: %s for %s: %s", p.what, car.c_str(), buf);
+        } else if (p.keepIfMissing) {
+            Log("cockpit: %s for %s: none saved, the ini's values kept", p.what, car.c_str());
         } else {
             // No line for this car model: start from the mod's defaults, not the car we came
             // from, so each model's placement is its own.
@@ -453,10 +443,6 @@ void UpdateHudCar(const std::string& car) {
     UpdatePerCar(s_dashCar, car);
     UpdatePerCar(s_dashLayoutCar, "Default");
     UpdatePerCar(s_mirrorCar, car);
-    if (car != s_pivotCar.car && !car.empty()) {   // a car with none saved: none
-        if (s_pivotCar.dirty && !s_pivotCar.car.empty()) SavePerCar(s_pivotCar);
-        g_cfg.wheelPivot[0] = g_cfg.wheelPivot[1] = 0;
-    }
     UpdatePerCar(s_pivotCar, car);
 }
 
@@ -712,9 +698,6 @@ bool OnWheel(const Wheel& w, const float* p) {
 // wheel (the gauge cluster), facing the driver. Without a hit, a point behind the top of the wheel.
 // The panel's plane stands 3 cm off that surface toward the driver, clear of the cluster's curves;
 // the wheel is 15 cm or more in front of it.
-// The car's own gauges, drawn black with the dashboard: the triangles of the draw entry the line
-// hit, around the hit (22 cm to each side, 10 down, 12 up, 6 cm in front to 10 behind), facing the
-// driver. The triangle editor corrects them (NoAuto, Black).
 constexpr float kDashLift = 0.55f, kDashReach = 0.6f, kDashStandoff = 0.03f;
 using mirror::Sub;
 using mirror::Cross;
@@ -762,23 +745,9 @@ void FindDash(Wheel& w, const std::vector<TriRef>& tris, const float headPos[3],
     w.dashRight = right;
     w.dash = hit - d * kDashStandoff;
     w.dashOk = true;
-    w.gauges.clear();
-    if (bestTri >= 0) {
-        int entry = tris[bestTri].entry;
-        for (const TriRef& t : tris) {
-            if (t.entry != entry) continue;
-            V3 centre = (t.p[0] + t.p[1] + t.p[2]) * (1.0f / 3);
-            V3 rel = Sub(centre, hit);
-            float u = Dot(rel, right), v = Dot(rel, pu), depth = Dot(rel, d);
-            if (fabsf(u) > 0.22f || v < -0.10f || v > 0.12f || depth < -0.06f || depth > 0.10f) continue;
-            V3 normal = Norm(Cross(Sub(t.p[1], t.p[0]), Sub(t.p[2], t.p[0])));
-            if (fabsf(Dot(normal, d)) < 0.3f) continue;
-            w.gauges.push_back(t.id);
-        }
-    }
-    Log("cockpit: %s: dashboard panel at %.2f %.2f %.2f (%s, %.2f m past the wheel), %u gauge triangles (draw entry %d)",
-        name, w.dash.x, w.dash.y, w.dash.z, bestTri >= 0 ? "gauge cluster" : "no surface found, behind the wheel",
-        bestTri >= 0 ? best - past + 0.03f : 0.0f, (unsigned)w.gauges.size(), bestTri >= 0 ? tris[bestTri].entry : -1);
+    Log("cockpit: %s: dashboard panel at %.2f %.2f %.2f (%s, %.2f m past the wheel, draw entry %d)", name, w.dash.x,
+        w.dash.y, w.dash.z, bestTri >= 0 ? "gauge cluster" : "no surface found, behind the wheel",
+        bestTri >= 0 ? best - past + 0.03f : 0.0f, bestTri >= 0 ? tris[bestTri].entry : -1);
 }
 
 // The panel's plane in the world: origin (with the offsets from F4, dashRight / dashUp / dashDepth,
@@ -1188,51 +1157,77 @@ float Dist(const float* a, const float* b) {
 
 bool DrawingPlayerCar();
 
-// --- side mirrors ------------------------------------------------------------------------------
-// The player car's mirror glass drawn in the current eye, with the matrix it was drawn with, for
-// the mirror image (game.cpp) to be laid over it.
-struct MirrorDraw {
-    uint8_t* solid;
-    int side;                                       // 0 left, 1 right, 2 rear view (interior)
-    bool body;                                      // found in the body (cars without mirror solids)
-    MirrorGlass glass;
-    M4 m;
+// The solid's vertices (first entry with vertex data) and index copy.
+struct SolidMesh {
+    uint8_t* verts = nullptr;
+    int stride = 0, numVerts = 0, numIndices = 0, n = 0;
+    uint8_t* entries = nullptr;
+    uint16_t* indices = nullptr;
+    IDirect3DIndexBuffer9* ib = nullptr;
+    const float* pos(int v) const { return (const float*)(verts + v * stride); }
+    V3 at(int v) const { const float* p = pos(v); return {p[0], p[1], p[2]}; }
 };
-std::vector<MirrorDraw> s_mirrorDraws;
+
+bool ReadMesh(uint8_t* solid, SolidMesh& s) {
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    s.n = plat ? At<int>(plat, kPlatNumEntries) : 0;
+    s.entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    s.indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    s.ib = plat ? At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) : nullptr;
+    s.numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    if (s.n <= 0 || s.n > 64 || !s.entries || !s.indices || !s.ib || s.numIndices <= 0) return false;
+    for (int i = 0; i < s.n && !s.verts; i++) {
+        uint8_t* e = s.entries + i * kEntrySize;
+        s.verts = At<uint8_t*>(e, kEntryVertices);
+        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
+        s.stride = fmt ? At<int>(fmt, 8) : 0;
+        s.numVerts = s.stride > 0 ? At<int>(e, kEntryVertexBytes) / s.stride : 0;
+    }
+    return s.verts && s.stride >= 12 && s.stride <= 128 && s.numVerts > 0;
+}
+
+// --- side mirrors ------------------------------------------------------------------------------
+// The solids whose rear view mirror was handed to the d3d9 side in the current eye.
+std::vector<uint8_t*> s_mirrorSolids;
 
 // All of a solid's triangles (three points each), for which `keep` is true.
 template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, Keep keep) {
-    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
-    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
-    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
-    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
-    if (n <= 0 || n > 64 || !entries || !indices) return;
-    uint8_t* verts = nullptr;
-    int stride = 0, numVerts = 0;
-    for (int i = 0; i < n && !verts; i++) {
-        uint8_t* e = entries + i * kEntrySize;
-        verts = At<uint8_t*>(e, kEntryVertices);
-        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
-        stride = fmt ? At<int>(fmt, 8) : 0;
-        numVerts = stride > 0 ? At<int>(e, kEntryVertexBytes) / stride : 0;
-    }
-    if (!verts || stride < 12 || stride > 128 || numVerts <= 0) return;
-    for (int i = 0; i < n; i++) {
-        uint8_t* e = entries + i * kEntrySize;
+    SolidMesh m;
+    if (!ReadMesh(solid, m)) return;
+    for (int i = 0; i < m.n; i++) {
+        uint8_t* e = m.entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
-        if (tris <= 0 || first < 0 || first + tris * 3 > numIndices) continue;
+        if (tris <= 0 || first < 0 || first + tris * 3 > m.numIndices) continue;
         for (int t = 0; t < tris; t++) {
-            const uint16_t* tri = indices + first + t * 3;
-            if (tri[0] >= numVerts || tri[1] >= numVerts || tri[2] >= numVerts) continue;
-            V3 p[3];
-            for (int k = 0; k < 3; k++) {
-                const float* f = (const float*)(verts + tri[k] * stride);
-                p[k] = {f[0], f[1], f[2]};
-            }
+            const uint16_t* tri = m.indices + first + t * 3;
+            if (tri[0] >= m.numVerts || tri[1] >= m.numVerts || tri[2] >= m.numVerts) continue;
+            V3 p[3] = {m.at(tri[0]), m.at(tri[1]), m.at(tri[2])};
             if (keep(p)) out.insert(out.end(), p, p + 3);
         }
     }
+}
+
+// Whether a triangle (vertex indices) lies on the glass: in its plane (1.2 cm) and within its
+// outline (1 cm).
+bool OnGlass(const SolidMesh& m, const MirrorGlass& g, const uint16_t* tri) {
+    float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+    for (int k = 0; k < 3; k++) {
+        if (tri[k] >= m.numVerts) return false;
+        V3 q = m.at(tri[k]);
+        if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
+              fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
+            return false;
+    }
+    return true;
+}
+
+// The part of the rear view (u from, to) a side mirror shows: [VR] SideMirrorWidth of its width
+// from that side (the left mirror the left part), mirrored with MirrorFlip.
+void SideMirrorRange(int side, float* u0, float* u1) {
+    float w = g_cfg.sideMirrorWidth;
+    *u0 = side == 0 ? 0.0f : 1.0f - w;
+    *u1 = *u0 + w;
+    if (g_cfg.mirrorFlip) *u0 = 1.0f - *u0, *u1 = 1.0f - *u1;
 }
 
 // A car listed in [VR] GameMirrorsSkip (model names such as BMWM3GTRE46, any case): its side
@@ -1260,40 +1255,16 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
     memcpy(name, info.name, 64);
     if (info.mirrorKind == 2 && s_hasMirrorSolids.count(CarOf(name))) return;
     const MirrorGlass& g = info.glass[side];
-    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
-    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
-    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
-    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
-    void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
-    if (n <= 0 || n > 64 || !entries || !indices || !ib) return;
-    uint8_t* verts = nullptr;
-    int stride = 0;
-    for (int i = 0; i < n && !verts; i++) {
-        uint8_t* e = entries + i * kEntrySize;
-        verts = At<uint8_t*>(e, kEntryVertices);
-        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
-        stride = fmt ? At<int>(fmt, 8) : 0;
-    }
-    if (!verts || stride < 12) return;
-    float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
-    auto onGlass = [&](const float* p) {
-        V3 q = {p[0], p[1], p[2]};
-        return fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
-               fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f;
-    };
+    SolidMesh m;
+    if (!ReadMesh(solid, m)) return;
+    void* ib = m.ib;
     // The entry made (almost) only of the glass.
-    for (int i = 0; i < n; i++) {
-        uint8_t* e = entries + i * kEntrySize;
+    for (int i = 0; i < m.n; i++) {
+        uint8_t* e = m.entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
-        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        if (tris < 2 || first < 0 || first + tris * 3 > m.numIndices) continue;
         int on = 0;
-        for (int t = 0; t < tris; t++) {
-            const uint16_t* tri = indices + first + t * 3;
-            bool all = true;
-            for (int k = 0; k < 3 && all; k++) all = onGlass((const float*)(verts + tri[k] * stride));
-            on += all;
-        }
+        for (int t = 0; t < tris; t++) on += OnGlass(m, g, m.indices + first + t * 3);
         if (on * 10 < tris * 8) continue;
         // The glass's own coordinates, 0..1 across and down: what part of the rear view it shows
         // is worked out each eye (NoteMirrors), as a mirror would show it.
@@ -1301,7 +1272,7 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
                                  g.halfU, g.halfV, 0.0f, 1.0f, 0};
         info.glassIb[side] = ib;
         info.glassFirsts[side].push_back(first);
-        std::vector<uint16_t> used(indices + first, indices + first + tris * 3);
+        std::vector<uint16_t> used(m.indices + first, m.indices + first + tris * 3);
         std::sort(used.begin(), used.end());
         used.erase(std::unique(used.begin(), used.end()), used.end());
         D3D_RegisterMirrorGlass(ib, first, tris, basis, used.data(), (int)used.size());
@@ -1317,45 +1288,20 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
 bool RegisterSharedGlass(uint8_t* solid, SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
-    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
-    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
-    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
-    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
-    void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
-    if (n <= 0 || n > 64 || !entries || !indices || !ib) return false;
-    uint8_t* verts = nullptr;
-    int stride = 0;
-    for (int i = 0; i < n && !verts; i++) {
-        uint8_t* e = entries + i * kEntrySize;
-        verts = At<uint8_t*>(e, kEntryVertices);
-        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
-        stride = fmt ? At<int>(fmt, 8) : 0;
-    }
-    if (!verts || stride < 12) return false;
-    auto onGlass = [&](int side, const uint16_t* tri) {
-        const MirrorGlass& g = info.glass[side];
-        float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
-        for (int k = 0; k < 3; k++) {
-            const float* p = (const float*)(verts + tri[k] * stride);
-            V3 q = {p[0], p[1], p[2]};
-            if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
-                  fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
-                return false;
-        }
-        return true;
-    };
+    SolidMesh m;
+    if (!ReadMesh(solid, m)) return false;
+    void* ib = m.ib;
     bool found = false;
-    for (int i = 0; i < n && !found; i++) {
-        uint8_t* e = entries + i * kEntrySize;
+    for (int i = 0; i < m.n && !found; i++) {
+        uint8_t* e = m.entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
-        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        if (tris < 2 || first < 0 || first + tris * 3 > m.numIndices) continue;
         std::vector<uint16_t> used[2];
         int on[2] = {0, 0};
         for (int t = 0; t < tris; t++) {
-            const uint16_t* tri = indices + first + t * 3;
+            const uint16_t* tri = m.indices + first + t * 3;
             for (int side = 0; side < 2; side++)
-                if (onGlass(side, tri)) {
+                if (OnGlass(m, info.glass[side], tri)) {
                     on[side]++;
                     used[side].insert(used[side].end(), tri, tri + 3);
                     break;
@@ -1364,15 +1310,10 @@ bool RegisterSharedGlass(uint8_t* solid, SolidInfo& info) {
         if (on[0] + on[1] > 0)
             Log("mirrors: %s: draw entry %d (%d triangles) has %d left and %d right glass triangles", name, i, tris, on[0], on[1]);
         if (!on[0] || !on[1] || (on[0] + on[1]) * 10 < tris * 8) continue;
-        float w = g_cfg.sideMirrorWidth;
         for (int side = 0; side < 2; side++) {
             const MirrorGlass& g = info.glass[side];
-            float u0 = side == 0 ? 0.0f : 1.0f - w, u1 = u0 + w;
-            if (g_cfg.mirrorFlip) {
-                float a = 1.0f - u0, c = 1.0f - u1;
-                u0 = a;
-                u1 = c;
-            }
+            float u0, u1;
+            SideMirrorRange(side, &u0, &u1);
             const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
                                      g.halfU, g.halfV, u0, u1, 0};
             std::sort(used[side].begin(), used[side].end());
@@ -1390,47 +1331,24 @@ bool RegisterSharedGlass(uint8_t* solid, SolidInfo& info) {
 void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2]) {
     char name[65] = {};
     memcpy(name, info.name, 64);
-    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-    int n = plat ? At<int>(plat, kPlatNumEntries) : 0;
-    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
-    uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
-    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
-    auto* ib = plat ? At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) : nullptr;
-    if (n <= 0 || n > 64 || !entries || !indices || !ib || info.split) return;
-    uint8_t* verts = nullptr;
-    int stride = 0;
-    for (int i = 0; i < n && !verts; i++) {
-        uint8_t* e = entries + i * kEntrySize;
-        verts = At<uint8_t*>(e, kEntryVertices);
-        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
-        stride = fmt ? At<int>(fmt, 8) : 0;
-    }
+    SolidMesh m;
+    if (info.split || !ReadMesh(solid, m)) return;
+    IDirect3DIndexBuffer9* ib = m.ib;
+    uint16_t* indices = m.indices;
     D3DINDEXBUFFER_DESC desc;
-    if (!verts || stride < 12 || FAILED(ib->GetDesc(&desc)) || desc.Format != D3DFMT_INDEX16) return;
-    auto onGlass = [&](int side, const uint16_t* tri) {
-        const MirrorGlass& g = info.glass[side];
-        float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
-        for (int k = 0; k < 3; k++) {
-            const float* p = (const float*)(verts + tri[k] * stride);
-            V3 q = {p[0], p[1], p[2]};
-            if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
-                  fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
-                return false;
-        }
-        return true;
-    };
+    if (FAILED(ib->GetDesc(&desc)) || desc.Format != D3DFMT_INDEX16) return;
     GlassSplit* split = new GlassSplit;
-    for (int i = 0; i < n; i++) {
-        uint8_t* e = entries + i * kEntrySize;
+    for (int i = 0; i < m.n; i++) {
+        uint8_t* e = m.entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
-        if (tris < 2 || first < 0 || first + tris * 3 > numIndices) continue;
+        if (tris < 2 || first < 0 || first + tris * 3 > m.numIndices) continue;
         std::vector<uint16_t> part[3];
         const uint16_t* idx = indices + first;
         for (int t = 0; t < tris; t++) {
             const uint16_t* tri = idx + t * 3;
             int cls = 0;
             for (int side = 0; side < 2 && !cls; side++)
-                if (need[side] && info.glass[side].ok && onGlass(side, tri)) cls = side + 1;
+                if (need[side] && info.glass[side].ok && OnGlass(m, info.glass[side], tri)) cls = side + 1;
             part[cls].insert(part[cls].end(), tri, tri + 3);
         }
         // A few stray triangles are not a mirror's glass.
@@ -1571,17 +1489,10 @@ void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, f
     }
 }
 
-// A side mirror: a fixed slice of the rear view, [VR] SideMirrorWidth of its width from that side,
-// its full height (the left mirror shows the left part).
-void SideMirrorView(const SolidInfo& info, int side, const float*) {
-    float w = g_cfg.sideMirrorWidth;
-    float u0 = side == 0 ? 0.0f : 1.0f - w, u1 = u0 + w;
-    if (g_cfg.mirrorFlip) {
-        float a = 1.0f - u1, c = 1.0f - u0;
-        u0 = a;
-        u1 = c;
-        std::swap(u0, u1);
-    }
+// A side mirror: a fixed slice of the rear view (SideMirrorRange), its full height.
+void SideMirrorView(const SolidInfo& info, int side) {
+    float u0, u1;
+    SideMirrorRange(side, &u0, &u1);
     const float uv[8] = {u0, 0.0f, u1, 0.0f, u0, 1.0f, u1, 1.0f};
     for (int first : info.glassFirsts[side]) D3D_SetGlassCorners(info.glassIb[side], first, uv);
 }
@@ -1590,33 +1501,23 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
     if (info.mirrorKind < 0) FindMirrors(solid, info);
     if (info.mirrorKind <= 0) return;
     for (int side = 0; side < 2; side++)
-        if (!info.glassFirsts[side].empty() && info.glass[side].ok) SideMirrorView(info, side, m);
-    for (int side = 2; side < 3; side++) {   // the side mirrors are drawn by the game (RegisterGlassEntry)
-        if (!info.glass[side].ok) continue;
-        bool seen = false;
-        for (const MirrorDraw& d : s_mirrorDraws) seen = seen || (d.solid == solid && d.side == side);
-        if (seen) continue;
-        MirrorDraw d;
-        d.solid = solid;
-        d.side = side;
-        d.body = false;
-        d.glass = info.glass[side];
-        memcpy(&d.m, m, sizeof(d.m));
-        s_mirrorDraws.push_back(d);
+        if (!info.glassFirsts[side].empty() && info.glass[side].ok) SideMirrorView(info, side);
+    // The rear view mirror inside (the side mirrors are drawn by the game, RegisterGlassEntry): once
+    // per solid and eye.
+    if (info.glass[2].ok && std::find(s_mirrorSolids.begin(), s_mirrorSolids.end(), solid) == s_mirrorSolids.end()) {
+        s_mirrorSolids.push_back(solid);
+        const MirrorGlass& glass = info.glass[2];
+        M4 mat;
+        memcpy(&mat, m, sizeof(mat));
         // To be drawn with the model: a dark rim the shape of the glass, and the rear view on the
         // glass shrunk inside it, as if set into the housing.
         std::vector<float> verts, frame;
         float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
         // MirrorOffset (per car, F4 > Menu and testing) moves it toward the driver or back into the glass.
-        GlassVertices(d.glass, d.m, frame, 0.006f + g_cfg.mirrorOffset, 1.0f);
-        GlassVertices(d.glass, d.m, verts, 0.010f + g_cfg.mirrorOffset, inner);
-        float u0 = 0.0f, u1 = 1.0f;
-        if (g_cfg.mirrorFlip) {
-            float a = 1.0f - u1, b = 1.0f - u0;
-            u0 = b;
-            u1 = a;
-        }
-        for (size_t i = 3; i < verts.size(); i += 5) verts[i] = u0 + (u1 - u0) * verts[i];
+        GlassVertices(glass, mat, frame, 0.006f + g_cfg.mirrorOffset, 1.0f);
+        GlassVertices(glass, mat, verts, 0.010f + g_cfg.mirrorOffset, inner);
+        if (g_cfg.mirrorFlip)
+            for (size_t i = 3; i < verts.size(); i += 5) verts[i] = 1.0f - verts[i];
         uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
         void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;
         D3D_AddMirror(ib, verts.data(), (int)(verts.size() / 5), inner < 0.999f ? frame.data() : nullptr,
@@ -1631,7 +1532,7 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
 // 2 / 5 / 10 cm, the connected piece, the whole draw entry). A reticle marks the point and the
 // selection is shown over everything (also when behind something); the menu key confirms. The
 // page's commands then hide the selection, draw it black, put it on or take it off the steering
-// wheel (prepared again), add it to or take it off the dashboard blackout, restore it, or undo.
+// wheel (prepared again), restore it, or undo.
 // Hidden and black triangles are made zero-area in the index buffer, (a, b, b); black ones are
 // drawn again in black in their place, so the game's own (whose gauge layer ignores the depth
 // test) can't show through. Saved per solid in nfsmw_vr_edits.ini.
@@ -1663,35 +1564,6 @@ std::string SolidName(const SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
     return name;
-}
-
-// The solid's vertices (first entry with vertex data) and index copy.
-struct SolidMesh {
-    uint8_t* verts = nullptr;
-    int stride = 0, numVerts = 0, numIndices = 0, n = 0;
-    uint8_t* entries = nullptr;
-    uint16_t* indices = nullptr;
-    IDirect3DIndexBuffer9* ib = nullptr;
-    const float* pos(int v) const { return (const float*)(verts + v * stride); }
-    V3 at(int v) const { const float* p = pos(v); return {p[0], p[1], p[2]}; }
-};
-
-bool ReadMesh(uint8_t* solid, SolidMesh& s) {
-    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
-    s.n = plat ? At<int>(plat, kPlatNumEntries) : 0;
-    s.entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
-    s.indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
-    s.ib = plat ? At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) : nullptr;
-    s.numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
-    if (s.n <= 0 || s.n > 64 || !s.entries || !s.indices || !s.ib || s.numIndices <= 0) return false;
-    for (int i = 0; i < s.n && !s.verts; i++) {
-        uint8_t* e = s.entries + i * kEntrySize;
-        s.verts = At<uint8_t*>(e, kEntryVertices);
-        uint8_t* fmt = At<uint8_t*>(e, kEntryFormat);
-        s.stride = fmt ? At<int>(fmt, 8) : 0;
-        s.numVerts = s.stride > 0 ? At<int>(e, kEntryVertexBytes) / s.stride : 0;
-    }
-    return s.verts && s.stride >= 12 && s.stride <= 128 && s.numVerts > 0;
 }
 
 // The solid's triangles, the hidden ones included (where they were), for picking.
@@ -1744,26 +1616,15 @@ bool WriteIndices(const SolidMesh& s, int at, const uint16_t v[3]) {
     return true;
 }
 
-bool DashShown() { return g_cfg.dash > 0.5f; }
-
-// The car's own gauges drawn black with the dashboard: found automatically, plus those added by
-// hand, less those taken off, drawn black or hidden by hand.
-// None any more: the dashboard draws nothing over the car's own triangles (they stay as the game has
-// them; the triangle editor's Draw black does that by hand). The old automatic gauges
-// (Wheel::gauges) and the [Dash] lists in nfsmw_vr_edits.ini are left unused.
-std::set<uint64_t> Gauges(const SolidInfo&, const EditSet&) { return {}; }
-
 // What should be zero-area in the index buffer now: the hidden and the black triangles (black ones
 // are drawn again in black in their place: drawn over the game's own, they fought with them, whose
 // gauge layer doesn't keep to the depth test); applied by difference (newly hidden made (a, b, b),
 // others put back). A model prepared again gets them back first (GetSolid, RestoreAll).
 void ApplyHides(uint8_t* solid, SolidInfo& info) {
     EditSet& e = EditsFor(SolidName(info));
-    bool dash = DashShown();
     std::set<uint64_t> want;
     for (auto& h : e.hide) want.insert(h.first);
     want.insert(e.black.begin(), e.black.end());
-    info.hiddenDash = dash;
     info.blackDirty = true;
     if (want.empty() && info.hidden.empty()) return;
     SolidMesh s;
@@ -1802,18 +1663,13 @@ void ApplyHides(uint8_t* solid, SolidInfo& info) {
     }
 }
 
-// The black triangles, model space, in place of the hidden originals: the editor's, and the gauges
-// while the dashboard shows.
+// The editor's black triangles, model space, in place of the hidden originals.
 void UpdateBlack(uint8_t* solid, SolidInfo& info) {
     if (!info.blackDirty) return;
     info.blackDirty = false;
     info.black.clear();
     const EditSet& e = EditsFor(SolidName(info));
-    std::set<uint64_t> ids(e.black.begin(), e.black.end());
-    if (DashShown()) {
-        std::set<uint64_t> g = Gauges(info, e);
-        ids.insert(g.begin(), g.end());
-    }
+    const std::set<uint64_t>& ids = e.black;
     if (ids.empty()) return;
     SolidMesh s;
     if (!ReadMesh(solid, s)) return;
@@ -2113,23 +1969,10 @@ void RunEditCommand(int cmd) {
                 wheel |= e.wheel.erase(id) + e.noWheel.erase(id) > 0;
                 e.hide.erase(id);
                 e.black.erase(id);
-                e.dash.erase(id);
-                e.noAuto.insert(id);
-                break;
-            case 7:
-                e.dash.insert(id);
-                e.noAuto.erase(id);
-                e.hide.erase(id);
-                e.black.erase(id);
-                break;
-            case 8:
-                e.dash.erase(id);
-                e.noAuto.insert(id);
                 break;
         }
     }
-    static const char* kWhat[] = {"", "hidden", "black", "on the steering wheel", "off the steering wheel", "restored", "",
-                                  "added to the dashboard blackout", "taken off the dashboard blackout"};
+    static const char* kWhat[] = {"", "hidden", "black", "on the steering wheel", "off the steering wheel", "restored"};
     Log("editor: %s: %u triangles %s", s_pick.name.c_str(), (unsigned)s_brush.size(), kWhat[cmd]);
     SaveEdits(s_pick.name);
     ApplyEditsTo(s_pick.name, wheel);
@@ -2140,7 +1983,6 @@ void RunEditCommand(int cmd) {
 void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     if (!s_eyeDone.insert(solid).second) return;
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
-    if (info.hiddenDash != (int)DashShown()) ApplyHides(solid, info);
     UpdateBlack(solid, info);
     // In place of the originals (zero-area in the index buffer), 2 mm toward the eyes: clear of the
     // gauges' thin decal layers (needles, numbers) a fraction of a millimetre in front, which fought
@@ -2402,7 +2244,7 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 // current car's values to [VR]) and before any car is seen or any layout auto-places.
 void Cockpit_PerCarDefaults() {
     for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar})
-        for (int i = 0; i < p->n; i++) p->base[i] = p->zeroBase ? 0.0f : *p->v[i];
+        for (int i = 0; i < p->n; i++) p->base[i] = *p->v[i];
     Log("cockpit: per-car defaults captured");
 }
 
@@ -2486,7 +2328,7 @@ void Cockpit_EndFrame() {
     int cmd = (int)lrintf(g_cfg.editCommand);
     if (cmd) {
         g_cfg.editCommand = 0;
-        if (cmd >= 1 && cmd <= 8) RunEditCommand(cmd);
+        if (cmd >= 1 && cmd <= 6) RunEditCommand(cmd);
         if (cmd == 10) CentreWheelPivot();                             // F4 > Menu and testing
         if (cmd == 11) g_cfg.wheelPivot[0] = g_cfg.wheelPivot[1] = 0;
         if (cmd == 9) {   // picking cancelled: no selection
@@ -2562,7 +2404,7 @@ int Cockpit_PlayerCarMatrices() { return s_carMatrixCount; }
 
 void Cockpit_BeginEye() {
     s_carMatrixCount = 0;
-    s_mirrorDraws.clear();
+    s_mirrorSolids.clear();
     s_eyeDone.clear();
     s_eyeIndex++;
 }

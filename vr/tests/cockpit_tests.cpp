@@ -438,7 +438,8 @@ static void TestDash() {
     w.radius = 0.16f;
     const float head[3] = {-0.1f, 0.4f, 0.95f};
     // A cluster face at x = 0.62 (behind the wheel, draw entry 1, plus a small gauge triangle near the
-    // hit), a wall in front of the wheel at x = 0.3 and a far-off triangle of the same entry.
+    // hit), a wall in front of the wheel at x = 0.3 (not hit: it is before the wheel) and a far-off
+    // triangle of the same entry.
     auto tri = [](V3 a, V3 b, V3 c, int entry, uint16_t v) {
         TriRef t;
         t.p[0] = a; t.p[1] = b; t.p[2] = c;
@@ -459,12 +460,6 @@ static void TestDash() {
     Check(w.dashN.x < -0.8f, "dashboard faces the driver");
     Check(w.dashUp.z > 0.9f, "dashboard upright");
     Check(w.dashRight.y < -0.9f, "dashboard right is the driver's right");
-    bool nearOne = false, farOne = false;
-    for (uint64_t id : w.gauges) {
-        nearOne |= id == tris[2].id;
-        farOne |= id == tris[3].id;
-    }
-    Check(nearOne && !farOne, "gauge triangles: near the hit in its draw entry, not far off");
     float m[16] = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 20, 30, 1};
     float o[3], r[3], u[3], t[3];
     g_cfg.dashRight = 0.1f; g_cfg.dashUp = 0;

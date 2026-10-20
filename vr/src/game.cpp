@@ -572,12 +572,10 @@ void FixGameMirrors() {
 }
 
 bool s_secondEye = false;
-// The flare pool as ePreDisplay left it (before any view was culled) and, for the log, the pool
-// size after each eye collected its own flares.
+// The flare pool as ePreDisplay left it (before any view was culled).
 static uint8_t s_flareKeep[kFlareMax * kFlareSize];
 static uint32_t s_flareKeepXclude[kFlareMax];
 static int s_flareKeepCount = 0;
-int s_flarePoolAfterEye[2] = {};
 
 int RemoveSunLensFlares(uint8_t* flares, uint32_t* exclusions, int count) {
     int kept = 0;
@@ -671,13 +669,16 @@ void* RvmSurface() {
     return active ? surface : nullptr;
 }
 
-// Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
-// models (d3d9proxy); the rear view is copied afterwards for the next eye.
 // Driving: in the world, the simulation running, not paused.
+constexpr uintptr_t kInWorld = 0x468380;          // bool GameFlow: in the world, cdecl
+constexpr uintptr_t kSimGetState = 0x6E8D20;      // int Sim::GetState(), cdecl: 3 = running
+constexpr uintptr_t kFEManager = 0x91CAE0;        // FEManager*
+constexpr uintptr_t kShouldPauseSim = 0x525B20;   // bool FEManager::ShouldPauseSimulation(bool), cdecl
+
 bool DrivingUnpaused() {
-    if (!((bool(__cdecl*)())0x468380)()) return false;                  // GameFlow: in the world
-    if (((int(__cdecl*)())0x6E8D20)() != 3) return false;              // Sim::GetState: running
-    return !(*(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true));   // FEManager::ShouldPauseSimulation
+    if (!((bool(__cdecl*)())kInWorld)()) return false;
+    if (((int(__cdecl*)())kSimGetState)() != 3) return false;
+    return !(*(void**)kFEManager && ((bool(__cdecl*)(bool))kShouldPauseSim)(true));
 }
 
 // The steering wheel in front of the HUD (d3d9proxy): the seat (the game camera in the seat,
@@ -693,10 +694,12 @@ void BeginWheelHud(void* view, const uint8_t* seatParams) {
     D3D_BeginWheelEye(on, seat, (const float*)((char*)plat + kPlatView), EyeProjection(plat));
 }
 
+// Before and after an eye's scene: the mirrors noted while it is submitted are drawn with their
+// models (d3d9proxy); the rear view is copied afterwards for the next eye.
 void BeginMirrors(void* view) {
     if (!s_mirrorPatched) return;
     void* plat = At<void*>(view, kViewPlatInfo);
-    D3D_BeginMirrorEye((const float*)((char*)plat + kPlatView), EyeProjection(plat), g_cfg.mirrorBrightness);
+    D3D_BeginMirrorEye((const float*)((char*)plat + kPlatView), EyeProjection(plat));
 }
 
 // The in-car dashboard: only from the seat, driving and not paused.
@@ -723,42 +726,22 @@ void SetupPlayerView(void* view, void* cam, float tanX, float tanY) {
     }
 }
 
-// The PC build's eView table, once per session: which passes exist, which are active this frame and
-// which use the player's Camera. Logged the first time the eyes render, to check the view setup
-// against an object that differs between the eyes.
-void LogViewTableOnChange() {
-    struct Row {
-        int8_t active;
-        int playerCam;
-        int have;
-        int w, h, id;
-        void* rt;
-    };
-    static Row last[kNumViews];
-    Row now[kNumViews];
-    memset(now, 0, sizeof(now));
+// The PC build's eView table, once per session: which passes exist, which are active and which use
+// the player's Camera. Logged the first time the eyes render, to check the view setup against an
+// object that differs between the eyes.
+void LogViewTable() {
+    static bool logged;
+    if (logged) return;
+    logged = true;
     void* pcam = At<void*>((void*)kPlayerView, kViewCamera);
-    bool changed = false;
     for (int i = 0; i < kNumViews; i++) {
         void* v = (void*)(kViews + i * kViewStride);
         int8_t active = At<int8_t>(v, kViewActive);
         void* rt = active ? At<void*>(v, kViewRenderTarget) : nullptr;
-        now[i].active = active;
-        now[i].playerCam = At<void*>(v, kViewCamera) == pcam;
-        now[i].have = s_viewArgs[i].have;
-        now[i].w = rt ? At<int>(rt, kRtWidth) : 0;
-        now[i].h = rt ? At<int>(rt, kRtHeight) : 0;
-        now[i].rt = rt;
-        now[i].id = At<int>(v, kViewId);
-        if (now[i].active != last[i].active || now[i].playerCam != last[i].playerCam || now[i].have != last[i].have ||
-            now[i].w != last[i].w || now[i].h != last[i].h)
-            changed = true;
+        Log("view %2d: id %2d active %d playerCam %d args %d rt %p %dx%d", i, At<int>(v, kViewId), active,
+            At<void*>(v, kViewCamera) == pcam, s_viewArgs[i].have, rt, rt ? At<int>(rt, kRtWidth) : 0,
+            rt ? At<int>(rt, kRtHeight) : 0);
     }
-    if (!changed) return;
-    memcpy(last, now, sizeof(now));
-    for (int i = 0; i < kNumViews; i++)
-        Log("view %2d: id %2d active %d playerCam %d args %d rt %p %dx%d", i, now[i].id, now[i].active, now[i].playerCam,
-            now[i].have, now[i].rt, now[i].w, now[i].h);
 }
 
 // The views the second eye reused instead of rendering (see the eye rules above): logged whenever
@@ -863,7 +846,7 @@ void __cdecl hkRenderScene() {
 
     double tEyes = D3D_ProfNow();
     float gazePos[3] = {}, gazeDir[3] = {};
-    LogViewTableOnChange();
+    LogViewTable();
     PickViewsThisFrame();
     s_depthSplit = seated && g_cfg.depthSplit && g_cfg.nearZ > 0.0f && !s_depthSplitFailed;
     s_carProjSet = false;
@@ -871,11 +854,7 @@ void __cdecl hkRenderScene() {
     D3D_BeginEyes();
     for (int eye = 0; eye < 2; eye++) {
         if (eye > 0) D3D_ResetForNextEye();
-        // SameEyeCamera renders both eyes from the seat camera: whatever still differs between the
-        // two images then is per-eye state (a pool, a counter, a matrix), not the eye's viewpoint.
-        EyeView centre = {};
-        centre.relOrientation.w = 1;
-        ApplyEyeToCamera(cam, base, g_cfg.eyeCameraShared ? centre : Xr_Eye(eye));
+        ApplyEyeToCamera(cam, base, Xr_Eye(eye));
         {
             // The gaze for the triangle editor: between the eyes, straight ahead (rows: right, down,
             // forward, position).
@@ -930,7 +909,6 @@ void __cdecl hkRenderScene() {
         carHitsFrame += s_carHits;
         carMatricesFrame += Cockpit_PlayerCarMatrices();
         D3D_EyePassBegin(-1);
-        s_flarePoolAfterEye[eye] = *(int*)kFlarePoolCount;
         for (int i = 0; i < sharedCount; i++)
             At<int8_t>((void*)(kViews + sharedIndex[i] * kViewStride), kViewActive) = sharedWas[i];
         s_secondEye = false;
@@ -971,13 +949,6 @@ void __cdecl hkRenderScene() {
     D3D_ProfAdd(PROF_EYES, D3D_ProfNow() - tEyes);
     D3D_BeginHudPhase();
     s_stereoFrame = true;
-    // The flare pool's size after each eye culled and drew (see kFlarePool): the same number twice
-    // means both eyes collected their own flares; a larger second number is the pool being reused.
-    static DWORD lastFlareLog;
-    if (GetTickCount() - lastFlareLog >= 1000) {
-        lastFlareLog = GetTickCount();
-        Log("flares: pool %d entries after eye 1, %d after eye 2", s_flarePoolAfterEye[0], s_flarePoolAfterEye[1]);
-    }
 }
 
 // A totaled car (drag race crash, or an engine blown by the H-shifter mod's engine wear) cuts

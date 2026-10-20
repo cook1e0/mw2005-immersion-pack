@@ -94,7 +94,6 @@ static IDirect3DTexture9* s_mirrorTex;        // the graded picture the mirrors 
 static IDirect3DSurface9* s_mirrorSurf;
 static IDirect3DTexture9* s_mirrorRaw;        // the rear view copied as rendered
 static IDirect3DSurface9* s_mirrorRawSurf;
-static IDirect3DPixelShader9* s_gradeShader;
 static UINT s_mirrorW, s_mirrorH;
 
 static void ReleaseDash();
@@ -133,10 +132,8 @@ static void ReleaseEyeTargets() {
     if (s_mirrorTex) s_mirrorTex->Release();
     if (s_mirrorRawSurf) s_mirrorRawSurf->Release();
     if (s_mirrorRaw) s_mirrorRaw->Release();
-    if (s_gradeShader) s_gradeShader->Release();
     s_mirrorSurf = s_mirrorRawSurf = nullptr;
     s_mirrorTex = s_mirrorRaw = nullptr;
-    s_gradeShader = nullptr;
     s_mirrorW = s_mirrorH = 0;
     ReleaseDash();
     ReleaseSavedState();
@@ -227,132 +224,67 @@ void D3D_ResetForNextEye() {
 }
 
 
-// The mirror picture's brightness and contrast: a pixel shader compiled once with the system's
-// d3dcompiler_47 (c0.x contrast, c0.y brightness).
-static IDirect3DPixelShader9* GradeShader() {
-    static bool tried;
-    if (s_gradeShader || tried) return s_gradeShader;
-    tried = true;
-    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+// Our pixel shaders, compiled from HLSL with the system's d3dcompiler_47 (ps_2_0, entry main) the
+// first time they are asked for. Shaders aren't in a memory pool, so they outlive a device Reset.
+struct LazyShader {
+    const char* name;
+    const char* src;
+    IDirect3DPixelShader9* ps;
+    bool tried;
+};
+
+static IDirect3DPixelShader9* Shader(LazyShader& sh) {
+    if (sh.ps || sh.tried) return sh.ps;
+    sh.tried = true;
     typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
                                          ID3DBlob**);
-    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
-    if (!compile) {
-        Log("d3d9: d3dcompiler_47 not available - mirror brightness and contrast off");
-        return nullptr;
-    }
-    const char* src =
-        "sampler s : register(s0); float4 k : register(c0);"
-        "float4 main(float2 uv : TEXCOORD0) : COLOR {"
-        "  float3 c = tex2D(s, uv).rgb; c = saturate(((c - 0.5) * k.x + 0.5) * k.y); return float4(c, 1); }";
+    static Compile_t compile = [] {
+        HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
+        Compile_t f = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
+        if (!f) Log("d3d9: d3dcompiler_47 not available - mirrors without their own shaders (no brightness / contrast)");
+        return f;
+    }();
+    if (!compile) return nullptr;
     ID3DBlob *code = nullptr, *errors = nullptr;
-    HRESULT hr = compile(src, strlen(src), "mirror", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
+    HRESULT hr = compile(sh.src, strlen(sh.src), sh.name, nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
     if (SUCCEEDED(hr) && code)
-        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_gradeShader);
+        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &sh.ps);
     else
-        Log("d3d9: mirror shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
+        Log("d3d9: %s shader did not compile: %s", sh.name, errors ? (const char*)errors->GetBufferPointer() : "?");
     if (code) code->Release();
     if (errors) errors->Release();
-    return s_gradeShader;
+    return sh.ps;
 }
+
+// The mirror picture's brightness and contrast (c0.x contrast, c0.y brightness).
+static LazyShader s_gradeShader = {"mirror",
+    "sampler s : register(s0); float4 k : register(c0);"
+    "float4 main(float2 uv : TEXCOORD0) : COLOR {"
+    "  float3 c = tex2D(s, uv).rgb; c = saturate(((c - 0.5) * k.x + 0.5) * k.y); return float4(c, 1); }"};
 
 // The car shader's vertex shader puts the texture coordinates in oT1 (oT0 is its reflection
 // vector), so both glass shaders read TEXCOORD1.
 // The side mirror glass's own pixel shader: the rear view as it is (already graded), without the
 // car shader's lighting, gloss and environment reflection, which washed it out.
-static bool DrawingPlayerView();
-static IDirect3DPixelShader9* s_glassShader;
-static IDirect3DPixelShader9* GlassShader() {
-    static bool tried;
-    if (s_glassShader || tried) return s_glassShader;
-    tried = true;
-    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
-    typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
-                                         ID3DBlob**);
-    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
-    if (!compile) return nullptr;
-    const char* src =
-        "sampler s : register(s0);"
-        "float4 main(float2 uv : TEXCOORD1) : COLOR { return float4(tex2D(s, uv).rgb, 1); }";
-    ID3DBlob *code = nullptr, *errors = nullptr;
-    HRESULT hr = compile(src, strlen(src), "glass", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
-    if (SUCCEEDED(hr) && code)
-        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_glassShader);
-    else
-        Log("d3d9: mirror glass shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
-    if (code) code->Release();
-    if (errors) errors->Release();
-    return s_glassShader;
-}
+static LazyShader s_glassShader = {"mirror glass",
+    "sampler s : register(s0);"
+    "float4 main(float2 uv : TEXCOORD1) : COLOR { return float4(tex2D(s, uv).rgb, 1); }"};
 
 // The glass as a mirror: its own coordinates (0..1 across and down) turned into the rear view's
 // by the corners' coordinates (c0: top left, top right; c1: bottom left, bottom right).
-static IDirect3DPixelShader9* s_mirrorMapShader;
-static IDirect3DPixelShader9* MirrorMapShader() {
-    static bool tried;
-    if (s_mirrorMapShader || tried) return s_mirrorMapShader;
-    tried = true;
-    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
-    typedef HRESULT(WINAPI * Compile_t)(LPCVOID, SIZE_T, LPCSTR, const void*, void*, LPCSTR, LPCSTR, UINT, UINT, ID3DBlob**,
-                                         ID3DBlob**);
-    auto compile = dc ? (Compile_t)GetProcAddress(dc, "D3DCompile") : nullptr;
-    if (!compile) return nullptr;
-    const char* src =
-        "sampler s : register(s0); float4 c0 : register(c0); float4 c1 : register(c1);"
-        "float4 main(float2 uv : TEXCOORD1) : COLOR {"
-        "  float2 top = lerp(c0.xy, c0.zw, uv.x); float2 bottom = lerp(c1.xy, c1.zw, uv.x);"
-        "  float3 c = tex2D(s, lerp(top, bottom, uv.y)).rgb;"
-        // A dark rim along the glass's edge, as a mirror set in its housing: the distance from the
-        // centre in a rounded rectangle (superellipse) shape, so it follows oval glass too.
-        "  float2 p = abs(uv * 2 - 1); float r = pow(pow(p.x, 3) + pow(p.y, 3), 1.0 / 3);"
-        "  float rim = saturate((1 - r) / 0.2);"
-        "  return float4(c * lerp(0.06, 1, rim * rim), 1); }";
-    ID3DBlob *code = nullptr, *errors = nullptr;
-    HRESULT hr = compile(src, strlen(src), "mirrormap", nullptr, nullptr, "main", "ps_2_0", 0, 0, &code, &errors);
-    if (SUCCEEDED(hr) && code)
-        s_dev->CreatePixelShader((const DWORD*)code->GetBufferPointer(), &s_mirrorMapShader);
-    else
-        Log("d3d9: mirror map shader did not compile: %s", errors ? (const char*)errors->GetBufferPointer() : "?");
-    if (code) code->Release();
-    if (errors) errors->Release();
-    return s_mirrorMapShader;
-}
+static LazyShader s_mirrorMapShader = {"mirror map",
+    "sampler s : register(s0); float4 c0 : register(c0); float4 c1 : register(c1);"
+    "float4 main(float2 uv : TEXCOORD1) : COLOR {"
+    "  float2 top = lerp(c0.xy, c0.zw, uv.x); float2 bottom = lerp(c1.xy, c1.zw, uv.x);"
+    "  float3 c = tex2D(s, lerp(top, bottom, uv.y)).rgb;"
+    // A dark rim along the glass's edge, as a mirror set in its housing: the distance from the
+    // centre in a rounded rectangle (superellipse) shape, so it follows oval glass too.
+    "  float2 p = abs(uv * 2 - 1); float r = pow(pow(p.x, 3) + pow(p.y, 3), 1.0 / 3);"
+    "  float rim = saturate((1 - r) / 0.2);"
+    "  return float4(c * lerp(0.06, 1, rim * rim), 1); }"};
 
-// Once: what the game's vertex shader for the glass outputs (the glass shader reads TEXCOORD0).
-static void LogGlassVertexShader(IDirect3DDevice9Ex* real) {
-    static bool done;
-    if (done) return;
-    done = true;
-    IDirect3DVertexShader9* vs = nullptr;
-    if (FAILED(real->GetVertexShader(&vs)) || !vs) {
-        Log("d3d9: side mirror glass: fixed-function vertex processing");
-        return;
-    }
-    UINT size = 0;
-    std::vector<uint8_t> fn;
-    if (SUCCEEDED(vs->GetFunction(nullptr, &size)) && size) {
-        fn.resize(size);
-        vs->GetFunction(fn.data(), &size);
-    }
-    vs->Release();
-    HMODULE dc = LoadLibraryA("d3dcompiler_47.dll");
-    typedef HRESULT(WINAPI * Disasm_t)(LPCVOID, SIZE_T, UINT, LPCSTR, ID3DBlob**);
-    auto disasm = dc ? (Disasm_t)GetProcAddress(dc, "D3DDisassemble") : nullptr;
-    ID3DBlob* text = nullptr;
-    if (fn.empty() || !disasm || FAILED(disasm(fn.data(), fn.size(), 0, nullptr, &text)) || !text) return;
-    std::string all((const char*)text->GetBufferPointer(), text->GetBufferSize());
-    text->Release();
-    size_t pos = 0;
-    while (pos < all.size()) {
-        size_t end = all.find('\n', pos);
-        if (end == std::string::npos) end = all.size();
-        std::string line = all.substr(pos, end - pos);
-        if (line.find("vs_") != std::string::npos || line.find("dcl") != std::string::npos || line.find("oT") != std::string::npos ||
-            line.find("oD") != std::string::npos)
-            Log("d3d9: glass vs: %s", line.c_str());
-        pos = end + 1;
-    }
-}
+static bool DrawingPlayerView();
+static void SetPanelState(const D3DMATRIX& view, const D3DMATRIX& proj);
 
 // The rear view render target copied into a texture of our own (it may be multisampled, or a
 // plain surface no texture owns), then graded into the texture the mirrors show.
@@ -393,7 +325,7 @@ static IDirect3DTexture9* MirrorTexture(IDirect3DSurface9* source) {
         }
         return nullptr;
     }
-    IDirect3DPixelShader9* ps = GradeShader();
+    IDirect3DPixelShader9* ps = Shader(s_gradeShader);
     if (!ps) {
         s_dev->StretchRect(s_mirrorRawSurf, nullptr, s_mirrorSurf, nullptr, D3DTEXF_NONE);
         return s_mirrorTex;
@@ -629,12 +561,9 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
         IDirect3DBaseTexture9* orig = nullptr;
         real->GetTexture(stage, &orig);
         real->SetTexture(stage, s_mirrorTex);
-        // Disassembling and logging the game's shader costs milliseconds and landed exactly when the
-        // mirrors first appeared, so it is opt-in (LogGlassShader in the ini).
-        if (g_cfg.logGlassShader) LogGlassVertexShader(real);
         bool player = stage == 0 && DrawingPlayerView();
-        IDirect3DPixelShader9* map = player && j.haveCorners ? MirrorMapShader() : nullptr;
-        IDirect3DPixelShader9* glass = map ? map : player ? GlassShader() : nullptr;
+        IDirect3DPixelShader9* map = player && j.haveCorners ? Shader(s_mirrorMapShader) : nullptr;
+        IDirect3DPixelShader9* glass = map ? map : player ? Shader(s_glassShader) : nullptr;
         IDirect3DPixelShader9* oldPs = nullptr;
         float oldC[8];
         DWORD oldAddr[2];
@@ -680,14 +609,12 @@ struct PendingMirror {
 };
 static std::vector<PendingMirror> s_pendingMirrors;
 static D3DMATRIX s_mirrorView, s_mirrorProj;
-static float s_mirrorBrightness = 0.85f;
 static bool s_mirrorEye;
 
-void D3D_BeginMirrorEye(const float* view, const float* proj, float brightness) {
+void D3D_BeginMirrorEye(const float* view, const float* proj) {
     s_pendingMirrors.clear();
     memcpy(&s_mirrorView, view, sizeof(s_mirrorView));
     memcpy(&s_mirrorProj, proj, sizeof(s_mirrorProj));
-    s_mirrorBrightness = brightness;
     s_mirrorEye = true;
 }
 
@@ -710,28 +637,9 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     IDirect3DStateBlock9* saved = SavedStateBlock();
     if (!saved) return;
     saved->Capture();
-    s_dev->SetVertexShader(nullptr);
-    s_dev->SetPixelShader(nullptr);
-    s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
-    D3DMATRIX identity = {};
-    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
-    s_dev->SetTransform(D3DTS_WORLD, &identity);
-    s_dev->SetTransform(D3DTS_VIEW, &s_mirrorView);
-    s_dev->SetTransform(D3DTS_PROJECTION, &s_mirrorProj);
+    SetPanelState(s_mirrorView, s_mirrorProj);
     s_dev->SetRenderState(D3DRS_ZENABLE, depth ? D3DZB_TRUE : D3DZB_FALSE);
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, depth ? TRUE : FALSE);
-    s_dev->SetRenderState(D3DRS_ZFUNC, D3DCMP_LESSEQUAL);
-    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-    s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
-    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
-    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
-    s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
     // Pulled toward the camera in depth too, so the game's own glass under it never shows through.
     float bias = -0.00002f, slope = -1.0f;
     s_dev->SetRenderState(D3DRS_DEPTHBIAS, *(DWORD*)&bias);
@@ -739,22 +647,11 @@ static void DrawMirrorGlass(const PendingMirror& m, bool depth) {
     BYTE k = 255;   // brightness and contrast are in the picture (MirrorTexture)
     s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, D3DCOLOR_ARGB(255, k, k, k));
     s_dev->SetTexture(0, s_mirrorTex);
-    for (DWORD st = 1; st < 8; st++) s_dev->SetTexture(st, nullptr);
     s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_MODULATE);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG2, D3DTA_TFACTOR);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
-    s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
-    s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
-    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
     if (!m.frame.empty()) {
         // The rim: plain near-black, the housing's plastic around the glass. It only tests depth,
         // so the picture drawn next over it can't fight it.
@@ -781,7 +678,6 @@ static struct {
     IDirect3DSurface9* ds;                // the depth/stencil the wheel was marked in
 } s_wheelEye;
 static float s_uiMenuOpen;                // live from the gameplay mod: its F4 menu is open
-static bool DrawingPlayerView();
 static const DWORD kWheelStencil = 0x80;
 
 void D3D_RegisterWheelDraw(void* ib, int first) {
@@ -900,29 +796,10 @@ void D3D_EndWheelEye() {
                 f = at(cx - w / 2, cy - h / 2, 0, 1);
     PanelVertex quad[6] = {a, c, e, a, e, f};
 
-    s_dev->SetVertexShader(nullptr);
-    s_dev->SetPixelShader(nullptr);
-    s_dev->SetFVF(D3DFVF_XYZ | D3DFVF_TEX1);
-    D3DMATRIX identity = {};
-    identity._11 = identity._22 = identity._33 = identity._44 = 1.0f;
-    s_dev->SetTransform(D3DTS_WORLD, &identity);
-    s_dev->SetTransform(D3DTS_VIEW, &s_wheelEye.view);
-    s_dev->SetTransform(D3DTS_PROJECTION, &s_wheelEye.proj);
+    SetPanelState(s_wheelEye.view, s_wheelEye.proj);
     s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-    s_dev->SetRenderState(D3DRS_LIGHTING, FALSE);
-    s_dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_CLIPPLANEENABLE, 0);
-    s_dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
-    s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0x7);
-    s_dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
-    s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-    s_dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    s_dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
     s_dev->SetRenderState(D3DRS_STENCILENABLE, TRUE);
     s_dev->SetRenderState(D3DRS_TWOSIDEDSTENCILMODE, FALSE);
     s_dev->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
@@ -933,20 +810,10 @@ void D3D_EndWheelEye() {
     s_dev->SetRenderState(D3DRS_STENCILFAIL, D3DSTENCILOP_KEEP);
     s_dev->SetRenderState(D3DRS_STENCILZFAIL, D3DSTENCILOP_KEEP);
     s_dev->SetTexture(0, s_eyeTex[2]);
-    s_dev->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-    s_dev->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-    s_dev->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_NONE);
-    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-    s_dev->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-    s_dev->SetSamplerState(0, D3DSAMP_SRGBTEXTURE, FALSE);
-    s_dev->SetTextureStageState(0, D3DTSS_TEXCOORDINDEX, 0);
-    s_dev->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, D3DTTFF_DISABLE);
     s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TEXTURE);
-    s_dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    s_dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
     HRESULT hr = s_dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, 2, quad, sizeof(PanelVertex));
 
     s_dev->SetRenderTarget(0, rt);
@@ -1028,21 +895,17 @@ void D3D_EndMirrorEye(void* rearViewSurface) {
 // as its own quad on the panel's plane (Config::dashEl: position and size per element, F4 > VR >
 // Adjust dashboard); elements not placed yet start at fixed places (AutoLayout). While the panel
 // shows, the HUD is cleared from the headset's HUD layer, but for the messages in the middle.
-// The DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom middle), leaderboard,
-// messages (the middle of the screen: busted, totaled, ...).
-enum { DASH_MAP, DASH_COP, DASH_SPEEDO, DASH_UL, DASH_UR, DASH_MSG, DASH_PARTS };
-static const char* kDashPartName[DASH_PARTS] = {"minimap", "cop radar (top middle)", "speedometer",
-                                                "pursuit info (bottom middle)", "leaderboard (upper side)", "messages"};
-// Room kept per part (share of the HUD's width, height) before it has been seen.
-static float s_reserve[DASH_PARTS][2] = {{0.12f, 0.12f}, {0.28f, 0.04f}, {0.12f, 0.12f}, {0.30f, 0.08f}, {0.20f, 0.12f},
-                                         {0.40f, 0.26f}};
+// The parts in DASH_EL_* order: minimap, cop radar (top middle), speedometer, pursuit info (bottom
+// middle), leaderboard, messages (the middle of the screen: busted, totaled, ...).
+static const char* kDashPartName[DASH_EL_COUNT] = {"minimap", "cop radar (top middle)", "speedometer",
+                                                   "pursuit info (bottom middle)", "leaderboard (upper side)", "messages"};
 static const int kAtlasW = 2048, kAtlasH = 1024, kCellW = 682, kCellH = 512, kProbe = 128;
 static IDirect3DTexture9* s_dashTex;
 static IDirect3DSurface9* s_dashSurf;
 static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
-static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_PARTS];
-static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_PARTS];
+static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_EL_COUNT];
+static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_EL_COUNT];
 static double s_lastProbe;
 static struct {
     bool on;
@@ -1066,8 +929,6 @@ struct ColorTris {
 static std::vector<ColorTris> s_colorTris;
 static std::unordered_map<void*, std::vector<size_t>> s_colorTrisByIb;
 static bool s_colorEye;
-
-static float MetresPerHudPixel() { return 0.24f / (0.66f * (float)std::max(s_eyeW, 1)); }
 
 static IDirect3DTexture9* s_glassTex;          // the glass sheen (white, its alpha the sheen)
 
@@ -1382,16 +1243,15 @@ static void ReflectionUv(PanelVertex& p) {
 void D3D_WarmUp() {
     if (!s_dev) return;
     double t0 = D3D_ProfNow();
-    bool compiler = LoadLibraryA("d3dcompiler_47.dll") != nullptr;
-    bool grade = GradeShader() != nullptr;
-    bool glass = GlassShader() != nullptr;
-    bool map = MirrorMapShader() != nullptr;
+    bool grade = Shader(s_gradeShader) != nullptr;
+    bool glass = Shader(s_glassShader) != nullptr;
+    bool map = Shader(s_mirrorMapShader) != nullptr;
     bool dash = EnsureDash();
     bool needed = g_cfg.dashGlass > 0.01f;
     bool glassTex = !needed || GlassTexture() != nullptr;
     bool state = SavedStateBlock() != nullptr;
-    Log("d3d9: warm-up %.1f ms: d3dcompiler %s, mirror shaders %d%d%d, dashboard %s, glass texture %s, state block %s",
-        (D3D_ProfNow() - t0) * 1000.0, compiler ? "ok" : "missing", (int)grade, (int)glass, (int)map,
+    Log("d3d9: warm-up %.1f ms: mirror shaders %d%d%d, dashboard %s, glass texture %s, state block %s",
+        (D3D_ProfNow() - t0) * 1000.0, (int)grade, (int)glass, (int)map,
         dash ? "ready" : "unavailable", needed ? (glassTex ? "ready" : "unavailable") : "off", state ? "ready" : "failed");
 }
 
@@ -1418,7 +1278,7 @@ static void DrawDash() {
         PanelRoundedRect(0, 0, hw, hh, r, 0.0001f, ((DWORD)a << 24) | (g_cfg.dashColor & 0xFFFFFF));
         PanelRoundedRing(0, 0, hw, hh, r, t, 0.0001f, D3DCOLOR_ARGB(ao, 255, 150, 0));
     }
-    for (int i = 0; i < DASH_PARTS; i++) {
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
         const float* e = g_cfg.dashEl[i];
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
@@ -1580,9 +1440,6 @@ void D3D_EndDashEye() {
     ds->Release();
 }
 
-// The middle of the screen (busted, totaled, ...): the messages element's default crop.
-static const float kMsgZone[4] = {0.30f, 0.30f, 0.70f, 0.56f};
-
 // Whether each element's crop (Config::dashCrop) has anything of the HUD in it now, from a small
 // copy read back a few times a second. A pursuit lays a faint layer over the whole screen: when most
 // cells read as covered at the lowest threshold, the threshold goes up until the parts stand apart.
@@ -1634,7 +1491,7 @@ static bool ProbeHud() {
         threshold = pass == 0 ? 100 : 180;
     }
     double now = D3D_ProfNow();
-    for (int i = 0; i < DASH_PARTS; i++) {
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
         const float* c = g_cfg.dashCrop[i];
         int x0 = std::max(0, (int)(c[0] * kProbe)), y0 = std::max(0, (int)(c[1] * kProbe));
         int x1 = std::min(kProbe, (int)ceilf(c[2] * kProbe)), y1 = std::min(kProbe, (int)ceilf(c[3] * kProbe));
@@ -1668,7 +1525,7 @@ static RECT HudRect(const DashBox& d) {
 static void OutlineCrops() {
     int highlight = (int)lrintf(g_cfg.dashHighlight);
     LONG t = std::max(2L, (LONG)(s_eyeH / 400));
-    for (int i = 0; i < DASH_PARTS; i++) {
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
         DashBox d;
         const float* c = g_cfg.dashCrop[i];
         d.x0 = c[0]; d.y0 = c[1]; d.x1 = c[2]; d.y1 = c[3];
@@ -1684,10 +1541,10 @@ static void OutlineCrops() {
 // Elements not placed yet get a fixed place (metres at zoom 1, x right, y up from the panel's
 // anchor): the cop radar on top, the minimap left and the speedometer right, the pursuit info in
 // the middle below and the leaderboard right below. Never moved after that but by hand.
-static void AutoLayout(const float*, const float*) {
-    static const float kPlace[DASH_PARTS][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
+static void AutoLayout() {
+    static const float kPlace[DASH_EL_COUNT][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
                                                 {0.0f, 0.0f}};
-    for (int i = 0; i < DASH_PARTS; i++) {
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
         float* e = g_cfg.dashEl[i];
         if (e[0] != e[0]) e[0] = kPlace[i][0];
         if (e[1] != e[1]) e[1] = kPlace[i][1];
@@ -1711,28 +1568,23 @@ static void ComposeDash() {
         return;
     }
     ProbeHud();
-    float w[DASH_PARTS] = {}, h[DASH_PARTS] = {};
     s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
-    for (int i = 0; i < DASH_PARTS; i++) {
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
         s_el[i].ok = false;
         if (!s_dashBox[i].ok) continue;
         RECT src = HudRect(s_dashBox[i]);
-        w[i] = (float)(src.right - src.left);
-        h[i] = (float)(src.bottom - src.top);
-        if (w[i] < 2 || h[i] < 2) {
-            w[i] = h[i] = 0;
-            continue;
-        }
-        float k = std::min(1.0f, std::min(kCellW / w[i], kCellH / h[i]));
+        float w = (float)(src.right - src.left), h = (float)(src.bottom - src.top);
+        if (w < 2 || h < 2) continue;
+        float k = std::min(1.0f, std::min(kCellW / w, kCellH / h));
         LONG cx = (LONG)((i % 3) * kCellW), cy = (LONG)((i / 3) * kCellH);
-        RECT dst = {cx, cy, cx + (LONG)(w[i] * k), cy + (LONG)(h[i] * k)};
+        RECT dst = {cx, cy, cx + (LONG)(w * k), cy + (LONG)(h * k)};
         if (FAILED(s_dev->StretchRect(s_eyeSurf[2], &src, s_dashSurf, &dst, D3DTEXF_LINEAR))) continue;
         // Where a smaller element's crop reaches into this one, that part is the smaller element's
         // only: cut out here. (The minimap's and the speedometer's crops reach into the pursuit info
         // box; their pieces of it met in the middle of the display as a second, squashed copy.)
         const float* ci = g_cfg.dashCrop[i];
         float areaI = (ci[2] - ci[0]) * (ci[3] - ci[1]);
-        for (int j = 0; j < DASH_PARTS; j++) {
+        for (int j = 0; j < DASH_EL_COUNT; j++) {
             const float* cj = g_cfg.dashCrop[j];
             float areaJ = (cj[2] - cj[0]) * (cj[3] - cj[1]);
             if (j == i || areaJ <= 0 || areaJ > areaI || (areaJ == areaI && j > i)) continue;
@@ -1750,9 +1602,9 @@ static void ComposeDash() {
             if (cut.right > cut.left && cut.bottom > cut.top) s_dev->ColorFill(s_dashSurf, &cut, D3DCOLOR_ARGB(0, 0, 0, 0));
         }
         s_el[i] = {true, dst.left / (float)kAtlasW, dst.top / (float)kAtlasH, dst.right / (float)kAtlasW,
-                   dst.bottom / (float)kAtlasH, w[i], h[i]};
+                   dst.bottom / (float)kAtlasH, w, h};
     }
-    AutoLayout(w, h);
+    AutoLayout();
     // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the display.
     s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
 }
@@ -2497,7 +2349,6 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashHighlight")) return &g_cfg.dashHighlight;
     if (!strcmp(name, "EditorOn")) return &g_cfg.editorOn;
     if (!strcmp(name, "EditCommand")) return &g_cfg.editCommand;
-    if (!strcmp(name, "EditBrush")) return &g_cfg.editBrush;
     if (!strcmp(name, "EditPicking")) return &g_cfg.editPicking;
     if (!strcmp(name, "EditLayer")) return &g_cfg.editLayer;
     if (!strcmp(name, "EditMode")) return &g_cfg.editMode;
@@ -2510,7 +2361,6 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
         if (!strcmp(field, "X")) return &g_cfg.dashEl[i][0];
         if (!strcmp(field, "Y")) return &g_cfg.dashEl[i][1];
         if (!strcmp(field, "Size")) return &g_cfg.dashEl[i][2];
-        if (!strcmp(field, "Box")) return &g_cfg.dashElBox[i];
         if (!strcmp(field, "L")) return &g_cfg.dashCrop[i][0];
         if (!strcmp(field, "T")) return &g_cfg.dashCrop[i][1];
         if (!strcmp(field, "R")) return &g_cfg.dashCrop[i][2];

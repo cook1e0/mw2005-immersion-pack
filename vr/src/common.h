@@ -65,10 +65,9 @@ struct Config {
     float dashDepth = 0.0f;          // ... and toward the driver (m) from 3 cm off the gauge cluster
     float dashYaw = 0.0f;            // ... turned to the right (+) / left (-) about its own up axis, degrees
     float dashPitch = 0.0f;          // ... tilted to face up (+) / down (-) about its own right axis, degrees
-    float dashCover = 1.3f;          // (old rectangle cover, no longer drawn: the gauges' own triangles are black)
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard;
-    // shared by all cars in [DashLayout] Default. Legacy [DashLayout] SUPRA is used if Default is absent.
+    // shared by all cars in [DashLayout] Default.
     float dashEl[6][3] = {{NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f},
                           {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}, {NAN, NAN, 1.0f}};
     // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture, the game's
@@ -80,14 +79,13 @@ struct Config {
                             {0.400f, 0.660f, 0.600f, 0.990f},   // pursuit info
                             {0.645f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
                             {0.300f, 0.210f, 0.700f, 0.590f}};  // messages
-    float dashBox = 0.85f;           // the display: a white screen with an orange outline the elements sit on, its opacity (0 = none)
+    float dashBox = 0.85f;           // the display: a gray screen with an orange outline the elements sit on, its opacity (0 = none)
     unsigned dashColor = 0x3C3F44u;       // the display's colour (DashColor, hex RRGGBB): the game's HUD gray
     float dashGlass = 0.35f;              // the glass sheen over the display and its elements: its opacity (0 = none)
     float dashGlassDepth = 0.01f;         // ... how far in front of the display (m)
     float dashReflect = 0.3f;             // ... the world (the rear view picture) reflected in it: strength (0 = none)
     float wheelPivot[2] = {0, 0};         // the steering wheel's turning centre moved right, up in its plane (m; per car, [WheelPivot])
     float dashScreenW = 0.30f, dashScreenH = 0.13f;   // ... its size (m, at zoom 1; per car in [Dash]), centred on the panel's anchor
-    float dashElBox[6] = {1, 1, 1, 1, 1, 0};   // (no longer used: one display for all)
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
     // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command
     // (1 hide, 2 black, 3 add to the steering wheel, 4 take off it, 5 restore, 6 undo; reset once done).
@@ -96,17 +94,14 @@ struct Config {
     // Live from F4, not saved: picking (the menu hidden: the selection follows the gaze), which of
     // the triangles along the gaze (0 = nearest), the selection's size (0 one triangle, 1..3 within
     // 2 / 5 / 10 cm, 4 the connected piece, 5 the whole draw entry); out: triangles selected.
-    // Commands besides those above: 7 add to the dashboard blackout, 8 take off it, 9 drop the selection.
+    // Commands besides those above: 9 drop the selection, 10 fit the steering wheel's turning centre,
+    // 11 reset it.
     float editPicking = 0, editLayer = 0, editMode = 0, editPicked = 0;
-    float editBrush = 0.0f;          // triangle editor brush radius (m, 0 = one triangle)
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     int   envMapFacesPerFrame = 2;   // environment map cube faces refreshed per VR frame (1..6, 6 = every face every frame)
     int   rearViewEvery = 1;         // the rear view is rendered every Nth VR frame (1 = every frame)
-    bool  logGlassShader = false;    // debug: disassemble the game's glass vertex shader into the log (one-off cost)
     bool  logPasses = false;         // debug: list how often the game binds each render target per frame (per-eye vs shared passes)
-    bool  eyeCameraShared = false;   // debug: render both eyes from the seat camera (no eye offset), so a difference
-                                     // between the two images is per-eye state (a pool, a counter, a matrix) instead of the eye's viewpoint
     bool  screenRain = false;        // raindrops on the screen in the headset (always shown on a flat screen)
     bool  directionArrow = false;    // the direction arrow above the car in the headset (always shown on a flat screen)
     bool  sunGlare = false;          // the screen-space sun glare in the headset (always shown on a flat screen)
@@ -125,7 +120,6 @@ struct Config {
     int   keySeatLeft = VK_NUMPAD4, keySeatRight = VK_NUMPAD6;
     int   keySeatUp = VK_NUMPAD9, keySeatDown = VK_NUMPAD3, keySeatReset = VK_NUMPAD5;
     int   keyToggleShared = 0;       // debug: toggle reusing the rear-view/environment-map views
-    int   keyToggleSameEye = 0;      // debug: toggle rendering both eyes from the same (seat) camera
 };
 extern Config g_cfg;
 // Dashboard elements, in Config::dashEl order: minimap, cop radar, speedometer, pursuit info, leaderboard.

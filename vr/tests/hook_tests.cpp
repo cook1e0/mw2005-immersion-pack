@@ -22,7 +22,7 @@ bool Cockpit_IsPlayerCarMatrix(const void*) { return false; }
 int Cockpit_PlayerCarMatrices() { return 0; }
 void Cockpit_SetGaze(const float*, const float*) {}
 void Cockpit_EndEye() {}
-void D3D_BeginMirrorEye(const float*, const float*, float) {}
+void D3D_BeginMirrorEye(const float*, const float*) {}
 void D3D_AddMirror(void*, const float*, int, const float*, int) {}
 void D3D_RegisterMirrorGlass(void*, int, int, const float*, const uint16_t*, int) {}
 void D3D_SetGlassCorners(void*, int, const float*) {}
