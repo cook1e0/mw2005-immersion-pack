@@ -1788,7 +1788,9 @@ static void ProfFrame() {
         }
         // A frame that overran the 5 s average by half is one the headset had to reproject or drop, so
         // it is felt as a skip. Name every phase of the frame that went over (at most once a second).
-        if (s_profLastAvg > 0 && now - s_profLastHitch > 1.0 && frame > s_profLastAvg * 1.5) {
+        // At least 5 ms over, too: at a flat screen's hundreds of fps every small wobble is "half".
+        if (s_profLastAvg > 0 && now - s_profLastHitch > 1.0 && frame > s_profLastAvg * 1.5 &&
+            frame - s_profLastAvg > 0.005) {
             s_profLastHitch = now;
             Log("hitch: frame %.1f ms (%.0f%% over the %.1f ms average): headset wait %.1f eyes (CPU) %.1f GPU wait %.1f "
                 "submit %.1f spectator %.1f present %.1f game %.1f ms",
