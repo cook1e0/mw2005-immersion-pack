@@ -1,5 +1,5 @@
 #!/bin/sh
-# Assembles dist/nfsmw05-mod-<version>.zip from the three builds (run vr/build.cmd,
+# Assembles dist/mw2005-immersion-pack-<version>.zip from the three builds (run vr/build.cmd,
 # ffb/build.sh and gameplay/build.sh first).
 # Usage: ./package.sh <Ultimate ASI Loader x86 dinput8.dll> <version, e.g. v0.11.0>
 # NFSMW_SETTINGS=<folder with nfsmw_*.ini> packages those settings (F4 menu, bindings, seats,
@@ -17,7 +17,7 @@ esac
 case "$VERSION" in
     *[!a-zA-Z0-9._-]*) echo "invalid version: use letters, digits, dots, underscores or hyphens"; exit 1 ;;
 esac
-OUT="dist/nfsmw05-mod-$VERSION"
+OUT="dist/mw2005-immersion-pack-$VERSION"
 ZIP="$OUT.zip"
 rm -rf "$OUT" "$ZIP"
 mkdir -p "$OUT/scripts"

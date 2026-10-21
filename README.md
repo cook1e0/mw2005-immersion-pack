@@ -1,4 +1,4 @@
-# NFS Most Wanted (2005) mods
+# Most Wanted 2005 Immersion Pack Mod
 
 Mods for *Need for Speed: Most Wanted* (2005, PC, `speed.exe` v1.3) aimed at sim-style driving:
 VR, force feedback, and gameplay changes (a real H-pattern gearbox with a clutch, engine wear,
@@ -12,7 +12,7 @@ damage and more). Install any of them, or all three.
 
 ## Install
 
-1. Download the `nfsmw05-mod-v*.zip` package from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest).
+1. Download the `mw2005-immersion-pack-v*.zip` package from the [latest release](https://github.com/cook1e0/mw2005-immersion-pack/releases/latest).
 2. Copy `dinput8.dll` ([Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader))
    next to `speed.exe`. Skip this if you already have it, e.g. from the
    [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw).
@@ -73,7 +73,7 @@ all three mods run alongside it. Two things about the fix itself:
   copies into `C:\Games\NFSMW`, or `$NFSMW_DIR`: as `scripts\nfsmw_*.asi` if that is installed,
   otherwise as the proxy DLL).
 - Release zip: build all three, then `./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll v0.12.1`
-  (the x86 loader and the version being released) writes `dist/nfsmw05-mod-v0.12.1.zip`.
+  (the x86 loader and the version being released) writes `dist/mw2005-immersion-pack-v0.12.1.zip`.
   With `NFSMW_SETTINGS=<game>/scripts` the zip carries that game's `.ini` files (F4 menu
   settings, bindings, seats) instead of the defaults.
 

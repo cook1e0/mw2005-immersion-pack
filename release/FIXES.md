@@ -1,5 +1,9 @@
 ### Unreleased
 
+- **The pack is now called Most Wanted 2005 Immersion Pack Mod:** the README and the release zip
+  (`mw2005-immersion-pack-<version>.zip`) carry the new name. The files inside keep theirs
+  (`scripts
+fsmw_*.asi`, `.ini`, logs), so unpacking over an older version still replaces it.
 - **FFB: the steering weight comes from the car:** the FFB mod built the car's sideways
   direction assuming the game's physics world is Z-up, like its renderer. It is Y-up (and
   left-handed: `bConvertFromBond` maps render = (z, -x, y)), so "sideways" was vertical: the front

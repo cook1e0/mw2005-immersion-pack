@@ -6,7 +6,7 @@ the mod, sent as one torque through a safety chain that keeps a strong motor cal
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
+Download the zip from the [latest release](https://github.com/cook1e0/mw2005-immersion-pack/releases/latest)
 and copy `nfsmw_ffb.asi` and `nfsmw_ffb.ini` into the `scripts` folder next to `speed.exe` (with the
 zip's `dinput8.dll`, Ultimate ASI Loader, next to `speed.exe`). Without a loader, rename
 `nfsmw_ffb.asi` to `dinput8.dll` and put it and the `.ini` next to `speed.exe`. To uninstall, delete it.

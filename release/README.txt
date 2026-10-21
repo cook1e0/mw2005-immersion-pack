@@ -1,5 +1,5 @@
-NFS Most Wanted (2005) mods - VR, force feedback, gameplay (H-pattern shifter + clutch and more)
-https://github.com/cook1e0/nfsmw05-mod
+Most Wanted 2005 Immersion Pack Mod - VR, force feedback, gameplay (H-pattern shifter + clutch and more)
+https://github.com/cook1e0/mw2005-immersion-pack
 
 Needs speed.exe v1.3. The mods are .asi plugins loaded by Ultimate ASI Loader (dinput8.dll),
 the same loader the widescreen fix and most other NFS mods use.
