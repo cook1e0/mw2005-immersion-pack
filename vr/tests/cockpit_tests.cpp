@@ -402,6 +402,40 @@ static void TestMirrorGlass() {
         V3 ahead[3] = {{1.2f, 0.0f, 1.0f}, {1.3f, 0.0f, 1.0f}, {1.2f, 0.0f, 1.05f}};
         Check(mirror::InRearViewRegion(at, head) && !mirror::InRearViewRegion(ahead, head), "rear view region");
     }
+    // The Eclipse's rear view mirror: a shallow faceted shell of three disconnected panels, wound
+    // both ways, in front of the back of its housing. No panel is mirror-sized on its own, so a
+    // search grown along shared edges can only see one facet; they all lie in the mirror's plane.
+    {
+        std::vector<V3> eclipse;
+        V3 back = {-1, 0, 0}, eu = mirror::Norm(mirror::Cross({0, 0, 1}, back)), ev = mirror::Cross(back, eu);
+        for (int i = 0; i < 3; i++) {
+            V3 fu = mirror::Norm({eu.x + (i - 1) * 0.09f, eu.y, eu.z});    // facets turned a few degrees
+            AddQuad(eclipse, {0.32f, (i - 1) * 0.076f, 0.985f}, fu, ev, 0.0335f, 0.0245f, i % 2 == 0);
+        }
+        // The back of the housing 8 mm behind, tilted 50 degrees: in the glass's plane range, but
+        // not facing the same way, and too narrow to be the mirror itself.
+        V3 hn = mirror::Norm({-0.64f, 0.0f, 0.77f}), hu = mirror::Norm(mirror::Cross({0, 0, 1}, hn));
+        AddQuad(eclipse, {0.328f, 0.0f, 0.985f}, hu, mirror::Cross(hn, hu), 0.05f, 0.015f, false);
+        AddQuad(eclipse, {0.325f, 0.0f, 1.02f}, {0, -1, 0}, {0.89f, 0, 0.45f}, 0.015f, 0.02f, false);  // stalk
+        for (int i = 0; i < 3; i++) eclipse.push_back({0.32f, 0.05f, 0.99f});                           // stitch triangle
+        Check(!mirror::FindGlass(eclipse, false, mirror::GlassKind::RearView).ok, "faceted glass needs the plane search");
+        MirrorGlass e = mirror::FindRearViewGlass(eclipse);
+        Check(e.ok, "faceted rear view mirror found");
+        Check(fabsf(2 * e.halfU - 0.219f) < 0.01f && fabsf(2 * e.halfV - 0.049f) < 0.01f, "faceted mirror size");
+        Check(e.normal.x < -0.9f && fabsf(e.centre.y) < 0.02f && fabsf(e.centre.z - 0.985f) < 0.01f,
+              "faceted mirror faces straight back");
+        std::vector<float> verts;
+        GlassVertices(e, Identity(), verts, 0.008f, 1.0f);
+        Check(verts.size() >= 3 * 5 && verts.size() % 5 == 0, "faceted mirror drawn as fanned triangles");
+        float plane = mirror::Dot(e.centre, e.normal) + 0.008f;
+        bool flat = true, inside = true;
+        for (size_t i = 0; i < verts.size(); i += 5) {
+            V3 q = {verts[i], verts[i + 1], verts[i + 2]};
+            flat = flat && fabsf(mirror::Dot(q, e.normal) - plane) < 1e-4f;
+            inside = inside && verts[i + 3] > -0.01f && verts[i + 3] < 1.01f && verts[i + 4] > -0.01f && verts[i + 4] < 1.01f;
+        }
+        Check(flat && inside, "faceted mirror drawn as one clean flat patch");
+    }
     // The body search region: out at the side, at mirror height.
     V3 in[3] = {{0.5f, 0.9f, 0.8f}, {0.6f, 0.9f, 0.8f}, {0.5f, 0.95f, 0.85f}};
     V3 low[3] = {{0.5f, 0.9f, 0.3f}, {0.6f, 0.9f, 0.3f}, {0.5f, 0.95f, 0.35f}};

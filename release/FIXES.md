@@ -3,9 +3,28 @@
 - **The pack is now called Most Wanted 2005 Immersion Pack Mod:** the README and the release zip
   (`mw2005-immersion-pack-<version>.zip`) carry the new name. The files inside keep theirs
   (`scripts\nfsmw_*.asi`, `.ini`, logs), so unpacking over an older version still replaces it.
+- **Logs: debug chatter removed:** the VR perf / pass / eye scene reports, view table and
+  shared view dumps, flare pool counts, texture filter statistics, frame memory peaks and the
+  host's XR timing lines; the gameplay mod's shift, engine wear and heat, input block, menu, save,
+  picking, icon and physics step lines. Setup results, warnings, errors and the VR `hitch` lines
+  stay. The frame trace key (`[VR] KeyTrace`) is off by default; `[FFB] LogTelemetry` and
+  `[VR] LogPasses` stay opt-in.
 
 **VR**
 
+- **The Clio's steering wheel is found:** its low-poly, thick rim spread over the wheel search's
+  2 cm slices, so no wheel was found (no turning wheel, no in-car dashboard, which is placed from
+  the wheel). A wheel the usual search misses is looked for again with 4 cm slices; every other car
+  in the game is found by the usual search, as before.
+- **Rear view mirrors on the CTS and the Eclipse:** the search region now starts 15 cm ahead of
+  the head (the CTS's driver sits close to the mirror). The Eclipse's glass is a shallow faceted
+  shell whose triangles don't share edges, and the back of its housing is a few millimetres behind
+  it: growing a patch from shared edges found only a single facet, or a patch folded together with
+  the housing. Now the largest triangle facing the driver seeds a flat patch of everything lying in
+  its plane, either winding, and the patch must still look like the mirror. A piece elsewhere in
+  that plane (a scrap of the Punto's dashboard) leaves the glass to the connected search, which
+  stays as the fallback for every other car. The glass is drawn as its outline, fanned from its
+  convex hull, so overlapping or folded triangles can't make a broken shape.
 - **The road is back in the mirrors:** skipping the sun glare in the headset skipped the whole
   pass that draws it, and that pass ends by turning depth testing back on (it turns it off for its
   quad). Without it, what rendered next - the rear view among it - drew with no depth test, and the
@@ -321,6 +340,13 @@
 
 **Force feedback**
 
+- **Grip loss from the game's own tyres:** the FFB reads each tyre's traction (below 1 past its
+  friction limit) and the game's understeer factor. As the front tyres let go, the steering
+  weight's peak moves to a smaller slip angle and the force drops (`GripLoss`, 0.5); the game's
+  understeer factor can lighten it further once the front is past its peak (`UndersteerFeel`, off);
+  the rear tyres past their limit lighten it too (`RearGripLoss`, 0.5). A fine vibration runs while
+  any tyre slides (`TyreScrub`, 0.2). All in F4 > Force feedback. `ffb/GRIP_LOSS_RESEARCH.md` has
+  the measurements behind it.
 - **The steering weight comes from the car:** the FFB mod built the car's sideways
   direction assuming the game's physics world is Z-up, like its renderer. It is Y-up (and
   left-handed: `bConvertFromBond` maps render = (z, -x, y)), so "sideways" was vertical: the front

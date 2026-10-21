@@ -741,10 +741,6 @@ void XrTimingFrame(double wait, XrTime display, XrDuration period) {
     if (!t_xr.last.QuadPart) QueryPerformanceCounter(&t_xr.last);
     double since = now - (double)t_xr.last.QuadPart / (double)t_xr.freq.QuadPart;
     if (since < 5.0 || t_xr.frames == 0) return;
-    Log("XR timing: %d frames, %d display slots skipped (at most %d in a row), xrWaitFrame %.1f/%.1f ms, "
-        "xrEndFrame %.1f/%.1f ms (avg/max), display period %.1f ms",
-        t_xr.frames, t_xr.skipped, t_xr.skippedMax, t_xr.waitSum / t_xr.frames * 1000.0, t_xr.waitMax * 1000.0,
-        t_xr.endSum / t_xr.frames * 1000.0, t_xr.endMax * 1000.0, period / 1e6);
     XrTime keep = t_xr.lastDisplay;
     LARGE_INTEGER freq = t_xr.freq;
     t_xr = XrTiming();

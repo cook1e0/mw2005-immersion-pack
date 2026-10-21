@@ -1711,7 +1711,7 @@ static struct {
     int frames;
 } s_prof;
 static double s_profLastAvg;                   // the previous window's average frame
-static double s_profLastHitch;
+static double s_profLastHitch;                 // when the last hitch was logged
 
 double D3D_ProfNow() {
     static LARGE_INTEGER f;
@@ -1859,45 +1859,9 @@ static void ProfFrame() {
     s_prof.last = now;
     double span = now - s_prof.since;
     if (span < 5.0 || s_prof.frames == 0) return;
-    static const char* names[PROF_COUNT] = {"headset wait", "eyes (CPU)", "GPU wait", "submit", "spectator", "present",
-                                            "update"};
-    char line[3072];   // the passes line lists up to 24 targets
-    int n = snprintf(line, sizeof(line), "perf: %.1f fps (frame %.1f ms avg, %.1f max):", s_prof.frames / span,
-                     span / s_prof.frames * 1000.0, s_prof.frameMax * 1000.0);
-    double known = 0;
-    for (int i = 0; i < PROF_COUNT && n < (int)sizeof(line); i++) {
-        known += s_prof.sum[i];
-        n += snprintf(line + n, sizeof(line) - n, " %s %.1f/%.1f", names[i], s_prof.sum[i] / s_prof.frames * 1000.0,
-                      s_prof.max[i] * 1000.0);
-    }
-    if (n < (int)sizeof(line))
-        snprintf(line + n, sizeof(line) - n, ", game %.1f/%.1f (avg/max ms)", (span - known) / s_prof.frames * 1000.0,
-                 s_prof.gameMax * 1000.0);
-    Log("%s", line);
-    int m = snprintf(line, sizeof(line), "perf worst frame %.1f ms:", s_prof.worstFrame * 1000.0);
-    for (int i = 0; i < PROF_COUNT && m < (int)sizeof(line); i++)
-        m += snprintf(line + m, sizeof(line) - m, " %s %.1f", names[i], s_prof.worst[i] * 1000.0);
-    if (m < (int)sizeof(line))
-        snprintf(line + m, sizeof(line) - m, " game %.1f ms", s_prof.worstGame * 1000.0);
-    Log("%s", line);
     if (g_cfg.logPasses) {
-        int m = snprintf(line, sizeof(line), "passes per frame:");
-        for (int i = 0; i < s_passTallyN && m < (int)sizeof(line); i++)
-            m += snprintf(line + m, sizeof(line) - m, " %s%ux%u@%p x%.1f (out %.1f e0 %.1f e1 %.1f) %.0f draws",
-                          s_passTally[i].depth ? "depth " : "", s_passTally[i].w, s_passTally[i].h,
-                          (void*)s_passTally[i].surf, s_passTally[i].count / (double)s_prof.frames,
-                          s_passTally[i].eye[0] / (double)s_prof.frames, s_passTally[i].eye[1] / (double)s_prof.frames,
-                          s_passTally[i].eye[2] / (double)s_prof.frames, s_passTally[i].draws / (double)s_prof.frames);
-        Log("%s", line);
         s_passTallyN = 0;
         s_passColor = s_passDepth = -1;
-    }
-    if (s_eyeSceneSum[0] > 0 || s_eyeSceneSum[1] > 0) {
-        Log("eye scene: left %.2f/%.2f ms, %u draws/frame; right %.2f/%.2f ms, %u draws/frame",
-            s_eyeSceneSum[0] / s_prof.frames * 1000.0, s_eyeSceneMax[0] * 1000.0,
-            s_eyeDrawCalls[0] / (unsigned)s_prof.frames,
-            s_eyeSceneSum[1] / s_prof.frames * 1000.0, s_eyeSceneMax[1] * 1000.0,
-            s_eyeDrawCalls[1] / (unsigned)s_prof.frames);
     }
     memset(s_eyeSceneSum, 0, sizeof(s_eyeSceneSum));
     memset(s_eyeSceneMax, 0, sizeof(s_eyeSceneMax));
@@ -2070,16 +2034,6 @@ static void UpdatePictureSettings() {
         }
         if (level) Log("d3d9: anisotropic filtering %dx", level);
         else Log("d3d9: anisotropic filtering off");
-    }
-    // Every 30 s: what the game asked for, so the log shows what the switch can act on.
-    static DWORD lastStats = GetTickCount();
-    if (GetTickCount() - lastStats > 30000) {
-        lastStats = GetTickCount();
-        Log("d3d9: texture minification filters the game set (30 s): none %u, point %u, linear %u, anisotropic %u, other %u;"
-            " %u made anisotropic", s_minFilterAsked[0], s_minFilterAsked[1], s_minFilterAsked[2], s_minFilterAsked[3],
-            s_minFilterAsked[4], s_minFilterTurned);
-        memset(s_minFilterAsked, 0, sizeof(s_minFilterAsked));
-        s_minFilterTurned = 0;
     }
     static std::string ini;
     static int applied = -1;       // the ShadowsRes the ini has

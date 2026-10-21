@@ -6,8 +6,9 @@
 //   aligning   the front tyres' self-aligning torque. The front axle's direction of travel versus
 //              where the front wheels point gives the tyres' slip angle; the tyre pulls the wheel
 //              back toward the direction of travel, harder with grip and load, and lets go past
-//              the grip limit (understeer goes light). In a slide the travel direction is
-//              sideways, so the wheel pulls into the countersteer by itself.
+//              the grip limit (understeer goes light), lighter still as the game's own tyres lose
+//              traction (GripLoss, RearGripLoss, UndersteerFeel). In a slide the travel direction
+//              is sideways, so the wheel pulls into the countersteer by itself.
 //   centering  a spring toward straight ahead while parked or slow, fading out as the aligning
 //              torque comes in (by 20 km/h), and in menus, pause and cutscenes
 //   damping    weight against fast wheel movement (more when parked)
@@ -31,6 +32,9 @@ struct ModelParams {
     float gripPeakDeg = 7.0f;       // front slip angle where the tyres grip hardest (heaviest wheel)
     float driftAlign = 0.3f;        // pull toward the direction of travel that stays past the grip limit
     float loadSensitivity = 0.5f;   // how much front tyre load scales the aligning torque
+    float gripLoss = 0.5f;          // 0 = no grip-state lightening, 1 = strong
+    float understeerFeel = 0.0f;    // extra lightening from the game's understeer factor (0 = off)
+    float rearGripLoss = 0.5f;      // extra lightening when the rear tyres are past their limit (0 = off)
     float centering = 0.3f;         // spring toward centre while parked or slow
     float damping = 0.3f;
     float friction = 0.05f;

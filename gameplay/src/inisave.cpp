@@ -153,9 +153,7 @@ DWORD WINAPI Writer(LPVOID) {
         std::deque<IniWrite> batch;
         batch.swap(s_queue);
         LeaveCriticalSection(&s_lock);
-        double t0 = Now();
         WriteBatch(batch);
-        Log("ui: %u settings written in the background (%.0f ms)", (unsigned)batch.size(), (Now() - t0) * 1000.0);
         EnterCriticalSection(&s_lock);
     }
 }

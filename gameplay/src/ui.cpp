@@ -291,6 +291,8 @@ constexpr struct {
     {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f},
     {MOD_VR, "RearViewEvery", 1.0f}, {MOD_VR, "DepthSplit", 1.0f}, {MOD_VR, "SharedShadows", 1.0f},
     {MOD_FFB, "ParkingFriction", 0.0f}, {MOD_FFB, "SpinLighter", 0.5f},
+    {MOD_FFB, "GripLoss", 0.5f}, {MOD_FFB, "UndersteerFeel", 0.0f}, {MOD_FFB, "RearGripLoss", 0.5f},
+    {MOD_FFB, "TyreScrub", 0.2f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -314,6 +316,7 @@ enum {
     VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
     VR_ANISOTROPIC = VR_DASHANGLE + 2, VR_SHADOWRES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
     FFB_PARKINGFRICTION, FFB_SPINLIGHTER,
+    FFB_GRIPLOSS, FFB_UNDERSTEER, FFB_REARGRIP, FFB_TYRESCRUB,
     EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
@@ -322,6 +325,10 @@ static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enu
 constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
 static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
 static_assert(KeyIs(kExt[FFB_SPINLIGHTER].key, "SpinLighter"), "kExt out of order at FFB_SPINLIGHTER");
+static_assert(KeyIs(kExt[FFB_GRIPLOSS].key, "GripLoss"), "kExt out of order at FFB_GRIPLOSS");
+static_assert(KeyIs(kExt[FFB_UNDERSTEER].key, "UndersteerFeel"), "kExt out of order at FFB_UNDERSTEER");
+static_assert(KeyIs(kExt[FFB_REARGRIP].key, "RearGripLoss"), "kExt out of order at FFB_REARGRIP");
+static_assert(KeyIs(kExt[FFB_TYRESCRUB].key, "TyreScrub"), "kExt out of order at FFB_TYRESCRUB");
 static_assert(KeyIs(kExt[VR_ANISOTROPIC].key, "Anisotropic"), "kExt out of order at VR_ANISOTROPIC");
 static_assert(KeyIs(kExt[VR_SHADOWRES].key, "ShadowRes"), "kExt out of order at VR_SHADOWRES");
 static_assert(KeyIs(kExt[VR_SHAREDSHADOWS].key, "SharedShadows"), "kExt out of order at VR_SHAREDSHADOWS");
@@ -610,6 +617,9 @@ const Item kItems[] = {
     {NUMBER, "Force change limit", "FFB", "SlewRate", &s_ext[FFB_SLEW], 5.0f, 60.0f, 1.0f, 1, "%.0f /s", 0},
     HEADER_("STEERING FEEL"),
     {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Front grip loss", "FFB", "GripLoss", &s_ext[FFB_GRIPLOSS], 0.0f, 1.0f, 0.005f, 100, "%.1f%%", 0},
+    {NUMBER, "Understeer feel", "FFB", "UndersteerFeel", &s_ext[FFB_UNDERSTEER], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Rear grip loss", "FFB", "RearGripLoss", &s_ext[FFB_REARGRIP], 0.0f, 1.0f, 0.005f, 100, "%.1f%%", 0},
     {NUMBER, "Slow-speed centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Friction", "FFB", "Friction", &s_ext[FFB_FRICTION], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
@@ -626,6 +636,7 @@ const Item kItems[] = {
     {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Hard impact jerk", "FFB", "HardImpactJerk", &s_ext[FFB_HARDJERK], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Tyre scrub", "FFB", "TyreScrub", &s_ext[FFB_TYRESCRUB], 0.0f, 0.5f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Lighter steering with nitrous", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
     {NUMBER, "Lighter steering in wheelspin", "FFB", "SpinLighter", &s_ext[FFB_SPINLIGHTER], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
     RESET_,
@@ -1155,7 +1166,6 @@ void StartPicking() {
     *picking = 1;
     if (float* layer = ExtSetting(VR_EDITLAYER)) *layer = 0;
     s_picking = true;
-    Log("ui: picking triangles");
     SetOpen(false);
 }
 
@@ -1167,7 +1177,6 @@ void StopPicking(bool keep) {
     int n = picked ? (int)lrintf(*picked) : 0;
     Note(keep ? (n ? "Picked " + std::to_string(n) + (n == 1 ? " triangle" : " triangles") : std::string("Nothing picked"))
               : std::string("Picking cancelled"));
-    Log("ui: picking %s (%d triangles)", keep ? "done" : "cancelled", n);
 }
 
 // While picking, in place of the menu's own keys.
@@ -1689,7 +1698,6 @@ void Save() {
         s_menu.pedalCal = false;
     }
     IniSave_Queue(writes);
-    Log("ui: settings saved to %s", IniPath());
 }
 
 void CancelCapture() {
@@ -1724,7 +1732,6 @@ void UpdateVrPages() {
 void SetOpen(bool open) {
     if (open == s_menu.open) return;
     s_menu.open = open;
-    Log("ui: menu %s", open ? "opened" : "closed");
     if (open) {
         for (int i = 0; i < EXT_COUNT; i++)
             if (ExtSetting(i)) s_ext[i] = *ExtSetting(i);
@@ -1950,6 +1957,10 @@ const struct {
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_PARKINGFRICTION], "Stationary friction: the tyres scrubbing on the road when the car stands still, so the wheel is heavy to turn when parked. Full at a standstill, gone by 18 km/h."},
     {&s_ext[FFB_SPINLIGHTER], "How much lighter the steering gets while the driven wheels spin (launches, burnouts): measured from the wheels' speed against the car's, from 10% slip, full at 50% (0 = no change)."},
+    {&s_ext[FFB_GRIPLOSS], "How much the front tyres' own grip state lightens the wheel past the limit: the game's traction per tyre moves the aligning torque's peak earlier and lowers it, so the wheel goes light as the front lets go. If the front stays gripped while the car oversteers, use Rear grip loss (0 = the slip angle alone). Adjustable in 0.5% steps."},
+    {&s_ext[FFB_UNDERSTEER], "Extra lightening from the game's understeer factor, only once the front slip angle is past its peak (0 = off)."},
+    {&s_ext[FFB_REARGRIP], "How much the rear tyres' own grip state lightens the wheel when they are past their limit: as the rear steps out, the steering goes light. This is the one to raise first in a rear-wheel-drive car that oversteers (0 = off). Adjustable in 0.5% steps."},
+    {&s_ext[FFB_TYRESCRUB], "A fine vibration once any tyre is past its grip limit, rising with how far past it is and with speed (0 = off)."},
     {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
     {&s_ext[VR_HUDPERCAR], "On: each car model remembers its own floating HUD size, distance, height and left / right position, like the seat. A model you haven't set yet starts from the mod's built-in defaults, not from the last car you used. The in-car dashboard display's size and position are always per car model, whatever this says; the element layout and the HUD crops are the same for every car."},
     {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
@@ -2776,7 +2787,7 @@ void Ui_Frame() {
     static uint32_t recenters = in.recenters;
     if (in.recenters != recenters) {
         recenters = in.recenters;
-        Log("ui: VR recentre binding: %s", VrRecenter() ? "recentred" : "no VR mod or headset");
+        VrRecenter();
     }
     UpdateMenu(in, st.driving);
     if (float* v = ExtSetting(VR_MENUOPEN)) *v = s_menu.open ? 1.0f : 0.0f;

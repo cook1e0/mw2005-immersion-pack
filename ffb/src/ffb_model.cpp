@@ -6,6 +6,21 @@ namespace ffb {
 
 namespace {
 const float kPi = 3.14159265f;
+
+// The least grip of the grounded wheels in [first, last]; 1 when the game's tyre state is
+// unavailable. The least-gripping wheel is the one that decides where the axle lets go; averaging
+// with a still-gripping wheel hides the loss.
+float GroundedGrip(const Telemetry& t, int first, int last) {
+    if (!t.tireStateValid) return 1.0f;
+    float grip = 1.0f;
+    bool any = false;
+    for (int i = first; i <= last; ++i) {
+        if (!t.tireOnGround[i]) continue;
+        grip = fminf(grip, Clampf(t.tireGrip[i], 0.0f, 1.0f));
+        any = true;
+    }
+    return any ? grip : 1.0f;
+}
 }
 
 float FrontTravel(const Telemetry& t) {
@@ -44,14 +59,35 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
         }
         float loadRatio = loadRef_ > 0 ? t.frontLoad / loadRef_ : 0.5f * t.frontOnGround;
         float load = Clampf(1.0f + p.loadSensitivity * (loadRatio - 1.0f), 0.3f, 1.6f);
+        // The tyres' own grip: 1 while gripping, lower past the limit. It moves the SAT peak to a
+        // smaller slip angle and scales the force, so the wheel goes light as the front lets go.
+        // Gated by the front's slip angle so hard straight-line braking (which also lowers the
+        // traction ratio) does not lighten the wheel by itself.
+        float slip = FrontSlipAngle(t, w, p, roadLock_);
+        float basePeakRad = Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f;
+        float gripGate = Smoothstep(0.1f, 0.5f, fabsf(slip) / basePeakRad);
+        float grip = GroundedGrip(t, 0, 1);
+        float over = Clampf(1.0f - grip, 0.0f, 1.0f);
+        float g = Clampf(p.gripLoss, 0.0f, 1.0f) * over * gripGate;
+        float peakDeg = Clampf(p.gripPeakDeg * (1.0f - 0.35f * g), 1.0f, 30.0f);
+        float peakRad = peakDeg * kPi / 180.0f;
         // Brush-model shape: rises to 1 at the grip peak, then falls away (the wheel goes light
         // as the front lets go); a smaller pull toward the travel direction stays in a slide.
-        float x = FrontSlipAngle(t, w, p, roadLock_) / (Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f);
+        float x = slip / peakRad;
         float shape = x * expf(0.5f * (1.0f - x * x)) + p.driftAlign * tanhf(0.5f * x);
+        float amp = 1.0f - 0.55f * g;
+        // The game's understeer cue, only once the front is already past its peak (its fallback
+        // can be non-zero while gripping).
+        if (p.understeerFeel > 0.0f && t.tireStateValid && speed > 5.0f && fabsf(slip) > peakRad)
+            amp *= 1.0f - Clampf(p.understeerFeel, 0.0f, 1.0f) * Clampf(t.understeer, 0.0f, 1.0f);
+        // The rear tyres past their limit too: a big slide, lighter still.
+        if (p.rearGripLoss > 0.0f && t.tireStateValid)
+            amp *= 1.0f - Clampf(p.rearGripLoss, 0.0f, 1.0f) * (1.0f - GroundedGrip(t, 2, 3));
+        amp = Clampf(amp, 0.25f, 1.0f);
         // None when parked (no slip angle to speak of), in by 20 km/h; weaker in reverse.
         float speedGain = Smoothstep(0.5f, 6.0f, speed);
         if (t.vLong < -0.5f) speedGain *= 0.3f;
-        f.aligning = -p.aligning * shape * load * speedGain * drive;
+        f.aligning = -p.aligning * shape * amp * load * speedGain * drive;
     }
 
     if (!w.known) return f;

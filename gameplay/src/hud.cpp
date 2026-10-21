@@ -486,11 +486,7 @@ void UpdateAidIcons(float wave) {
         SetColor(img, active[k] ? Bright(beige, 0.2f + 0.8f * wave) : kIconGray);
         uint32_t& flags = Field<uint32_t>(img, kFO_Flags);
         uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (on[k] ? 0u : 1u);
-        if (vis != flags) {
-            flags = vis | kDirty;
-            Log("hud: %s icon %s", k == 0 ? "ABS" : "TC",
-                !(vis & 1u) ? "shown" : on[k] ? "hidden with the car icon" : "hidden (aid off)");
-        }
+        if (vis != flags) flags = vis | kDirty;
     }
 }
 
@@ -598,17 +594,12 @@ bool Paused() {
 }
 
 void HideForPause() {
-    static bool hidden = false;
     // Only while the meter's HUD package is still loaded (the frontend unloads it; its objects are
     // gone then).
     uint8_t* feng = *(uint8_t**)kFEngInstance;
     bool alive = s.applied && s.pkg && feng && ((FindPackage_t)kFindPackage)(feng, s.pkgName.c_str()) == s.pkg &&
                  s.bar && *(uintptr_t*)s.bar == kVtblMultiImage;
     bool paused = Paused() && alive;
-    if (paused != hidden) {
-        hidden = paused;
-        Log("hud: %s", paused ? "game paused: meter and icons hidden" : "game running: meter and icons back");
-    }
     if (!paused) return;
     if (s.bar) SetColor(s.bar, 0);
     if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, 0);

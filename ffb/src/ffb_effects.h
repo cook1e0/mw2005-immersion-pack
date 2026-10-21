@@ -16,6 +16,7 @@
 //             toward the side it was on: the game's own Smackable objects, not any light contact
 //   hardJerk  a kick away from the side that was hit and a short shake, on every impact that damages
 //             the car (as the gameplay mod counts them: Telemetry::damageSeq), harder for harder hits
+//   scrub     a vibration while any tyre is past its grip limit (the game's own traction)
 //
 // All in shares of full scale, + = turns the wheel to the right. Pure: no DirectInput or globals.
 #pragma once
@@ -34,14 +35,16 @@ struct EffectParams {
     float offroad = 0.4f;
     float carHits = 0.8f;
     float hardJerk = 0.8f;   // the jerk on impacts that damage the car
+    float tyreScrub = 0.2f;  // vibration while any tyre is past its grip limit
 };
 
 struct EffectParts {
     float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
     float hardJerk = 0;
+    float scrub = 0;
     float carHitLevel = 0;
     float hardJerkLevel = 0;
-    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit + hardJerk; }
+    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit + hardJerk + scrub; }
 };
 
 // How a jolt runs: a half-sine push toward its side lasting `push` s, under a shake of `shake`
@@ -62,7 +65,7 @@ public:
     // `drive` 0 (menus) .. 1 (driving), as for the model.
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
-    double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0, roughPhase_[2] = {0, 0};
+    double enginePhase_ = 0, surfacePhase_ = 0, shakePhase_ = 0, roughPhase_[2] = {0, 0}, scrubPhase_ = 0;
     uint32_t lastSeq_ = 0, lastHitSeq_ = 0, lastBreakSeq_ = 0, lastCarHitSeq_ = 0;
     bool haveHitSeq_ = false;
     float offroadLevel_ = 0, bump_ = 0, bumpWait_ = 0;

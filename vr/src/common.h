@@ -43,7 +43,7 @@ struct Config {
     int   dumpFrames = 1;          // debug: consecutive frames written per dump key press
     int   keyRecenter = VK_F8;
     int   keyDump = 0;               // debug: dump eye/HUD images to BMP (0 = disabled)
-    int   keyTrace = VK_DELETE;      // debug: record a 30 s per-frame trace to nfsmw_frametrace_NNN.csv (0 = disabled)
+    int   keyTrace = 0;              // debug (e.g. VK_DELETE): record a 30 s per-frame trace to nfsmw_frametrace_NNN.csv (0 = disabled)
     float renderPriority = 1;        // the render thread as an MMCSS "Games" task and a 1 ms system timer (0 = off)
     int   keyToggle = 0;             // debug: toggle stereo rendering (0 = disabled)
     int   keyLevel = VK_F7;

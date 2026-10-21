@@ -51,6 +51,20 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         e.surface = amp * (float)sin(surfacePhase_) * drive;
     }
 
+    // --- tyre scrub: a fine vibration once any tyre is past its grip limit ---
+    if (t.valid && t.tireStateValid && p.tyreScrub > 0.0f && t.wheelsOnGround > 0 && speed > 3.0f) {
+        float grip = 1.0f;
+        for (int i = 0; i < 4; ++i) {
+            if (!t.tireOnGround[i]) continue;
+            grip = fminf(grip, Clampf(t.tireGrip[i], 0.0f, 1.0f));
+        }
+        float level = p.tyreScrub * Smoothstep(0.25f, 0.9f, 1.0f - grip) * Smoothstep(3.0f, 15.0f, speed);
+        if (level > 0.0f) {
+            scrubPhase_ = Advance(scrubPhase_, 28.0f + 0.4f * speed, dt);
+            e.scrub = level * (float)sin(scrubPhase_) * drive;
+        }
+    }
+
     // --- kerbs and bumps: one new reading per physics tick ---
     if (t.seq != lastSeq_) {
         lastSeq_ = t.seq;

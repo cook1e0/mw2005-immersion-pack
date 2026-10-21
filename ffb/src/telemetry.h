@@ -47,6 +47,17 @@ struct Telemetry {
 
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
+    // Tyre state from the game's ISuspension, [0] = front left, [1] = front right, [2] = rear
+    // left, [3] = rear right. Only when tireStateValid: the getters are enhanced SuspensionRacer
+    // methods, not part of every ISuspension implementation.
+    bool  tireStateValid;
+    bool  tireOnGround[4];    // this wheel is touching the ground
+    float tireGrip[4];        // GetWheelTraction: 1 = full grip, lower = past the friction limit
+    float tireSlipAngle[4];   // GetWheelSlipAngle: radians (the game's own tyre slip angle)
+    float tireSkid[4];        // GetWheelSkid: the game's lateral skid (units not relied on)
+    float understeer;         // CalculateUndersteerFactor: 0..1
+    float oversteer;          // CalculateOversteerFactor: 0..1
+
     float bump[2];
     // Road surface under the front tyres: the game's own rumble for it (0..1, grass, gravel, rumble
     // strips) and its frequency in Hz.

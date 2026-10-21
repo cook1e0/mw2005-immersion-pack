@@ -34,6 +34,10 @@ struct Config {
     float gripPeakDeg = 7.0f;       // front slip angle where the wheel is heaviest
     float driftAlign = 0.3f;        // pull toward the direction of travel past the grip limit
     float loadSensitivity = 0.5f;   // how much front tyre load changes the aligning torque
+    float gripLoss = 0.5f;          // how much the front tyres' own grip state lightens the steering
+    float understeerFeel = 0.0f;    // extra lightening from the game's understeer factor (0 = off)
+    float rearGripLoss = 0.5f;      // extra lightening when the rear tyres are past their limit (0 = off)
+    float tyreScrub = 0.2f;         // vibration while any tyre slides (0 = off)
     float centering = 0.3f;         // spring toward centre while parked or slow
     float damping = 0.3f;           // weight against fast wheel movement
     float friction = 0.05f;

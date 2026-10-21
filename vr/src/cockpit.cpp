@@ -26,6 +26,7 @@
 #include <array>
 #include <map>
 #include <set>
+#include <utility>
 #include <string.h>
 #include <stdio.h>
 #include <string>
@@ -590,7 +591,9 @@ int WheelOctant(float du, float dw) {
     return -dw < -du ? 0 : 1;
 }
 
-bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w) {
+// depthBin: the bins' depth along the column (2 cm; 4 cm finds a thick, low-poly rim such as the
+// Clio's, whose vertices spread over several 2 cm slices).
+bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w, float depthBin = 0.02f) {
     std::vector<V3> cand;
     for (const V3& p : pts)
         if (p.x > head[0] + 0.2f && p.x < head[0] + 0.85f && fabsf(p.y - head[1]) < 0.32f && p.z > head[2] - 0.55f &&
@@ -631,7 +634,7 @@ bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w) {
                         if (fabsf(dw) > 0.24f) continue;
                         float r2 = du * du + dw * dw;
                         if (r2 < 0.014399f || r2 > 0.057601f) continue;
-                        int db = (int)lrintf(d[k] / 0.02f) + 80;
+                        int db = (int)lrintf(d[k] / depthBin) + 80;
                         int rb = (int)lrintf(sqrtf(r2) / 0.015f);
                         if (db < 0 || db >= 160 || rb < 0 || rb >= 20) continue;
                         Bin& b = bins[db][rb];
@@ -651,7 +654,7 @@ bool FindWheel(const std::vector<V3>& pts, const float head[3], Wheel& w) {
                         if (octs < 7 || b.count * octs <= bestScore) continue;
                         bestScore = b.count * octs;
                         best[0] = th; best[1] = cu; best[2] = cw;
-                        best[3] = (key / 20 - 80) * 0.02f; best[4] = (key % 20) * 0.015f;
+                        best[3] = (key / 20 - 80) * depthBin; best[4] = (key % 20) * 0.015f;
                         bestCwi = cwi;
                     }
                 }
@@ -807,7 +810,9 @@ Wheel* PrepareWheel(uint8_t* solid, const char* name, const float head[3]) {
     auto pos = [&](int v) { return (const float*)(verts + v * stride); };
     std::vector<V3> pts(numVerts);
     for (int v = 0; v < numVerts; v++) pts[v] = {pos(v)[0], pos(v)[1], pos(v)[2]};
-    if (!FindWheel(pts, head, *w)) {
+    // A wheel the usual search misses (the Clio's, the only one in the game) is looked for again
+    // with deeper bins; a wheel the first search finds is never searched for that way.
+    if (!FindWheel(pts, head, *w) && !FindWheel(pts, head, *w, 0.04f)) {
         Log("cockpit: %s: no steering wheel found", name);
         return w;
     }
@@ -1438,7 +1443,7 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         std::vector<V3> tris;
         const float* h = head->v;
         SolidTriangles(solid, tris, [h](const V3* p) { return mirror::InRearViewRegion(p, h); });
-        info.glass[2] = mirror::FindGlass(tris, false, mirror::GlassKind::RearView);
+        info.glass[2] = mirror::FindRearViewGlass(tris);
         info.mirrorKind = 3;
         const MirrorGlass& g = info.glass[2];
         if (g.ok)
@@ -1496,23 +1501,62 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         }
 }
 
+// The glass's outline in its own plane, across and up (u, v): the convex hull of the patch's
+// points. Some glass is a faceted shell whose triangles overlap, fold or leave gaps (the Eclipse's
+// in the back of its housing), and drawing those raw made a broken shape; fanned from the hull
+// they make one clean patch in the glass's plane.
+void GlassOutline(const MirrorGlass& g, std::vector<std::pair<float, float>>& hull) {
+    hull.clear();
+    std::vector<std::pair<float, float>> pts;
+    pts.reserve(g.tris.size());
+    for (const V3& p : g.tris) pts.push_back({mirror::Dot(p, g.u), mirror::Dot(p, g.v)});
+    std::sort(pts.begin(), pts.end());
+    pts.erase(std::unique(pts.begin(), pts.end()), pts.end());
+    if (pts.size() < 3) return;
+    auto cross = [](const std::pair<float, float>& o, const std::pair<float, float>& a, const std::pair<float, float>& b) {
+        return (a.first - o.first) * (b.second - o.second) - (a.second - o.second) * (b.first - o.first);
+    };
+    std::vector<std::pair<float, float>> h(2 * pts.size());
+    size_t k = 0;
+    for (size_t i = 0; i < pts.size(); i++) {
+        while (k >= 2 && cross(h[k - 2], h[k - 1], pts[i]) <= 0) k--;
+        h[k++] = pts[i];
+    }
+    for (size_t i = pts.size() - 1, t = k + 1; i > 0; i--) {
+        while (k >= t && cross(h[k - 2], h[k - 1], pts[i - 1]) <= 0) k--;
+        h[k++] = pts[i - 1];
+    }
+    if (k < 4) return;
+    h.resize(k - 1);
+    float twiceArea = 0;
+    for (size_t i = 0; i < h.size(); i++)
+        twiceArea += h[i].first * h[(i + 1) % h.size()].second - h[(i + 1) % h.size()].first * h[i].second;
+    if (fabsf(twiceArea) < 1e-7f) return;
+    hull.swap(h);
+}
+
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
 // about the glass's centre, with their place in the glass (0..1 across, 0..1 down) as texture
 // coordinates: x, y, z, u, v per vertex.
 void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, float lift = 0.008f, float scale = 1.0f) {
     float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v), cd = mirror::Dot(g.centre, g.normal);
     out.clear();
-    for (const V3& p1 : g.tris) {
-        // Laid flat in the glass's plane: the Eclipse's glass and the back of its housing come out
-        // as one patch, folded, and drawn as they are they made a broken shape.
-        float off = mirror::Dot(p1, g.normal) - cd;
-        V3 p0 = {p1.x - g.normal.x * off, p1.y - g.normal.y * off, p1.z - g.normal.z * off};
-        V3 p = {g.centre.x + (p0.x - g.centre.x) * scale, g.centre.y + (p0.y - g.centre.y) * scale,
-                g.centre.z + (p0.z - g.centre.z) * scale};
-        V3 q = {p.x + g.normal.x * lift, p.y + g.normal.y * lift, p.z + g.normal.z * lift};
-        for (int a = 0; a < 3; a++) out.push_back(q.x * m.m[0][a] + q.y * m.m[1][a] + q.z * m.m[2][a] + m.m[3][a]);
-        out.push_back(g.halfU > 0 ? (mirror::Dot(p, g.u) - (cu - g.halfU)) / (2 * g.halfU) : 0.0f);
-        out.push_back(g.halfV > 0 ? ((cv + g.halfV) - mirror::Dot(p, g.v)) / (2 * g.halfV) : 0.0f);
+    std::vector<std::pair<float, float>> hull;
+    GlassOutline(g, hull);
+    for (size_t i = 1; i + 1 < hull.size(); i++) {
+        const std::pair<float, float>* fan[3] = {&hull[0], &hull[i], &hull[i + 1]};
+        for (const std::pair<float, float>* at : fan) {
+            // In the glass's plane, from its place across and up.
+            V3 p0 = {g.u.x * at->first + g.v.x * at->second + g.normal.x * cd,
+                     g.u.y * at->first + g.v.y * at->second + g.normal.y * cd,
+                     g.u.z * at->first + g.v.z * at->second + g.normal.z * cd};
+            V3 p = {g.centre.x + (p0.x - g.centre.x) * scale, g.centre.y + (p0.y - g.centre.y) * scale,
+                    g.centre.z + (p0.z - g.centre.z) * scale};
+            V3 q = {p.x + g.normal.x * lift, p.y + g.normal.y * lift, p.z + g.normal.z * lift};
+            for (int a = 0; a < 3; a++) out.push_back(q.x * m.m[0][a] + q.y * m.m[1][a] + q.z * m.m[2][a] + m.m[3][a]);
+            out.push_back(g.halfU > 0 ? (mirror::Dot(p, g.u) - (cu - g.halfU)) / (2 * g.halfU) : 0.0f);
+            out.push_back(g.halfV > 0 ? ((cv + g.halfV) - mirror::Dot(p, g.v)) / (2 * g.halfV) : 0.0f);
+        }
     }
 }
 
@@ -2418,13 +2462,8 @@ void Cockpit_EndFrame() {
     s_retiredWheels.clear();
     for (GlassSplit* g : s_retiredSplits) delete g;
     s_retiredSplits.clear();
-    static double lastReport;
-    if (s_bodyDraws && Now() - lastReport > 5.0) {
-        lastReport = Now();
-        Log("cockpit: seat/body max difference %.6f over %u draws", s_bodyMismatch, s_bodyDraws);
-        s_bodyMismatch = 0;
-        s_bodyDraws = 0;
-    }
+    s_bodyMismatch = 0;
+    s_bodyDraws = 0;
     if (s_frame.dist < 1e8f) {
         // The seat is a fixed point in the body. Re-measuring it each frame makes LOD changes
         // and different head meshes move the eyes around inside the cockpit.

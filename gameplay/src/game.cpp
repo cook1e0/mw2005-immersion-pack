@@ -285,8 +285,7 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
 
     if (cur != s.lastGear) {
         // First time, or the game changed gear itself (race start, reset, ...): follow the stick.
-        if (want != cur && TransShift(trans, want))
-            Log("shift: %s -> %s (sync with shifter)", GearName(cur), GearName(want));
+        if (want != cur) TransShift(trans, want);
         s.lastGear = TransGear(trans);
         return;
     }
@@ -311,7 +310,6 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
         // The stick has left the old gate, so the box is in neutral until the gear goes in.
         if (cur != G_NEUTRAL) TransShift(trans, G_NEUTRAL);
         if (s.refused != want) {
-            Log("shift: %s refused (%s)", GearName(want), refuse);
             if (refuse[0] == 'c') {   // "clutch not pressed"
                 if (g_cfg.grind) MissShift(eng);
                 MisshiftDamage(eng);
@@ -322,7 +320,6 @@ void ApplyShifter(uint8_t* eng, const InputSnapshot& in) {
     } else if (TransShift(trans, want)) {
         // With the clutch already down, the game's simulated clutch kick is redundant.
         if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
-        Log("shift: %s -> %s (clutch %.2f)", GearName(cur), GearName(want), in.clutchPedal);
         s.refused = -100;
         s.missed = false;
     }
@@ -390,7 +387,6 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         // The game's shift control and ShiftUp / ShiftDown can be the same key: one press, one grind.
         static double lastRefused = -1e9;
         if (Now() - lastRefused > 0.2) {
-            Log("shift: %s refused (clutch not pressed)", delta > 0 ? "up" : "down");
             if (g_cfg.grind) MissShift(eng);
             MisshiftDamage(eng);
         }
@@ -409,16 +405,10 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
     int want = cur + (delta > 0 ? 1 : -1);
     if (want < G_REVERSE || want > TransTopGear(trans)) return false;
     if (want == G_REVERSE && g_cfg.blockWrongDirection && WrongDirection(eng, want)) {
-        static double lastRefused = -1e9;
-        if (Now() - lastRefused > 1.0) Log("shift: R refused (car rolling the other way)");
-        lastRefused = Now();
         return false;
     }
     bool shifted = TransShift(trans, want);
-    if (shifted) {
-        if (clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
-        if (want <= G_FIRST) Log("shift: %s -> %s (sequential)", GearName(cur), GearName(want));
-    }
+    if (shifted && clutchIn && !g_cfg.keepShiftDelay) Field<float>(eng, kER_ShiftTimer) = 0.0f;
     return shifted;
 }
 
@@ -617,15 +607,7 @@ void PlayerEngineStep(uint8_t* eng) {
         BlowEngine(eng);
     }
     UpdateTotaled(eng);
-    // Every change of the player's input block, with what we know of it: the next car that stops
-    // answering the controls shows when and in what state it was blocked.
-    int blocked = PlayerInputBlocked(eng) ? 1 : 0;
-    if (blocked != s.inputBlocked) {
-        if (s.inputBlocked >= 0 || blocked)
-            Log("input: the player's controls %s (%s%s%s%s)", blocked ? "blocked" : "unblocked", InRace() ? "racing" : "roaming",
-                IsBlown(eng) ? ", engine blown" : "", s.totaledBlocked ? ", totaled" : "", s.menuBlocked ? ", menu open" : "");
-        s.inputBlocked = blocked;
-    }
+    s.inputBlocked = PlayerInputBlocked(eng) ? 1 : 0;
     bool blown = IsBlown(eng);
     if (blown != s.blown) {
         s.blown = blown;
@@ -683,10 +665,7 @@ void UpdateWear(uint8_t* eng, float dT) {
     }
     s.heat = Clamp(s.heat + rate * dT, 0.0f, 1.0f);
     int step = (int)(s.heat * 4.0f);
-    if (step != s.heatStep) {
-        if (step > s.heatStep) Log("engine: heat %d%% (rpm %.0f, redline %.0f, max %.0f)", step * 25, rpm, redline, maxRpm);
-        s.heatStep = step;
-    }
+    s.heatStep = step;
     if (s.heat >= 1.0f) BlowEngine(eng);
 }
 
@@ -870,13 +849,7 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
     ClutchSimulate(eng, dT);
     if (eng != s.engine) return;
     PlayerEngineStep(eng);
-    bool wear = WearApplies(eng);
-    if (wear != s.wearLogged) {
-        s.wearLogged = wear;
-        Log("engine wear %s (setting %d, input fresh %d, automatic %d, drag %d)", wear ? "active" : "inactive",
-            g_cfg.engineWear, Fresh(), s.autoShift, IsDragster(eng));
-    }
-    if (wear) UpdateWear(eng, dT);
+    if (WearApplies(eng)) UpdateWear(eng, dT);
 }
 
 // The overlay is drawn after the game's HUD, so the VR mod puts it on its HUD panel.
