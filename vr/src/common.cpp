@@ -194,8 +194,7 @@ void LoadConfig() {
     if (c.envMapFacesPerFrame > 6) c.envMapFacesPerFrame = 6;
     c.sharedShadows = ReadInt(ini, "SharedShadows", 1) ? 1.0f : 0.0f;
     c.simRateFromHeadset = ReadInt(ini, "SimRateFromHeadset", 1) != 0 ? 1.0f : 0.0f;
-    int smaa = ReadInt(ini, "Smaa", (int)c.smaa), aniso = ReadInt(ini, "Anisotropic", (int)c.anisotropic);
-    c.smaa = (float)(smaa < 0 ? 0 : smaa > 4 ? 4 : smaa);
+    int aniso = ReadInt(ini, "Anisotropic", (int)c.anisotropic);
     c.anisotropic = (float)(aniso < 0 ? 0 : aniso > 4 ? 4 : aniso);
     c.shadowArea = ReadFloat(ini, "ShadowArea", c.shadowArea);
     if (!(c.shadowArea >= 0.3f)) c.shadowArea = 0.3f;

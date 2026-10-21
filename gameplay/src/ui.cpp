@@ -291,7 +291,7 @@ constexpr struct {
     {MOD_VR, "DashGlass", 0.05f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
     {MOD_VR, "DashGlassDepth", 0.01f}, {MOD_VR, "DashReflect", 0.05f},
     {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
-    {MOD_VR, "Smaa", 0.0f}, {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f}, {MOD_VR, "SmaaEdges", 0.0f},
+    {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f},
     {MOD_VR, "RearViewEvery", 1.0f}, {MOD_VR, "DepthSplit", 1.0f}, {MOD_VR, "SharedShadows", 1.0f},
     {MOD_FFB, "ParkingFriction", 0.0f}, {MOD_FFB, "SpinLighter", 0.5f},
 };
@@ -316,7 +316,7 @@ enum {
     VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
     VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
     VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
-    VR_SMAA = VR_DASHANGLE + 2, VR_ANISOTROPIC, VR_SHADOWRES, VR_SMAAEDGES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
+    VR_ANISOTROPIC = VR_DASHANGLE + 2, VR_SHADOWRES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
     FFB_PARKINGFRICTION, FFB_SPINLIGHTER,
     EXT_COUNT
 };
@@ -326,7 +326,7 @@ static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enu
 constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
 static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
 static_assert(KeyIs(kExt[FFB_SPINLIGHTER].key, "SpinLighter"), "kExt out of order at FFB_SPINLIGHTER");
-static_assert(KeyIs(kExt[VR_SMAA].key, "Smaa"), "kExt out of order at VR_SMAA");
+static_assert(KeyIs(kExt[VR_ANISOTROPIC].key, "Anisotropic"), "kExt out of order at VR_ANISOTROPIC");
 static_assert(KeyIs(kExt[VR_SHADOWRES].key, "ShadowRes"), "kExt out of order at VR_SHADOWRES");
 static_assert(KeyIs(kExt[VR_SHAREDSHADOWS].key, "SharedShadows"), "kExt out of order at VR_SHAREDSHADOWS");
 static_assert(KeyIs(kExt[VR_DASHEL].key, "DashMapX"), "kExt out of order at VR_DASHEL");
@@ -863,8 +863,6 @@ const Item kItems[] = {
     {NUMBER, "Steering wheel centre left / right", "VR", "WheelPivotRight", &s_ext[VR_WHEELPIVOT], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
     {NUMBER, "Steering wheel centre up / down", "VR", "WheelPivotUp", &s_ext[VR_WHEELPIVOT + 1], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
     {ACTION, "Steering wheel centre: reset", nullptr, "EdWheelPivotReset", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "SMAA anti-aliasing (headset)", "VR", "Smaa", &s_ext[VR_SMAA], 0.0f, 4.0f, 1.0f, 1, "%.0f", 0},
-    {NUMBER, "SMAA: show the edges it finds", "VR", "SmaaEdges", &s_ext[VR_SMAAEDGES], 0.0f, 1.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Anisotropic filtering", "VR", "Anisotropic", &s_ext[VR_ANISOTROPIC], 0.0f, 4.0f, 1.0f, 1, "%.0f", 0},
     {NUMBER, "Shadow resolution (next start)", "VR", "ShadowRes", &s_ext[VR_SHADOWRES], 1.0f, 16.0f, 1.0f, 1, "x%.0f", 0},
     {NUMBER, "Mirrors: rear view every Nth frame", "VR", "RearViewEvery", &s_ext[VR_REARVIEWEVERY], 1.0f, 4.0f, 1.0f, 1, "%.0f", 0},
@@ -1239,13 +1237,9 @@ std::string ValueText(const Item& it, int index) {
     if (it.value == &s_ext[VR_EDITBRUSH] && v <= 0.0f) return "1 triangle";
     if (it.value == &s_ext[VR_EDITMODE]) return kPickSizes[std::max(0, std::min(5, (int)lrintf(v)))];
     if (it.value == &s_ext[FFB_INVERT] || it.value == &s_ext[VR_HIDEARMS] || it.value == &s_ext[VR_WHEELOVERHUD] ||
-        it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH] || it.value == &s_ext[VR_SMAAEDGES] ||
+        it.value == &s_ext[VR_HUDPERCAR] || it.value == &s_ext[VR_DASH] ||
         it.value == &s_ext[VR_DEPTHSPLIT] || it.value == &s_ext[VR_SHAREDSHADOWS])
         return v > 0.5f ? "On" : "Off";
-    if (it.value == &s_ext[VR_SMAA]) {
-        static const char* kSmaa[] = {"Off", "Low", "Medium", "High", "Ultra"};
-        return kSmaa[std::max(0, std::min(4, (int)lrintf(v)))];
-    }
     if (it.value == &s_ext[VR_ANISOTROPIC]) {
         static const char* kAniso[] = {"Off", "2x", "4x", "8x", "16x"};
         return kAniso[std::max(0, std::min(4, (int)lrintf(v)))];

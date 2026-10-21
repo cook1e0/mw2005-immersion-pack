@@ -12,7 +12,6 @@
 #include "spectator.h"
 #include "cockpit.h"
 #include "crash.h"
-#include "smaa.h"
 #include "frametrace.h"
 
 #include <d3d9.h>
@@ -175,7 +174,6 @@ static void ReleaseEyeTargets() {
     s_mirrorW = s_mirrorH = 0;
     ReleaseDash();
     ReleaseSavedState();
-    Smaa_Release();
     s_eyeW = s_eyeH = 0;
     s_eyeOk = false;
 }
@@ -209,12 +207,6 @@ void D3D_CaptureEye(int eye) {
     D3DSURFACE_DESC d;
     bb->GetDesc(&d);
     if (EnsureEyeTargets(d.Width, d.Height, d.MultiSampleType, d.MultiSampleQuality)) {
-        // With SMAA the picture goes through its three passes on the way into the eye texture.
-        int preset = (int)lrintf(g_cfg.smaa);
-        if (preset >= 1 && preset <= 4 && Smaa_Apply(s_dev, bb, s_eyeSurf[eye], s_eyeW, s_eyeH, preset, g_cfg.smaaEdges > 0.5f)) {
-            bb->Release();
-            return;
-        }
         HRESULT hr = s_dev->StretchRect(bb, nullptr, s_eyeSurf[eye], nullptr, D3DTEXF_NONE);
         static bool warned;
         if (FAILED(hr) && !warned) {
@@ -1432,7 +1424,6 @@ void D3D_WarmUp() {
     bool needed = g_cfg.dashGlass > 0.01f;
     bool glassTex = !needed || GlassTexture() != nullptr;
     bool state = SavedStateBlock() != nullptr;
-    if (g_cfg.smaa > 0.5f) Smaa_Prepare(s_dev, (int)lrintf(g_cfg.smaa));
     Log("d3d9: warm-up %.1f ms: d3dcompiler %s, mirror shaders %d%d%d, dashboard %s, glass texture %s, state block %s",
         (D3D_ProfNow() - t0) * 1000.0, compiler ? "ok" : "missing", (int)grade, (int)glass, (int)map,
         dash ? "ready" : "unavailable", needed ? (glassTex ? "ready" : "unavailable") : "off", state ? "ready" : "failed");
@@ -2732,8 +2723,6 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "WheelOverHud")) return &g_cfg.wheelOverHud;
     if (!strcmp(name, "HudPerCar")) return &g_cfg.hudPerCar;
     if (!strcmp(name, "Dash")) return &g_cfg.dash;
-    if (!strcmp(name, "Smaa")) return &g_cfg.smaa;
-    if (!strcmp(name, "SmaaEdges")) return &g_cfg.smaaEdges;
     if (!strcmp(name, "RearViewEvery")) return &g_cfg.rearViewEvery;
     if (!strcmp(name, "DepthSplit")) return &g_cfg.depthSplit;
     if (!strcmp(name, "SharedShadows")) return &g_cfg.sharedShadows;

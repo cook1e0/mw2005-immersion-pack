@@ -106,8 +106,6 @@ struct Config {
     int   envMapFacesPerFrame = 2;   // environment map cube faces refreshed per VR frame (1..6, 6 = every face every frame)
     float rearViewEvery = 1.0f;      // the rear view is rendered every Nth VR frame (1 = every frame; live)
     float sharedShadows = 1.0f;      // the sun shadow map drawn for the first eye only; the second eye reuses it (0/1, live)
-    float smaa = 3.0f;               // SMAA on each eye's picture: 0 off, 1 low, 2 medium, 3 high, 4 ultra (live from F4)
-    float smaaEdges = 0.0f;          // test: the eyes show the edges SMAA found instead of the picture (0/1)
     float anisotropic = 4.0f;        // anisotropic filtering: 0 off, 1 2x, 2 4x, 3 8x, 4 16x (live from F4)
     float simRateFromHeadset = 1.0f; // the widescreen fix's SimRate set to a multiple of the headset's rate (next start)
     float shadowRes = 2.0f;          // the widescreen fix's ShadowsRes over the game's 1024 (F4; next start)

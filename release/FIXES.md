@@ -1,3 +1,9 @@
+### Unreleased
+
+- **VR: SMAA removed:** the headset's SMAA anti-aliasing (`[VR] Smaa`, `SmaaEdges` and their F4
+  entries) is gone, with the SMAA shaders it shipped. Anisotropic filtering stays. The widescreen
+  fix's own SMAA (flat screen only) is unaffected.
+
 ### v0.21.0: new F4 menu, ABS and traction control, physics presets, SMAA and smoother frames in VR
 
 - **Challenge Series: the car is handed back at the start:** time trials (toll booths) give the
