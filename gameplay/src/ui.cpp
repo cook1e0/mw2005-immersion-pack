@@ -240,9 +240,9 @@ constexpr struct {
     const char* key;
     float def;                  // the mod's default
 } kExt[] = {
-    {MOD_FFB, "Gain", 0.85f}, {MOD_FFB, "MaxForce", 0.85f}, {MOD_FFB, "Aligning", 0.6f},
-    {MOD_FFB, "Centering", 0.1f}, {MOD_FFB, "Damping", 0.05f}, {MOD_FFB, "Friction", 0.1f},
-    {MOD_FFB, "SoftLock", 1.0f}, {MOD_FFB, "SlewRate", 15.0f}, {MOD_FFB, "SmoothingHz", 25.0f},
+    {MOD_FFB, "Gain", 0.6f}, {MOD_FFB, "MaxForce", 0.85f}, {MOD_FFB, "Aligning", 1.0f},
+    {MOD_FFB, "Centering", 0.2f}, {MOD_FFB, "Damping", 0.15f}, {MOD_FFB, "Friction", 0.05f},
+    {MOD_FFB, "SoftLock", 1.0f}, {MOD_FFB, "SlewRate", 20.0f}, {MOD_FFB, "SmoothingHz", 25.0f},
     {MOD_FFB, "Reverse", 0.0f}, {MOD_FFB, "Device", 0.0f}, {MOD_FFB, "SoftLockAt", 1.0f},
     {MOD_FFB, "GameController", 1.0f}, {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
@@ -251,19 +251,19 @@ constexpr struct {
     {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
     {MOD_VR, "HideArms", 1.0f},
-    {MOD_FFB, "EngineRumble", 0.1f}, {MOD_FFB, "Kerbs", 0.75f},
-    {MOD_FFB, "SurfaceRumble", 0.0f}, {MOD_FFB, "Crashes", 0.0f}, {MOD_FFB, "Scrapes", 0.0f},
-    {MOD_FFB, "Breakables", 0.65f},
+    {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.0f},
+    {MOD_FFB, "SurfaceRumble", 0.0f}, {MOD_FFB, "Crashes", 0.5f}, {MOD_FFB, "Scrapes", 0.3f},
+    {MOD_FFB, "Breakables", 0.4f},
     {MOD_VR, "MirrorBrightness", 1.4f}, {MOD_VR, "MirrorContrast", 1.0f},
     {MOD_VR, "WheelOverHud", 0.0f},
     {MOD_VR, "MenuOpen", 0.0f},             // live, not a setting: this menu is open
-    {MOD_FFB, "OffroadVibration", 0.8f},
+    {MOD_FFB, "OffroadVibration", 0.4f},
     {MOD_VR, "HudPerCar", 1.0f},
     {MOD_VR, "HudRight", 0.0f},
-    {MOD_FFB, "NosLighter", 0.5f},
-    {MOD_FFB, "Landing", 1.0f},
-    {MOD_FFB, "CarHits", 1.0f},
-    {MOD_FFB, "HardImpactJerk", 1.0f},
+    {MOD_FFB, "NosLighter", 0.3f},
+    {MOD_FFB, "Landing", 0.6f},
+    {MOD_FFB, "CarHits", 0.6f},
+    {MOD_FFB, "HardImpactJerk", 0.6f},
     {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
     {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
     {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
@@ -290,8 +290,8 @@ constexpr struct {
     {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
     {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f},
     {MOD_VR, "RearViewEvery", 1.0f}, {MOD_VR, "DepthSplit", 1.0f}, {MOD_VR, "SharedShadows", 1.0f},
-    {MOD_FFB, "ParkingFriction", 0.0f}, {MOD_FFB, "SpinLighter", 0.5f},
-    {MOD_FFB, "TyreScrub", 0.2f},
+    {MOD_FFB, "ParkingFriction", 0.2f}, {MOD_FFB, "SpinLighter", 0.5f},
+    {MOD_FFB, "TyreScrub", 0.15f},
 };
 enum {
     FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
@@ -532,28 +532,19 @@ struct Item {
 #define PAGE_(title) {PAGE, title, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define HEADER_(label) {HEADER, label, nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define LINK_(label, page) {LINK, label, page, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
-#define BACK_ LINK_("< Back", kDevPage)
+#define BACK_ LINK_("< Back", kMainPage)
 #define RESET_ {RESET, "Reset page to mod defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0}
 #define RESET_GAME_ {RESET, "Reset page to game defaults", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, BF_GAME}
 
-// F4 opens the main page (Gameplay, Controls, Force feedback); the full tuning menu, as it was, is
-// its Dev menu page. Links to kMainPage are "back" links.
+// F4 opens the main page: one link per topic, each setting on exactly one page. Links to kMainPage
+// are "back" links.
 constexpr const char* kMainPage = "MENU";
-constexpr const char* kDevPage = "DEV MENU";
 
 const Item kItems[] = {
     PAGE_(kMainPage),
-    LINK_("Gameplay", "GAMEPLAY"),
-    LINK_("Controls", "CONTROLS AND KEYS"),
-    LINK_("Force feedback", "WHEEL FORCE FEEDBACK"),
-    LINK_("Dev menu", kDevPage),
-
-    PAGE_(kDevPage),
-    LINK_("< Back", kMainPage),
     LINK_("Controls", "CONTROLS"),
     LINK_("Force feedback", "FORCE FEEDBACK"),
     LINK_("Shifter and clutch", "SHIFTER AND CLUTCH"),
-    LINK_("Gear bindings", "GEAR BINDINGS"),
     LINK_("Engine", "ENGINE"),
     LINK_("Damage and tires", "DAMAGE AND TIRES"),
     LINK_("Physics", "PHYSICS"),
@@ -563,10 +554,12 @@ const Item kItems[] = {
 
     PAGE_("CONTROLS"),
     BACK_,
+    {TOGGLE, "Classic input (the game's own)", "Controls", "ClassicInput", &g_cfg.classicInput, 0, 0, 0, 0, nullptr, 0},
     HEADER_("WHEEL AND PEDALS"),
     BINDING("Steering", "Controls", "Steering", steer, BF_STEER),
     BINDING("Accelerate", "Controls", "Accelerate", throttle, BF_PEDAL),
     BINDING("Brake", "Controls", "Brake", brake, BF_PEDAL),
+    BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
     {NUMBER, "Wheel rotation", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
@@ -588,6 +581,19 @@ const Item kItems[] = {
     BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
     BINDING("ABS on / off", "Controls", "ToggleAbs", toggleAbs, 0),
     BINDING("TC on / off", "Controls", "ToggleTc", toggleTc, 0),
+    HEADER_("GEARS"),
+    BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
+    BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
+    BINDING("Gear 2", "Shifter", "Gear2", gear[2], 0),
+    BINDING("Gear 3", "Shifter", "Gear3", gear[3], 0),
+    BINDING("Gear 4", "Shifter", "Gear4", gear[4], 0),
+    BINDING("Gear 5", "Shifter", "Gear5", gear[5], 0),
+    BINDING("Gear 6", "Shifter", "Gear6", gear[6], 0),
+    BINDING("Gear 7", "Shifter", "Gear7", gear[7], 0),
+    BINDING("Neutral (latching)", "Shifter", "Neutral", neutral, 0),
+    BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
+    BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
+    BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
     HEADER_("VR SEAT (HOLD)"),
     BINDING("Seat forward", "Controls", "SeatForward", seat[0], 0),
     BINDING("Seat back", "Controls", "SeatBack", seat[1], 0),
@@ -596,8 +602,13 @@ const Item kItems[] = {
     BINDING("Seat up", "Controls", "SeatUp", seat[4], 0),
     BINDING("Seat down", "Controls", "SeatDown", seat[5], 0),
     BINDING("Seat back to the driver's head", "Controls", "SeatReset", seat[6], 0),
+    HEADER_("MENU KEYS"),
+    BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
+    BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
+    BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
+    BINDING("Menu left", "UI", "MenuLeft", menuLeft, BF_REQUIRED),
+    BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
     RESET_,
-    RESET_GAME_,
 
     PAGE_("FORCE FEEDBACK"),
     BACK_,
@@ -653,22 +664,6 @@ const Item kItems[] = {
     {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
-    PAGE_("GEAR BINDINGS"),
-    BACK_,
-    BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
-    BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
-    BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
-    BINDING("Gear 2", "Shifter", "Gear2", gear[2], 0),
-    BINDING("Gear 3", "Shifter", "Gear3", gear[3], 0),
-    BINDING("Gear 4", "Shifter", "Gear4", gear[4], 0),
-    BINDING("Gear 5", "Shifter", "Gear5", gear[5], 0),
-    BINDING("Gear 6", "Shifter", "Gear6", gear[6], 0),
-    BINDING("Gear 7", "Shifter", "Gear7", gear[7], 0),
-    BINDING("Neutral (latching)", "Shifter", "Neutral", neutral, 0),
-    BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
-    BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
-    BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
-
     PAGE_("ENGINE"),
     BACK_,
     {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
@@ -722,7 +717,6 @@ const Item kItems[] = {
     {NUMBER, "Slide grip", "Physics", "SlideGrip", &g_cfg.slideGrip, 0.4f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Slide oversteer", "Physics", "SlideOversteer", &g_cfg.slideOversteer, 0.4f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Rain grip", "Physics", "RainGrip", &g_cfg.rainGrip, 0.5f, 1.0f, 0.001f, 100, "%.1f%%", 0},
-    {NUMBER, "Grip loss at speed", "Physics", "SpeedGripLoss", &g_cfg.speedGripLoss, 0.0f, 0.9f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Engine smoke in the back", "Physics", "SmokeBack", &g_cfg.smokeBack, 0.0f, 5.0f, 0.1f, 1, "%.1f m back", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
@@ -844,12 +838,6 @@ const Item kItems[] = {
 
     PAGE_("MENU AND TESTING"),
     BACK_,
-    HEADER_("MENU KEYS"),
-    BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
-    BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
-    BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
-    BINDING("Menu left", "UI", "MenuLeft", menuLeft, BF_REQUIRED),
-    BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
     HEADER_("TESTING"),
     BINDING("Pop tires key", "Tires", "DebugPopTires", debugPopTires, 0),
     {ACTION, "Pop all four tires now", nullptr, "PopTires", nullptr, 0, 0, 0, 0, nullptr, 0},
@@ -871,121 +859,6 @@ const Item kItems[] = {
     {NUMBER, "ABS / TC icons left / right", "HUD", "AidIconRight", &g_cfg.hudAidRight, -1000.0f, 1000.0f, 1.0f, 1, "%+.0f", 0},
     {NUMBER, "ABS / TC icons up / down", "HUD", "AidIconUp", &g_cfg.hudAidUp, -1000.0f, 1000.0f, 1.0f, 1, "%+.0f", 0},
 
-    // --- the TAB menu's own pages (the same settings as in the Dev menu, picked out) ---
-    PAGE_("GAMEPLAY"),
-    LINK_("< Back", kMainPage),
-    {TOGGLE, "Traction control", "Physics", "TC", &g_cfg.tc, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "ABS", "Physics", "ABS", &g_cfg.abs, 0, 0, 0, 0, nullptr, 0},
-    HEADER_("DRIVING"),
-    {TOGGLE, "Shifting", "Shifter", "Sequential", &g_cfg.sequential, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Clutch needed to shift", "Shifter", "RequireClutch", &g_cfg.requireClutch, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Classic inputs", "Controls", "ClassicInput", &g_cfg.classicInput, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Adjusted physics", "Physics", "Physics", &g_cfg.physics, 0, 0, 0, 0, nullptr, 0},
-    HEADER_("TRAFFIC AND RACES"),
-    {TOGGLE, "No head-on ramming SUVs", "Traffic", "NoHeavySupport", &g_cfg.noHeavySupport, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Drive drag races normally", "Races", "NormalDragRaces", &g_cfg.normalDragRaces, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Normal HUD in drag races", "Races", "NormalDragHud", &g_cfg.normalDragHud, 0, 0, 0, 0, nullptr, 0},
-    HEADER_("HUD"),
-    {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Damage / heat meter", "HUD", "Meter", &g_cfg.hudMeter, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "In-car dashboard", "VR", "Dash", &s_ext[VR_DASH], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
-    {NUMBER, "HUD size", "VR", "HudWidth", &s_ext[VR_HUDWIDTH], 0.5f, 3.0f, 0.05f, 100.0f / 1.4f, "%.0f%%", 0},
-    {NUMBER, "HUD left / right", "VR", "HudRight", &s_ext[VR_HUDRIGHT], -0.8f, 0.8f, 0.05f, 1, "%+.2f m", 0},
-    {NUMBER, "HUD up / down", "VR", "HudHeight", &s_ext[VR_HUDHEIGHT], -0.6f, 0.6f, 0.05f, 1, "%+.2f m", 0},
-    {NUMBER, "HUD distance", "VR", "HudDistance", &s_ext[VR_HUDDISTANCE], 0.4f, 3.0f, 0.05f, 1, "%.2f m", 0},
-    {RESET, "Reset to default", nullptr, nullptr, nullptr, 0, 0, 0, 0, nullptr, 0},
-
-    PAGE_("CONTROLS AND KEYS"),
-    LINK_("< Back", kMainPage),
-    {TOGGLE, "Classic input (the game's own)", "Controls", "ClassicInput", &g_cfg.classicInput, 0, 0, 0, 0, nullptr, 0},
-    HEADER_("WHEEL AND PEDALS"),
-    BINDING("Steering", "Controls", "Steering", steer, BF_STEER),
-    BINDING("Accelerate", "Controls", "Accelerate", throttle, BF_PEDAL),
-    BINDING("Brake", "Controls", "Brake", brake, BF_PEDAL),
-    BINDING("Clutch", "Clutch", "Clutch", clutch, BF_CLUTCH),
-    {NUMBER, "Wheel rotation", "Controls", "WheelRotation", &g_cfg.wheelRotation, 180.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
-    {NUMBER, "Steering lock", "Controls", "SteeringLock", &g_cfg.steeringLock, 90.0f, 1800.0f, 10.0f, 1, "%.0f deg", 0},
-    {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
-    {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
-    {NUMBER, "Steering sensitivity", "Controls", "SteeringSensitivity", &g_cfg.steerSensitivity, 0.25f, 4.0f, 0.05f, 1, "%.2fx", 0},
-    {TOGGLE, "Speed-sensitive steering", "Controls", "SpeedSensitiveSteering", &g_cfg.steerSpeedSensitive, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Speed sensitivity", "Controls", "SpeedSensitivity", &g_cfg.steerSpeedSensitivity, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
-    {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Controller input in game menus", "Controls", "MenuController", &g_cfg.menuController, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "Analog axes in game menus", "Controls", "MenuAxes", &g_cfg.menuAxes, 0, 0, 0, 0, nullptr, 0},
-    HEADER_("BUTTONS"),
-    BINDING("Handbrake", "Controls", "Handbrake", button[0], 0),
-    BINDING("Nitrous", "Controls", "Nitrous", button[1], 0),
-    BINDING("Speedbreaker", "Controls", "Speedbreaker", button[2], 0),
-    BINDING("Reset car", "Controls", "ResetCar", button[3], 0),
-    BINDING("Change camera", "Controls", "Camera", button[4], 0),
-    BINDING("Look back", "Controls", "LookBack", button[5], 0),
-    BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
-    BINDING("ABS on / off", "Controls", "ToggleAbs", toggleAbs, 0),
-    BINDING("TC on / off", "Controls", "ToggleTc", toggleTc, 0),
-    HEADER_("GEARS"),
-    BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
-    BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
-    BINDING("Gear 2", "Shifter", "Gear2", gear[2], 0),
-    BINDING("Gear 3", "Shifter", "Gear3", gear[3], 0),
-    BINDING("Gear 4", "Shifter", "Gear4", gear[4], 0),
-    BINDING("Gear 5", "Shifter", "Gear5", gear[5], 0),
-    BINDING("Gear 6", "Shifter", "Gear6", gear[6], 0),
-    BINDING("Gear 7", "Shifter", "Gear7", gear[7], 0),
-    BINDING("Neutral (latching)", "Shifter", "Neutral", neutral, 0),
-    BINDING("Shift up (sequential)", "Shifter", "ShiftUp", shiftUp, 0),
-    BINDING("Shift down (sequential)", "Shifter", "ShiftDown", shiftDown, 0),
-    BINDING("H-pattern / sequential", "General", "Toggle", toggle, 0),
-    HEADER_("VR SEAT (HOLD)"),
-    BINDING("Seat forward", "Controls", "SeatForward", seat[0], 0),
-    BINDING("Seat back", "Controls", "SeatBack", seat[1], 0),
-    BINDING("Seat left", "Controls", "SeatLeft", seat[2], 0),
-    BINDING("Seat right", "Controls", "SeatRight", seat[3], 0),
-    BINDING("Seat up", "Controls", "SeatUp", seat[4], 0),
-    BINDING("Seat down", "Controls", "SeatDown", seat[5], 0),
-    BINDING("Seat back to the driver's head", "Controls", "SeatReset", seat[6], 0),
-    HEADER_("MENU KEYS"),
-    BINDING("Menu", "UI", "Menu", menu, BF_REQUIRED),
-    BINDING("Menu up", "UI", "MenuUp", menuUp, BF_REQUIRED),
-    BINDING("Menu down", "UI", "MenuDown", menuDown, BF_REQUIRED),
-    BINDING("Menu left", "UI", "MenuLeft", menuLeft, BF_REQUIRED),
-    BINDING("Menu right", "UI", "MenuRight", menuRight, BF_REQUIRED),
-    RESET_,
-
-    PAGE_("WHEEL FORCE FEEDBACK"),
-    LINK_("< Back", kMainPage),
-    {ACTION, "Status", nullptr, "FfbStatus", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Wheel device", "FFB", "Device", &s_ext[FFB_DEVICE], 0.0f, 7.0f, 1.0f, 1, "%.0f", 0},
-    {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
-    HEADER_("STRENGTH AND SAFETY"),
-    {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Maximum force", "FFB", "MaxForce", &s_ext[FFB_MAXFORCE], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Smoothing", "FFB", "SmoothingHz", &s_ext[FFB_SMOOTHING], 5.0f, 60.0f, 1.0f, 1, "%.0f Hz", 0},
-    {NUMBER, "Force change limit", "FFB", "SlewRate", &s_ext[FFB_SLEW], 5.0f, 60.0f, 1.0f, 1, "%.0f /s", 0},
-    HEADER_("STEERING FEEL"),
-    {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Slow-speed centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Friction", "FFB", "Friction", &s_ext[FFB_FRICTION], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
-    {NUMBER, "Stationary friction", "FFB", "ParkingFriction", &s_ext[FFB_PARKINGFRICTION], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    HEADER_("EFFECTS"),
-    {NUMBER, "Engine rumble", "FFB", "EngineRumble", &s_ext[FFB_ENGINE], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
-    {NUMBER, "Kerbs and bumps", "FFB", "Kerbs", &s_ext[FFB_KERBS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Breakable objects", "FFB", "Breakables", &s_ext[FFB_BREAKABLES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Landing", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Hard impact jerk", "FFB", "HardImpactJerk", &s_ext[FFB_HARDJERK], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Lighter steering with nitrous", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
-    {NUMBER, "Lighter steering in wheelspin", "FFB", "SpinLighter", &s_ext[FFB_SPINLIGHTER], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
-    RESET_,
 };
 constexpr int kNumItems = sizeof(kItems) / sizeof(kItems[0]);
 constexpr int kMaxRows = 18;        // rows shown at once; the list scrolls
@@ -1122,12 +995,6 @@ std::string LinkSummary(const char* page) {
         return buf;
     }
     if (p == "SHIFTER AND CLUTCH") return g_cfg.sequential ? "Sequential" : "H-pattern";
-    if (p == "GEAR BINDINGS") {
-        int gears = 0;
-        for (int g = 1; g <= kMaxGears; g++) gears += !g_cfg.gear[g].empty();
-        snprintf(buf, sizeof(buf), "%d gears%s", gears, g_cfg.clutch.empty() ? "" : ", clutch");
-        return buf;
-    }
     if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS")
@@ -1355,7 +1222,7 @@ const struct {
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
     {&g_cfg.grip, 1}, {&g_cfg.rearGrip, 1}, {&g_cfg.frontGrip, 1}, {&g_cfg.abs, 0}, {&g_cfg.tc, 0}, {&g_cfg.offroadGrip, 1},
-    {&g_cfg.slideGrip, 1}, {&g_cfg.slideOversteer, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.speedGripLoss, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
+    {&g_cfg.slideGrip, 1}, {&g_cfg.slideOversteer, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
     {&g_cfg.maxSpin, 0},
     {&g_cfg.noHeavySupport, 0}, {&g_cfg.normalDragRaces, 0}, {&g_cfg.normalDragHud, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
@@ -2026,7 +1893,6 @@ const struct {
     {&g_cfg.slideGrip, "Grip of a tyre that has broken loose, compared with its peak. Below 100% a tyre that lets go slides on with less grip, so the car slides and you catch it, instead of snapping into the turn. Use it with Rear grip for oversteer."},
     {&g_cfg.slideOversteer, "Side grip of the rear tyres under full throttle, the way grass takes it: they keep driving but hold less sideways, so the rear slides out under power. It follows the throttle (lifting off in front drive cars) and the grip comes back as the slide gets past 20-45 degrees, so lifting or countersteering catches it. 100% = off."},
     {&g_cfg.rainGrip, "Tyre grip in the rain (90% = 10% less), from a light rain on."},
-    {&g_cfg.speedGripLoss, "Cornering grip lost at speed: this much of the tyres' side grip is gone at 300 km/h, a quarter of it at 150 km/h, nothing from a standstill (it grows with the square of the speed). Launching and braking keep their grip. Per car, through its preset."},
     {&g_cfg.offroadGrip, "Tyre grip on grass, dirt, mud, gravel and sand (each tyre by the surface under it). 100% = as on the road."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
@@ -2513,7 +2379,7 @@ void DrawPage(int page, bool focused, float k) {
     ImDrawList* dl = ImGui::GetWindowDrawList();
     float rowH = roundf(ImGui::GetFrameHeight() + 8 * k);
     float fullW = ImGui::GetContentRegionAvail().x;
-    float valueW = roundf(fullW * 0.46f);
+    float valueW = roundf(fullW * 0.40f);
     for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) {
         const Item& it = kItems[i];
         ImGui::PushID(i);
@@ -2543,12 +2409,23 @@ void DrawPage(int page, bool focused, float k) {
         } else if (hovered) {
             dl->AddRectFilled(p0, ImVec2(p0.x + fullW, p0.y + rowH), IM_COL32(255, 255, 255, 12), 4 * k);
         }
-        float ty = p0.y + (rowH - ImGui::GetTextLineHeight()) / 2;
-        // The label keeps clear of the reset icon and the value.
+        // The label keeps clear of the reset icon and the value: a label too long for its room is
+        // drawn in the small font, and only cut (with an ellipsis) if even that doesn't fit.
         float labelEnd = p0.x + fullW - valueW - 18 * k - ImGui::GetFrameHeight();
-        dl->PushClipRect(p0, ImVec2(labelEnd, p0.y + rowH), true);
-        dl->AddText(ImVec2(p0.x + 12 * k, ty), sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255), it.label);
-        dl->PopClipRect();
+        ImU32 labelCol = sel ? IM_COL32(255, 255, 255, 255) : IM_COL32(215, 215, 215, 255);
+        float room = labelEnd - (p0.x + 12 * k);
+        ImFont* font = ImGui::GetFont();
+        float size = ImGui::GetFontSize();
+        if (ImGui::CalcTextSize(it.label).x > room) {
+            font = s_im.small;
+            size = s_im.small->FontSize;
+        }
+        std::string label = it.label;
+        if (font->CalcTextSizeA(size, FLT_MAX, 0.0f, label.c_str()).x > room) {
+            while (!label.empty() && font->CalcTextSizeA(size, FLT_MAX, 0.0f, (label + "...").c_str()).x > room) label.pop_back();
+            label += "...";
+        }
+        dl->AddText(font, size, ImVec2(p0.x + 12 * k, p0.y + (rowH - size) / 2), labelCol, label.c_str());
         bool modDiff = Changed(it), gameDiff = Differs(it, true);
         if (modDiff || gameDiff) {
             // Reset to default: a circular arrow just left of the value.
@@ -2643,9 +2520,10 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     }
     ImGui::Dummy(ImVec2(0, 4 * k));
 
-    float footerH = roundf(ImGui::GetTextLineHeightWithSpacing() * 2 + 14 * k);
+    // Room for three lines of help (wrapped) and the keys line.
+    float footerH = roundf(ImGui::GetTextLineHeightWithSpacing() * 4 + 14 * k);
     float bodyH = ImGui::GetContentRegionAvail().y - footerH;
-    float sideW = roundf(winW * 0.30f);
+    float sideW = roundf(winW * 0.24f);
 
     // Sidebar: the categories.
     ImGui::BeginChild("##side", ImVec2(sideW, bodyH), ImGuiChildFlags_None, ImGuiWindowFlags_NoNav);
@@ -2703,11 +2581,10 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
         std::string def = onMain ? std::string() : DefaultText(cur);
         std::string gdef = onMain ? std::string() : GameDefaultText(cur);
         if (!gdef.empty()) def += (def.empty() ? "" : "    ") + gdef;
+        ImGui::PushTextWrapPos(0.0f);
         ImGui::TextUnformatted(help.c_str());
-        if (!def.empty()) {
-            ImGui::SameLine();
-            ImGui::TextDisabled("   %s", def.c_str());
-        }
+        if (!def.empty()) ImGui::TextDisabled("%s", def.c_str());
+        ImGui::PopTextWrapPos();
     }
     {
         std::string m = MenuKeyName(), keys;

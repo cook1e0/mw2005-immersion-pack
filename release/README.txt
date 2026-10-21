@@ -34,11 +34,9 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
-Upgrading from v0.20.0: replace the three scripts
-fsmw_*.asi plugins, nfsmw_vr_host.exe and
-nfsmw_crashdump.exe. Keep your scripts
-fsmw_*.ini files (new settings start at their defaults).
-F4 now opens a short menu (Gameplay, Controls, Force feedback); the old one is its Dev menu. A car
+Upgrading from v0.20.0: replace the three scripts\nfsmw_*.asi plugins, nfsmw_vr_host.exe and
+nfsmw_crashdump.exe. Keep your scripts\nfsmw_*.ini files (new settings start at their defaults).
+F4 opens one menu with a page per topic (each setting on one page). A car
 with its own physics settings keeps them; give it a preset with Load into this car. See FIXES.md.
 
 Upgrading from v0.13.0: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe.

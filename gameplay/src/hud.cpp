@@ -644,8 +644,7 @@ void FreeDragPack() {
 
 // The mod's own HUD icons (the ABS and TC icons: PERFORMANCE_BRAKES and MAIN_ICON_QUICK_RACE, which
 // only the front end's pack has): scripts\nfsmw_hud_icons.bin, a two-texture pack built from the
-// game's FRONTEND\FrontB.lzc on the first start (iconpack.cpp; gameplay\tools\make_icon_pack.py
-// makes the same file), laid out like HUDTEXDRAG.BIN.
+// game's FRONTEND\FrontB.lzc on the first start (iconpack.cpp), laid out like HUDTEXDRAG.BIN.
 // Loaded with every race HUD, its textures unloaded (by path, 0x5033C0, as the loader does for its
 // own packs) and its file freed when the HUD's are.
 constexpr const char* kIconPackPath = "scripts\\nfsmw_hud_icons.bin";

@@ -40,17 +40,18 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   controllers completely, its menus included (needs the force feedback mod;
   the keyboard keeps working).
 - **Menu controller input**: analog axes are ignored in the game's menus by default, so pedals
-  and steering cannot scroll them. Buttons and the d-pad still work. F4 > Dev menu > Controls >
+  and steering cannot scroll them. Buttons and the d-pad still work. F4 > Controls >
   *Controller input in game menus: Off* disables those too; *Analog axes in game menus: On*
   restores axis navigation. Driving and the F4 menu's own bindings are unaffected. Requires
   the updated force feedback mod; it also works with its `NativeFFB=1` setting.
-- **Tuning menu**: F4 while driving opens the menu (Gameplay, Controls, Force feedback); its Dev menu
-  holds every setting. Engine wear, damage, shifter and clutch settings, traffic,
+- **Tuning menu**: F4 while driving opens the menu: one page per topic (Controls, Force feedback,
+  Shifter and clutch, Engine, Damage and tires, Physics, Traffic and HUD, VR, Menu and testing),
+  each setting on one page. Engine wear, damage, shifter and clutch settings, traffic,
   the force feedback mod's strength and centring spring, and the VR mod's view recentre and HUD
   panel size, distance and height (when those mods are installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
-- **Force feedback restart**: F4 > Dev menu > Force Feedback > *Restart wheel force feedback* requests
+- **Force feedback restart**: F4 > Force feedback > *Restart wheel force feedback* requests
   a wheel reacquisition and effect rebuild from the updated force feedback mod, keeping
   calibration and tuning. F10 provides the same restart directly from the FFB mod.
 

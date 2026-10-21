@@ -22,36 +22,36 @@ struct Config {
     bool  nativeFfb = false;        // true = let the game's own effects through, no forces from this mod
 
     // Output and safety
-    float gain = 1.0f;              // master strength
-    float maxForce = 0.8f;          // ceiling of the torque sent, share of the wheel's maximum
+    float gain = 0.6f;              // master strength
+    float maxForce = 0.85f;          // ceiling of the torque sent, share of the wheel's maximum
     float limitKnee = 0.7f;         // above this share of MaxForce the soft limiter compresses peaks
     float slewRate = 20.0f;         // fastest torque change, full scale per second
     float smoothingHz = 25.0f;      // low-pass of the forces from the game's physics (about 60 Hz steps)
     bool  oscillationGuard = true;  // calm the wheel when it starts shaking by itself
 
     // Steering forces
-    float aligning = 0.8f;          // the front tyres' self-aligning torque
+    float aligning = 1.0f;          // the front tyres' self-aligning torque
     float gripPeakDeg = 7.0f;       // front slip angle where the wheel is heaviest
     float driftAlign = 0.3f;        // pull toward the direction of travel past the grip limit
     float loadSensitivity = 0.5f;   // how much front tyre load changes the aligning torque
-    float tyreScrub = 0.2f;         // vibration while any tyre slides (0 = off)
-    float centering = 0.3f;         // spring toward centre while parked or slow
-    float damping = 0.3f;           // weight against fast wheel movement
+    float tyreScrub = 0.15f;         // vibration while any tyre slides (0 = off)
+    float centering = 0.2f;         // spring toward centre while parked or slow
+    float damping = 0.15f;           // weight against fast wheel movement
     float friction = 0.05f;
-    float parkingFriction = 0.3f;   // stationary friction: extra friction near standstill (tyre scrub)
-    float softLock = 0.8f;          // end stop at the game's steering lock
+    float parkingFriction = 0.2f;   // stationary friction: extra friction near standstill (tyre scrub)
+    float softLock = 1.0f;          // end stop at the game's steering lock
     float menuCentering = 0.2f;     // spring in menus, pause and cutscenes
 
     // Effects
     float engineRumble = 0.05f;     // engine vibration (mostly standing still)
-    float kerbs = 0.5f;             // kicks and shakes from kerbs and bumps
-    float surfaceRumble = 0.3f;     // the game's rumble on grass, gravel, dirt, rumble strips
-    float crashes = 0.6f;           // jolts from hitting cars, walls and props
-    float scrapes = 0.4f;           // grinding along walls
-    float breakables = 0.6f;        // knocks from smashing breakable props (benches, sign posts...)
-    float landing = 0.8f;           // kick and shake when landing after a jump
-    float carHits = 0.8f;           // the same when hitting another vehicle
-    float hardImpactJerk = 0.8f;    // a jerk away from the hit on every impact that damages the car
+    float kerbs = 0.0f;             // kicks and shakes from kerbs and bumps
+    float surfaceRumble = 0.0f;     // the game's rumble on grass, gravel, dirt, rumble strips
+    float crashes = 0.5f;           // jolts from hitting cars, walls and props
+    float scrapes = 0.3f;           // grinding along walls
+    float breakables = 0.4f;        // knocks from smashing breakable props (benches, sign posts...)
+    float landing = 0.6f;           // kick and shake when landing after a jump
+    float carHits = 0.6f;           // the same when hitting another vehicle
+    float hardImpactJerk = 0.6f;    // a jerk away from the hit on every impact that damages the car
     // Signals from the gameplay mod (not settings): it counts up damageHits for every impact that
     // damages the car, after writing that impact's strength (its speed change over the damage
     // threshold, 1 = just enough).

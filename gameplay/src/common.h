@@ -122,7 +122,7 @@ struct Config {
     float smokeFrom = 0.75f;        // ... from this much damage
     bool  noHeavySupport = true;    // no heavy support: the ramming SUVs sent head-on at you (SUV patrols stay)
     bool  normalDragRaces = true;   // the player drives drag races normally (no auto lane steering, normal engine and damage)
-    bool  gameTuning = false;       // the pause menu's Performance Tuning acts on the player's car (0 = stock values)
+    bool  gameTuning = true;        // the pause menu's Performance Tuning acts on the player's car (as in the game)
     bool  normalDragHud = true;     // drag races show the normal race HUD, not the drag HUD (from the next race)
     float heatSmokeFrom = 0.7f;     // engine smoke from this much engine heat (1 = never)
     float smokeTrail = 1.0f;        // fraction of the car's velocity its smoke particles keep
@@ -171,7 +171,6 @@ struct Config {
     float slideOversteer = 0.9f;    // the rear tyres' side grip, as on grass (drive grip unchanged)
     float rainGrip = 0.9f;          // tyre grip in the rain
     float smokeBack = 0.0f;          // the engine smoke moved this far back (m; a rear-engined car), per car
-    float speedGripLoss = 0.33f;     // side grip lost at 300 km/h (with the square of the speed)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30

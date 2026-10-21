@@ -1,5 +1,8 @@
-// scripts\nfsmw_hud_icons.bin built from the game's own files on the first start (see iconpack.h);
-// the same pack gameplay\tools\make_icon_pack.py writes, byte for byte.
+// scripts\nfsmw_hud_icons.bin built from the game's own files on the first start (see iconpack.h).
+//
+// FrontB.lzc is compressed in the retail game (JDLZ; some installs keep it unpacked): it goes
+// through the game's own LZDecompress (0x650350), which takes JDLZ, HUFF, COMP and RAWW blocks
+// (uncompressed size at +8).
 //
 // The front end texture pack (FRONTEND\FrontB.lzc, the TPK chunk B3300000 naming
 // FrontEndTextures.tpk) has the two icons. The new pack is laid out like GLOBAL\HUDTEXDRAG.BIN: a
@@ -79,9 +82,26 @@ struct Picked {
 
 }  // namespace
 
+// A compressed block (the game's LZDecompress magics) unpacked in place; anything else as it is.
+static bool Unpack(Bytes& d) {
+    if (d.size() < 16) return true;
+    uint32_t magic = U32(d, 0);
+    if (magic != 0x5A4C444A && magic != 0x46465548 && magic != 0x504D4F43 && magic != 0x57574152) return true;   // JDLZ HUFF COMP RAWW
+    uint32_t size = U32(d, 8);
+    if (size == 0 || size > 64u << 20) return false;
+    Bytes out(size);
+    typedef unsigned (__cdecl* LZDecompress_t)(uint8_t* src, uint8_t* dst);
+    unsigned n = ((LZDecompress_t)0x650350)(d.data(), out.data());
+    if (n == 0 || n > size) return false;
+    out.resize(n);
+    d.swap(out);
+    return true;
+}
+
 bool IconPack_Build(const std::string& gameDir, std::string* error) {
     Bytes src;
     if (!ReadFile(gameDir + "FRONTEND\\FrontB.lzc", src)) return *error = "FRONTEND\\FrontB.lzc not readable", false;
+    if (!Unpack(src)) return *error = "FRONTEND\\FrontB.lzc could not be unpacked", false;
     // The front end texture pack: the TPK chunk whose header names FrontEndTextures.tpk.
     size_t t0 = 0;
     uint32_t tsize = 0;

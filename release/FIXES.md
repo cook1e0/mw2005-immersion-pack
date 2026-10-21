@@ -162,6 +162,15 @@
 
 **Gameplay**
 
+- **Grip loss at speed removed** (`[Physics] SpeedGripLoss`, also from the presets and the
+  per-car sections): cornering grip falling with the square of the speed isn't how tyres behave.
+- **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
+  to the rear tyres' slip angle while sliding, so the same turn of the wheel steered the front
+  wheels further mid-slide. The lock now follows the speed only.
+- **ABS and TC icons on a retail install:** the retail game's `FRONTEND\FrontB.lzc` is compressed
+  (JDLZ), and the icon pack was only made from an unpacked one ("FrontEndTextures.tpk not found",
+  no icons). It is now unpacked with the game's own decompressor (LZDecompress). The Python tool
+  that made the same pack is gone.
 - **No more crash when the engine blows at the end of a race:** engine wear destroys the car when the
   engine blows (the drag race crash path, IDamageable::Destroy), and the game's handling of a
   destroyed racer reads the race's parameters without checking them; with none there (free roam,
@@ -220,7 +229,7 @@
   dash light: invisible while that aid is off, gray while on but idle, blinking in the HUD's beige
   while it works. Their textures (PERFORMANCE_BRAKES, MAIN_ICON_QUICK_RACE) only exist in the front
   end pack, which races unload, so `scripts\nfsmw_hud_icons.bin` (a two-texture pack built from
-  FRONTEND\FrontB.lzc by `gameplay\tools\make_icon_pack.py`, laid out like HUDTEXDRAG.BIN) is
+  FRONTEND\FrontB.lzc, laid out like HUDTEXDRAG.BIN) is
   loaded with every race HUD and unloaded with it.
 - **Physics presets** (F4 > Physics > Presets): save the values in use as a preset
   (Preset 1, 2, ...), pick one, load it into the current car (turns on its own settings, so other
@@ -233,22 +242,18 @@
   one instead of always to [Physics]. Turning "Settings for this car only" off now deletes the
   section through the background writer, after any pending save of it (before, a save still queued
   could write the section back), and switching cars waits for pending writes before reading.
-- **A new main menu, the old one is its Dev menu:** F4 (`[UI] Menu`) opens a short menu
-  with four entries. **Gameplay:** traction control, ABS, shifting,
-  clutch needed to shift, engine wear, car damage, engine smoke when damaged, classic inputs,
-  adjusted physics (the physics sliders' switch), no head-on ramming SUVs, both drag race switches,
-  speedbreaker, damage / heat meter, the in-car dashboard switch, the VR
-  HUD's size, left / right, up / down and distance, and Reset to default. **Controls:** every
-  binding and controller setting except the testing keys, including the gears and the menu keys.
-  **Force feedback:** everything except wall scrapes, road surface rumble and crash jolts. **Dev
-  menu:** the full tuning menu as it was. The same settings are shared, so a change in one place
-  shows in the other.
-- **Classic inputs:** `[Controls] ClassicInput=1` (Gameplay and Controls tabs) gives
+- **F4 menu: one page per topic:** F4 (`[UI] Menu`) lists Controls (every binding and controller
+  setting, gears and menu keys included), Force feedback, Shifter and clutch, Engine, Damage and
+  tires, Physics, Traffic and HUD, VR (with Adjust dashboard and Triangle editor) and Menu and
+  testing. Each setting is on one page (a short main menu and a Dev menu had shown 55 of them
+  twice). A label too long for its row is drawn smaller instead of being cut off, and the help
+  line under the list wraps over up to three lines.
+- **Classic inputs:** `[Controls] ClassicInput=1` (F4 > Controls) gives
   steering, throttle and brake back to the game: nothing is injected, the steering type is the
   game's, and the game reads the controllers itself (set them up in its own options). What the mod
   held down is let go once. Shifting, the clutch and everything else stay.
 - **HUD: ABS / TC icon position:** `[HUD] AidIconRight` / `AidIconUp` (HUD units, -1000 to
-  +1000; sliders in Dev menu > Menu and testing) move both icons from their place, live.
+  +1000; sliders in F4 > Menu and testing) move both icons from their place, live.
 - **Your settings are the defaults:** every Reset button now goes back to the values in use on
   2026-10-20/21 (the gameplay plugin's built-in values already matched; the FFB and VR settings the
   menu holds, and the VR plugin's built-in HUD crops and display opacity / glass / reflection, were
@@ -265,12 +270,12 @@
   never half of one. Comments, order and line endings are kept (checked against
   WritePrivateProfileString on a copy of a real ini: 490 values, all the same). If a file can't be
   replaced (locked), that file falls back to the old way, logged.
-- **The pause menu's Performance Tuning no longer acts on your car:** its seven sliders
+- **The pause menu's Performance Tuning can be switched off for your car:** its seven sliders
   (steering, handling, brakes, ride height, aero, nitrous, turbo) are read by the physics through
-  PVehicle::GetTunings; for the player's car that now returns stock values (all 0), whatever the
-  menu holds. The menu still opens. `[Physics] GameTuning=1` (Dev menu > Physics) gives it back. AI
-  cars are unchanged.
-- **Engine smoke for rear-engined cars:** Dev menu > Physics > *Engine smoke in the back*
+  PVehicle::GetTunings. With `[Physics] GameTuning=0` (F4 > Physics) that returns stock values (all
+  0) for the player's car, whatever the menu holds; the default (1) is the game's behaviour. AI cars
+  are unchanged.
+- **Engine smoke for rear-engined cars:** F4 > Physics > *Engine smoke in the back*
   (`[Physics] SmokeBack`, 0-5 m) moves the engine smoke back along the car from where the game puts
   it; per car, through the car's preset.
 - **Keys:** F2 and F5 (Camera Toolkit free camera and pause), F9 (VR image dump), F10 (FFB restart)
@@ -303,11 +308,11 @@
   - Rear grip (oversteer): the rear tyres' grip relative to the front.
   - Offroad grip: grip on grass, dirt, mud, gravel and sand (75%).
   - Slide grip: a tyre that has broken loose slides on less grip than its peak (85%).
-  - Slide oversteer: the rear tyres' side grip under throttle, as on grass (front drive cars:
-    lifting off), coming back as the slide passes 20-45 degrees, so it stays catchable (80%).
+  - Slide oversteer: the rear tyres' side grip under the game's own throttle, as on grass (front
+    drive cars: lifting off), coming back as the slide passes 20-45 degrees, so it stays catchable
+    (80%). It used to read the throttle from this mod's pedal binding, and took unbound pedals
+    (keyboard, gamepad, classic inputs) as full throttle: the rear grip was cut all the time.
   - Rain grip: 10% less grip in the rain.
-  - Grip loss at speed: cornering grip falls with the square of the speed; launching and braking
-    keep their grip (`[Physics] SpeedGripLoss`, the share gone at 300 km/h, off by default).
 - **Sequential shifting has neutral and reverse:** with manual shifting, down from first is neutral,
   then reverse; gas drives in reverse, and holding the brake no longer reverses.
 - **Engine heat:** nitrous on the rev limiter heats the engine twice as fast (a third faster on a
@@ -340,6 +345,13 @@
 
 **Force feedback**
 
+- **One set of defaults:** the code, the shipped `nfsmw_ffb.ini` and the F4 menu's Reset values
+  disagreed (damping 0.3 / 0.05 / 0.05, gain 1.0 / 0.85 / 0.85, ...). Now all three are: Gain 0.6,
+  MaxForce 0.85, SlewRate 20, Aligning 1.0, Centering 0.2 (parked and slow only), Damping 0.15,
+  Friction 0.05, ParkingFriction 0.2, SoftLock 1.0; effects: EngineRumble 0.05, Crashes 0.5,
+  Scrapes 0.3, Breakables 0.4, Landing 0.6, CarHits 0.6, HardImpactJerk 0.6, OffroadVibration 0.4,
+  TyreScrub 0.15, NosLighter 0.3, SpinLighter 0.5; kerbs and bumps (`Kerbs`) and the road surface
+  rumble (`SurfaceRumble`) off. An `nfsmw_ffb.ini` you already have keeps its values.
 - **Tyre scrub:** a fine vibration while any tyre slides past its grip limit, read from the
   game's own per-tyre traction, rising with how far past it is and with speed (`TyreScrub`, 0.2;
   F4 > Force feedback).

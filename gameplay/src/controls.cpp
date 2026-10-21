@@ -44,13 +44,11 @@ constexpr uintptr_t kCalculateMaxSteering = 0x68E9E0;
 //  - while countersteering it widened the lock to the rear tyres' slip angle, and dropped it back
 //    the moment the wheel crossed over: the front wheels jumped as a slide was caught
 // Here the lock is one smooth curve of speed (SteeringLockShare) times the car's steering tuning,
-// so the front wheels always follow the wheel in proportion. In a slide the lock widens with the
-// rear tyres' slip angle on both sides alike, so it changes only as the slide does: enough lock
-// to catch it, and no jump when the wheel crosses centre.
-constexpr uintptr_t kRadToDeg = 0x890960;            // the game's ANGLE2DEG factor
+// so the front wheels always follow the wheel in proportion, in a slide too (no lock widening: the
+// steering ratio never changes under your hands).
 constexpr float kAbsoluteMaxSteering = 45.0f;
 constexpr int kState_LocalVelZ = 0x48;
-constexpr int kRacer_Vehicle = 0x48, kRacer_RearTires = 0x1BC, kTire_SlipAngle = 0x118;
+constexpr int kRacer_Vehicle = 0x48;
 constexpr int kVehicle_GetTunings = 0xCC;            // vtable slot: const Physics::Tunings*
 
 constexpr uintptr_t kDoFetchInput = 0x6E8AC0;       // void SimSystem::DoFetchInput(IInputPlayer*)
@@ -98,12 +96,6 @@ static float __attribute__((thiscall)) LinearMaxSteering(uint8_t* racer, const u
         auto get = (const float* (__attribute__((thiscall))*)(void*))(*(uintptr_t**)vehicle)[kVehicle_GetTunings / 4];
         const float* tunings = get(vehicle);
         if (tunings) lock *= *tunings * 0.2f + 1.0f;
-    }
-    const float k = *(const float*)kRadToDeg;
-    uintptr_t rearLeft = *(uintptr_t*)(racer + kRacer_RearTires), rearRight = *(uintptr_t*)(racer + kRacer_RearTires + 4);
-    if (rearLeft && rearRight) {
-        float slip = 0.5f * (fabsf(*(const float*)(rearLeft + kTire_SlipAngle)) + fabsf(*(const float*)(rearRight + kTire_SlipAngle))) * k;
-        if (slip > 0.0f && slip < 90.0f) lock = std::max(lock, slip);
     }
     return std::min(std::max(lock, 0.0f), kAbsoluteMaxSteering);
 }

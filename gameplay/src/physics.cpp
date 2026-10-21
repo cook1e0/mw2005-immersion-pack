@@ -51,10 +51,10 @@
 // on the road too, while the front steers and the drive grip is untouched. To stay drivable it is
 // power oversteer, not a loose rear: the side grip goes with the throttle (lifting off in a front
 // drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
-// degrees, so lifting or countersteering catches the slide instead of the car spinning.
-// Speed grip loss: every tyre's side grip (the same multiply) also takes 1 - [Physics] SpeedGripLoss
-// * (speed / 300 km/h)^2, so a car pulls away and brakes as before but corners on less and less
-// grip the faster it goes: all of SpeedGripLoss gone at 300 km/h, a quarter of it at 150.
+// degrees, so lifting or countersteering catches the slide instead of the car spinning. The
+// throttle is the game's own for the step (Chassis::State gas_input, +0x4C, as DoDrifting reads
+// it), whatever drives it (this mod's pedals, the game's controls), so it is worked out in the
+// DoDrifting hook, before the tyres update.
 //
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
@@ -131,6 +131,7 @@ constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call Sus
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
+constexpr int kState_Gas = 0x4C;                    // Chassis::State: gas_input 0..1
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
 constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 
@@ -215,19 +216,11 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.slideGrip == 1.0f && c.slideOversteer == 1.0f &&
-           c.speedGripLoss == 0.0f;
+           c.slideGrip == 1.0f && c.slideOversteer == 1.0f;
 }
 
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
 float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
-
-// Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
-// least a tenth.
-float SpeedGrip(float loss, float speed) {
-    float r = speed / (300.0f / 3.6f);
-    return Clamp(1.0f - loss * r * r, 0.1f, 1.0f);
-}
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
@@ -248,22 +241,12 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    if (g_cfg.slideOversteer != 1.0f || g_cfg.speedGripLoss > 0.0f) {
-        for (int i = 0; i < 4; i++) s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
-        // How much of it now: with the throttle (rear or all-wheel drive) or lifting off (front
-        // drive), less as the rear's slip angle grows past 20 degrees, none from 45.
-        InputSnapshot in = Input_Get();
-        float gas = in.pedalBound[0] ? Clamp(in.pedal[0], 0.0f, 1.0f) : 1.0f;
-        uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
-        bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
-        float power = frontDrive ? 1.0f - gas : gas;
-        float angle = 0.0f;
-        for (int i = 2; i < 4; i++)
-            if (s_latTires[i]) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
-        float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
-        float rear = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
-        float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
-        for (int i = 0; i < 4; i++) s_latMul[i] = (i >= 2 ? rear : 1.0f) * fast;
+    if (g_cfg.slideOversteer != 1.0f) {
+        // The rear tyres' side grip factor is set in the DoDrifting hook (it needs the throttle).
+        for (int i = 0; i < 4; i++) {
+            s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+            s_latMul[i] = 1.0f;
+        }
     }
     s_origSusp(susp, dT);
     for (uint8_t*& t : s_latTires) t = nullptr;
@@ -527,9 +510,25 @@ void AidToggles() {
 
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
+// Slide oversteer's rear side grip factor for this step: with the game's throttle (rear or all-wheel
+// drive) or lifting off (front drive), less as the rear's slip angle grows past 20 degrees, none
+// from 45.
+void SlideOversteer(uint8_t* susp, const uint8_t* state) {
+    if (!s_latTires[2] || !s_latTires[3]) return;
+    float gas = Clamp(*(const float*)(state + kState_Gas), 0.0f, 1.0f);
+    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+    bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
+    float power = frontDrive ? 1.0f - gas : gas;
+    float angle = 0.0f;
+    for (int i = 2; i < 4; i++) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
+    float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
+    s_latMul[2] = s_latMul[3] = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
+}
+
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp) return;
+    if (state) SlideOversteer(susp, (const uint8_t*)state);
     if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
     if (!g_cfg.physics) return;
     float front = g_cfg.frontGrip, rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
@@ -619,7 +618,6 @@ const PerCar kPerCar[] = {
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
-    {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
     {&Config::smokeBack, "SmokeBack", 0.0f, 5.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
