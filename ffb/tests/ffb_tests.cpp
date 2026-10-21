@@ -287,61 +287,6 @@ static void TestModel() {
         for (int i = 0; i < 400; i++) g = gm.Compute(still, Wheel(0.0f), p, 1.0f, 0.0025f);
         assert(g.aligning > 0.05f);
     }
-
-    // The game's tyre grip lightens the wheel past the limit: the same slip angle and load, but
-    // low front traction, pulls less. GripLoss=0 is exactly the old behaviour.
-    {
-        ModelParams q = p;
-        q.gripLoss = 0.3f;
-        Telemetry gripped = Car(30), loose = Car(30);
-        gripped.tireStateValid = loose.tireStateValid = true;
-        for (int i = 0; i < 4; ++i) {
-            gripped.tireOnGround[i] = loose.tireOnGround[i] = true;
-            gripped.tireGrip[i] = 1.0f;
-            loose.tireGrip[i] = (i < 2) ? 0.2f : 1.0f;
-        }
-        WheelState w = Wheel(0.14f);
-        Model a, b;
-        for (int i = 0; i < 100; ++i) { a.Compute(gripped, w, q, 1.0f, 0.0025f); b.Compute(loose, w, q, 1.0f, 0.0025f); }
-        float heavy = fabsf(a.Compute(gripped, w, q, 1.0f, 0.0025f).aligning);
-        float light = fabsf(b.Compute(loose, w, q, 1.0f, 0.0025f).aligning);
-        assert(light < heavy * 0.95f);
-
-        q.gripLoss = 0.0f;
-        Model c, d;
-        for (int i = 0; i < 100; ++i) { c.Compute(gripped, w, q, 1.0f, 0.0025f); d.Compute(loose, w, q, 1.0f, 0.0025f); }
-        assert(fabsf(c.Compute(gripped, w, q, 1.0f, 0.0025f).aligning -
-                     d.Compute(loose, w, q, 1.0f, 0.0025f).aligning) < 1e-6f);
-    }
-
-    // Understeer and rear grip loss lighten only when switched on, and the understeer cue only
-    // once the front is past its peak.
-    {
-        Telemetry t = Car(30);
-        t.tireStateValid = true;
-        for (int i = 0; i < 4; ++i) { t.tireOnGround[i] = true; t.tireGrip[i] = 1.0f; }
-        t.understeer = 1.0f;
-        ModelParams q = p;
-        q.gripLoss = 0.0f;
-        Model m;
-        float plain = fabsf(m.Compute(t, Wheel(0.3f), q, 1.0f, 0.0025f).aligning);
-        q.understeerFeel = 1.0f;
-        float under = fabsf(m.Compute(t, Wheel(0.3f), q, 1.0f, 0.0025f).aligning);
-        assert(under < plain * 0.8f);
-        q.understeerFeel = 0.0f;
-        float lowPlain = fabsf(m.Compute(t, Wheel(0.02f), q, 1.0f, 0.0025f).aligning);
-        q.understeerFeel = 1.0f;
-        float lowUnder = fabsf(m.Compute(t, Wheel(0.02f), q, 1.0f, 0.0025f).aligning);
-        assert(fabsf(lowUnder - lowPlain) < 1e-6f);            // still gripping: no cue
-
-        q = p;
-        q.gripLoss = 0.0f;
-        t.tireGrip[2] = t.tireGrip[3] = 0.2f;
-        float rearGrip = fabsf(m.Compute(t, Wheel(0.14f), q, 1.0f, 0.0025f).aligning);
-        q.rearGripLoss = 1.0f;
-        float rearSlide = fabsf(m.Compute(t, Wheel(0.14f), q, 1.0f, 0.0025f).aligning);
-        assert(rearSlide < rearGrip * 0.85f);
-    }
 }
 
 // --- effects --------------------------------------------------------------------------------------

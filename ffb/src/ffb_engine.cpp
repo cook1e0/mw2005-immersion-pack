@@ -75,9 +75,6 @@ public:
         p.gripPeakDeg = c.gripPeakDeg;
         p.driftAlign = c.driftAlign;
         p.loadSensitivity = c.loadSensitivity;
-        p.gripLoss = c.gripLoss;
-        p.understeerFeel = c.understeerFeel;
-        p.rearGripLoss = c.rearGripLoss;
         p.centering = c.centering;
         p.damping = c.damping;
         p.friction = c.friction;
@@ -236,13 +233,6 @@ DWORD WINAPI FfbThread(LPVOID) {
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
                 t.wheelSpin, s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable,
                 s.effects.carHit, s.effects.hardJerk, s.effects.scrub, s.hitPriority, s.guard, s.raw, s.out);
-            const float radToDeg = 57.2957795f;
-            Log("tyre: FL %.2f %.1f %.2f | FR %.2f %.1f %.2f | RL %.2f %.1f %.2f | RR %.2f %.1f %.2f | U %.2f O %.2f valid %d",
-                t.tireGrip[0], t.tireSlipAngle[0] * radToDeg, t.tireSkid[0],
-                t.tireGrip[1], t.tireSlipAngle[1] * radToDeg, t.tireSkid[1],
-                t.tireGrip[2], t.tireSlipAngle[2] * radToDeg, t.tireSkid[2],
-                t.tireGrip[3], t.tireSlipAngle[3] * radToDeg, t.tireSkid[3],
-                t.understeer, t.oversteer, t.tireStateValid ? 1 : 0);
         }
         if (now - statTime > 30.0) {
             if (engine.Limiting() > engine.Ticks() / 10)

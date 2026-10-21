@@ -33,9 +33,8 @@ const uintptr_t SmackableVtables[] = {0x8AA6D0, 0x8AA638, 0x8AA618, 0x8AA5FC, 0x
 // ISuspension vtable slots (byte offsets)
 enum {
     kGetWheelTraction = 0x04, kGetNumWheels = 0x08, kGetWheelPos = 0x0C, kGetWheelLoad = 0x18,
-    kIsWheelOnGround = 0x24, kGetCompression = 0x28, kGetWheelSkid = 0x38, kGetWheelSlipAngle = 0x3C,
-    kGetWheelVelocity = 0x48, kGetNumWheelsOnGround = 0x4C, kGetWheelSteer = 0x58, kCalculateUndersteer = 0x5C,
-    kCalculateOversteer = 0x60,
+    kIsWheelOnGround = 0x24, kGetCompression = 0x28, kGetWheelVelocity = 0x48, kGetNumWheelsOnGround = 0x4C,
+    kGetWheelSteer = 0x58,
 };
 // IEngine vtable slots
 enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10, kIsNOSEngaged = 0x20 };   // EngineRacer: vtable 0x8AB6E0
@@ -316,30 +315,15 @@ void Sample(void* player) {
     s_car.right = right;
     s_car.halfBase = t.wheelbase * 0.5f;
 
-    // The tyres' own state (SuspensionRacer only): per-wheel grip and slip angle, and the game's
-    // understeer/oversteer factors. GetWheelSlipAngle returns turns; the model works in radians.
+    // Each tyre's traction (SuspensionRacer only), for the tyre scrub.
     if (*(uintptr_t*)susp == addr::VT_SuspensionRacer_ISuspension) {
         bool any = false;
         for (unsigned i = 0; i < 4; ++i) {
             float grip = VCallI<float>(susp, kGetWheelTraction, i);
-            float slip = VCallI<float>(susp, kGetWheelSlipAngle, i);
-            float skid = VCallI<float>(susp, kGetWheelSkid, i);
-            if (isfinite(grip) && isfinite(slip) && isfinite(skid)) {
-                t.tireGrip[i] = Clamp(grip, 0.0f, 1.0f);
-                t.tireSlipAngle[i] = Clamp(slip, -0.25f, 0.25f) * 2.0f * 3.14159265f;
-                t.tireSkid[i] = Clamp(skid, -1000.0f, 1000.0f);
-                any = true;
-            } else {
-                t.tireGrip[i] = 1.0f;   // unknown: no grip-loss lightening for this wheel
-            }
+            t.tireGrip[i] = isfinite(grip) ? Clamp(grip, 0.0f, 1.0f) : 1.0f;   // unknown: gripping
+            any |= isfinite(grip) != 0;
         }
         t.tireStateValid = any;
-        if (any && t.driving && t.valid && t.speed > 2.0f && t.wheelsOnGround > 0) {
-            float u = VCall0<float>(susp, kCalculateUndersteer);
-            float o = VCall0<float>(susp, kCalculateOversteer);
-            t.understeer = isfinite(u) ? Clamp(u, 0.0f, 1.0f) : 0.0f;
-            t.oversteer = isfinite(o) ? Clamp(o, 0.0f, 1.0f) : 0.0f;
-        }
     }
 
     if (engine) {

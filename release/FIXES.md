@@ -340,13 +340,9 @@
 
 **Force feedback**
 
-- **Grip loss from the game's own tyres:** the FFB reads each tyre's traction (below 1 past its
-  friction limit) and the game's understeer factor. As the front tyres let go, the steering
-  weight's peak moves to a smaller slip angle and the force drops (`GripLoss`, 0.5); the game's
-  understeer factor can lighten it further once the front is past its peak (`UndersteerFeel`, off);
-  the rear tyres past their limit lighten it too (`RearGripLoss`, 0.5). A fine vibration runs while
-  any tyre slides (`TyreScrub`, 0.2). All in F4 > Force feedback. `ffb/GRIP_LOSS_RESEARCH.md` has
-  the measurements behind it.
+- **Tyre scrub:** a fine vibration while any tyre slides past its grip limit, read from the
+  game's own per-tyre traction, rising with how far past it is and with speed (`TyreScrub`, 0.2;
+  F4 > Force feedback).
 - **The steering weight comes from the car:** the FFB mod built the car's sideways
   direction assuming the game's physics world is Z-up, like its renderer. It is Y-up (and
   left-handed: `bConvertFromBond` maps render = (z, -x, y)), so "sideways" was vertical: the front

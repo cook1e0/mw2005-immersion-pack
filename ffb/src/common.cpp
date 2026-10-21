@@ -116,9 +116,6 @@ void LoadConfig() {
     c.gripPeakDeg = Clamp(ReadFloat(s, "GripPeakAngle", c.gripPeakDeg), 1.0f, 30.0f);
     c.driftAlign = Clamp(ReadFloat(s, "DriftAlign", c.driftAlign), 0.0f, 2.0f);
     c.loadSensitivity = Clamp(ReadFloat(s, "LoadSensitivity", c.loadSensitivity), 0.0f, 2.0f);
-    c.gripLoss = Clamp(ReadFloat(s, "GripLoss", c.gripLoss), 0.0f, 1.0f);
-    c.understeerFeel = Clamp(ReadFloat(s, "UndersteerFeel", c.understeerFeel), 0.0f, 1.0f);
-    c.rearGripLoss = Clamp(ReadFloat(s, "RearGripLoss", c.rearGripLoss), 0.0f, 1.0f);
     c.tyreScrub = Clamp(ReadFloat(s, "TyreScrub", c.tyreScrub), 0.0f, 0.5f);
     c.centering = Clamp(ReadFloat(s, "Centering", c.centering), 0.0f, 2.0f);
     c.damping = Clamp(ReadFloat(s, "Damping", c.damping), 0.0f, 2.0f);
@@ -153,12 +150,12 @@ void LoadConfig() {
     c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, s_gameplayIni) ? 1.0f : 0.0f;
     c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, s_gameplayIni) ? 1.0f : 0.0f;
     Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d | aligning=%.2f "
-        "peak=%.1f drift=%.2f load=%.2f griploss=%.2f (under=%.2f rear=%.2f scrub=%.2f) centering=%.2f "
+        "peak=%.1f drift=%.2f load=%.2f scrub=%.2f centering=%.2f "
         "damping=%.2f friction=%.2f/%.2f softlock=%.2f menu=%.2f | engine=%.2f kerbs=%.2f surface=%.2f crashes=%.2f "
         "scrapes=%.2f | "
         "hardjerk=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.aligning,
-        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.gripLoss, c.understeerFeel, c.rearGripLoss, c.tyreScrub,
+        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.tyreScrub,
         c.centering, c.damping, c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.engineRumble, c.kerbs,
         c.surfaceRumble, c.crashes, c.scrapes, c.hardImpactJerk,
         (int)c.device, c.forceSign, c.reverse > 0.5f,
