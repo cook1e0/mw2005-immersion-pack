@@ -8,6 +8,9 @@ bool Game_InstallHooks();
 
 // True when the current frame rendered separate left/right eye images.
 bool Game_StereoThisFrame();
+// For the per-frame trace: reflection cube faces drawn this frame (bit per face), the rear view drawn,
+// and the shadow map (0 per eye, 1 shared, 2 sharing paused).
+void Game_TraceInfo(int* envFaces, int* rearView, int* shadow);
 // Symmetric half-FOV tangents the game actually rendered with this frame.
 void Game_RenderedFov(float* tanX, float* tanY);
 // Called by the Present hook after the frame has been submitted.

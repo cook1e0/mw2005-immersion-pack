@@ -39,13 +39,17 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"SoftLock", &g_cfg.softLock}, {"SlewRate", &g_cfg.slewRate}, {"SmoothingHz", &g_cfg.smoothingHz},
         {"Reverse", &g_cfg.reverse}, {"Device", &g_cfg.device}, {"SoftLockAt", &g_cfg.softLockAt},
         {"GameController", &g_cfg.gameController}, {"MenuController", &g_cfg.menuController},
-        {"MenuAxes", &g_cfg.menuAxes}, {"CentreWeight", &g_cfg.centreWeight}, {"EngineRumble", &g_cfg.engineRumble},
+        {"MenuAxes", &g_cfg.menuAxes}, {"EngineRumble", &g_cfg.engineRumble},
         {"Kerbs", &g_cfg.kerbs}, {"SurfaceRumble", &g_cfg.surfaceRumble}, {"Crashes", &g_cfg.crashes},
         {"Scrapes", &g_cfg.scrapes}, {"Breakables", &g_cfg.breakables},
         {"Landing", &g_cfg.landing},
         {"CarHits", &g_cfg.carHits},
+        {"HardImpactJerk", &g_cfg.hardImpactJerk},
+        {"DamageHits", &g_cfg.damageHits}, {"DamageHitStrength", &g_cfg.damageHitStrength},
         {"OffroadVibration", &g_cfg.offroadVibration},
         {"NosLighter", &g_cfg.nosLighter},
+        {"SpinLighter", &g_cfg.spinLighter},
+        {"ParkingFriction", &g_cfg.parkingFriction},
     };
     for (auto& s : kSettings)
         if (!strcmp(name, s.key)) return s.value;

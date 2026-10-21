@@ -3,7 +3,10 @@
 #include "common.h"
 
 // Frame timing, logged every 5 s: where a VR frame's time goes (seconds, D3D_ProfNow's clock).
-enum ProfSlot { PROF_WAITFRAME, PROF_EYES, PROF_GPUWAIT, PROF_SUBMIT, PROF_SPECTATOR, PROF_PRESENT, PROF_COUNT };
+enum ProfSlot { PROF_WAITFRAME, PROF_EYES, PROF_GPUWAIT, PROF_SUBMIT, PROF_SPECTATOR, PROF_PRESENT, PROF_UPDATE, PROF_COUNT };
+// The game's update: from the end of Present to the next scene render (simulation, AI, streaming,
+// the other mods' per-frame work). Called as the scene render starts.
+void D3D_ProfUpdateDone();
 double D3D_ProfNow();
 void D3D_ProfAdd(int slot, double seconds);
 
@@ -96,3 +99,6 @@ void D3D_DrawOverlay(const float* xyz, int triangles, uint32_t argb);
 // Called after the last eye's scene render: captures eye 1 and redirects whatever
 // the game draws next (HUD/frontend) into a transparent HUD target.
 void D3D_BeginHudPhase();
+// While set, draws and clears are dropped (the second eye's pass of a shared shadow map: the game
+// still runs it, so its state is as usual, but the map keeps the first eye's image).
+void D3D_DropDraws(bool on);

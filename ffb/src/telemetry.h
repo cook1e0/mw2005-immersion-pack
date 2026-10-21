@@ -1,10 +1,11 @@
 // The player car's state for force feedback, sampled from speed.exe v1.3 once per physics tick
 // (about 60 Hz) on the game thread and read by the FFB thread.
 //
-// Everything is in the car's own frame, + = right / forward / up. "Right" is the car's forward
-// direction (rear axle -> front axle) crossed with the world's up axis: NFSMW's world is
-// right-handed and Z-up (checked against live camera matrices for the VR mod), so no sign needs
-// calibrating against the wheel.
+// Everything is in the car's own frame, + = right / forward / up. Forward is rear axle -> front
+// axle, right is front left wheel (0) -> front right wheel (1), square to forward: taken from the
+// car itself, since the sim's world (where ISuspension reports wheels) is Y-up and left-handed,
+// unlike the renderer's Z-up (bConvertFromBond: render = (z, -x, y)). Wheel 1 is the right one:
+// in a right turn it is the inside wheel and steers more (Ackermann).
 #pragma once
 #include "common.h"
 
@@ -24,12 +25,25 @@ struct Telemetry {
     float frontLoad;       // N, both front tyres
     int   frontOnGround;   // front wheels touching the ground (0..2)
     int   wheelsOnGround;  // 0..4
-    float maxSteerDeg;     // the game's current front wheel lock, degrees (0 = unknown)
     float steerDeg;        // the front wheels' angle now, degrees (either sign convention)
+    // Degrees of front wheel angle at full steering input right now: the front wheels' angle over
+    // the input the game steered them with this tick (speed-sensitive, widened in a slide, whatever
+    // the steering type). Held while the input is near centre; 0 = not known yet.
+    float lockDeg;
+    // The front tyres' slip angle as the game's tyre model has it (SuspensionRacer::Tire +0x118),
+    // degrees, + = the tyre travels right of where it points; the mean of the front tyres on the
+    // ground. The front axle travels at steerDeg + frontSlipDeg from the car's nose: yaw, a slide
+    // and all. Only when frontSlipKnown.
+    float frontSlipDeg;
+    bool  frontSlipKnown;
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
     bool  nos;             // nitrous engaged (IEngine::IsNOSEngaged)
+    // The driven wheels' slip: their surface speed (EngineRacer::GetDifferentialAngularVelocity
+    // times the wheel radius, learnt while cruising) over the car's speed, minus 1 (0 = gripping,
+    // 1 = the wheels turn twice as fast as the car moves). 0 when unknown.
+    float wheelSpin;
 
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
@@ -58,9 +72,17 @@ struct Telemetry {
     uint32_t carHitSeq;
     float    carHitSpeed;  // m/s, the car's speed at the hit
     float    carHitLat;    // -1..1: the hit pushes the car to the right (+) or left (-)
+    float    carHitImpulse;  // the game's impulse on the car, like hitImpulse
     double   scrapeTime;   // Now() of the latest sliding contact
     float    scrapeSpeed;  // m/s along the wall
     float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)
+    // The latest hit of either kind (hit or vehicle hit): when, and which way it pushed the car.
+    double   contactTime;
+    float    contactLat;
+    // Impacts that damaged the car, counted by the gameplay mod (Config::damageHits), and the
+    // latest one's strength: its speed change over the damage threshold (1 = just enough).
+    uint32_t damageSeq;
+    float    damageStrength;
 };
 
 bool Telemetry_Install();

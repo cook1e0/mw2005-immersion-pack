@@ -14,6 +14,8 @@
 //   landing   a hard kick and a short shake when the car lands after a jump (stronger with airtime)
 //   breakables a sharp knock when the car smashes a breakable prop (bench, sign post, fence, bin),
 //             toward the side it was on: the game's own Smackable objects, not any light contact
+//   hardJerk  a kick away from the side that was hit and a short shake, on every impact that damages
+//             the car (as the gameplay mod counts them: Telemetry::damageSeq), harder for harder hits
 //
 // All in shares of full scale, + = turns the wheel to the right. Pure: no DirectInput or globals.
 #pragma once
@@ -31,19 +33,22 @@ struct EffectParams {
     float landing = 0.8f;
     float offroad = 0.4f;
     float carHits = 0.8f;
+    float hardJerk = 0.8f;   // the jerk on impacts that damage the car
 };
 
 struct EffectParts {
     float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
+    float hardJerk = 0;
     float carHitLevel = 0;
-    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit; }
+    float hardJerkLevel = 0;
+    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit + hardJerk; }
 };
 
 // How a jolt runs: a half-sine push toward its side lasting `push` s, under a shake of `shake`
 // times its strength at `shakeHz` dying away with `shakeTau` s, all over after `length` s.
 struct JoltShape { float push, shake, shakeTau, shakeHz, length; };
 
-// One running jolt (crashes, breakable props, landings, vehicle hits).
+// One running jolt (crashes, breakable props, landings, vehicle hits, hard impacts).
 struct Jolt {
     double start = -1;
     float amp = 0, dir = 0;         // strength, side (+1 right, -1 left, 0 shake only)
@@ -63,8 +68,9 @@ private:
     float offroadLevel_ = 0, bump_ = 0, bumpWait_ = 0;
     uint32_t rand_ = 12345;
     float airTime_ = 0, landDir_ = 1;
+    uint32_t lastDamageSeq_ = 0;
     float kerbKick_ = 0, kerbShake_ = 0;
-    Jolt crash_, break_, land_, carHit_;
+    Jolt crash_, break_, land_, carHit_, hard_;
 };
 
 }  // namespace ffb

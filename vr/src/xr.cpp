@@ -426,6 +426,7 @@ struct Bridge {
     HANDLE mapping, request, reply, process;
     BridgeShared* shm;
     bool dead;
+    bool pending;   // an EndFrame was posted and its reply not yet taken ([VR] AsyncSubmit)
 };
 Bridge b;
 
@@ -457,10 +458,7 @@ bool WantBridge() {
     return rt32.empty() || _stricmp(DirOf(rt64).c_str(), DirOf(rt32).c_str()) != 0;
 }
 
-bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
-    if (!b.shm || b.dead) return false;
-    b.shm->cmd = cmd;
-    SetEvent(b.request);
+bool BridgeWaitReply(DWORD timeoutMs) {
     HANDLE wait[2] = {b.reply, b.process};
     DWORD r = WaitForMultipleObjects(2, wait, FALSE, timeoutMs);
     if (r == WAIT_OBJECT_0) return true;
@@ -469,9 +467,35 @@ bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
     return false;
 }
 
+// The previous posted command's reply first: the shared memory and the eye textures are the
+// host's until it answers.
+bool BridgeTakePending(DWORD timeoutMs) {
+    if (!b.pending) return true;
+    b.pending = false;
+    return BridgeWaitReply(timeoutMs);
+}
+
+bool BridgeCall(BridgeCmd cmd, DWORD timeoutMs = INFINITE) {
+    if (!b.shm || b.dead || !BridgeTakePending(timeoutMs)) return false;
+    b.shm->cmd = cmd;
+    SetEvent(b.request);
+    return BridgeWaitReply(timeoutMs);
+}
+
+// Posts the command and returns; the next BridgeCall (the next frame's BeginFrame, before any eye
+// is drawn again) waits for its reply.
+bool BridgePost(BridgeCmd cmd) {
+    if (!b.shm || b.dead || !BridgeTakePending(INFINITE)) return false;
+    b.shm->cmd = cmd;
+    SetEvent(b.request);
+    b.pending = true;
+    return true;
+}
+
 void BridgeStop() {
     if (b.process) {
         if (!b.dead) BridgeCall(kBridgeShutdown, 5000);
+        b.pending = false;
         if (WaitForSingleObject(b.process, 2000) != WAIT_OBJECT_0) TerminateProcess(b.process, 1);
         CloseHandle(b.process);
     }
@@ -659,6 +683,14 @@ void Xr_RecommendedSize(int* width, int* height) {
     *height = s.recH;
 }
 bool Xr_FrameBegun() { return s.frameBegun; }
+
+float Xr_DisplayHz() {
+#ifndef NFSMW_XR_HOST
+    if (s.remote) return b.shm ? b.shm->displayHz : 0.0f;
+#endif
+    XrDuration period = s.frameState.predictedDisplayPeriod;
+    return period > 0 ? (float)(1e9 / (double)period) : 0.0f;
+}
 const EyeView& Xr_Eye(int eye) { return s.eyes[eye]; }
 const char* Xr_RuntimeName() { return s.runtimeName; }
 
@@ -674,6 +706,51 @@ void Xr_Recenter() {
     }
 #endif
     s.recenterPending = true;
+}
+
+// Frame timing at the runtime, logged every 5 s: how long xrWaitFrame blocked and xrEndFrame took,
+// and how many display slots were skipped (the predicted display time moving on by more than one
+// period: the headset showed a reprojected or repeated frame there).
+struct XrTiming {
+    LARGE_INTEGER freq{}, last{};
+    double waitSum = 0, waitMax = 0, endSum = 0, endMax = 0;
+    int frames = 0, skipped = 0, skippedMax = 0;
+    XrTime lastDisplay = 0;
+} t_xr;
+
+double XrSeconds() {
+    if (!t_xr.freq.QuadPart) QueryPerformanceFrequency(&t_xr.freq);
+    LARGE_INTEGER n;
+    QueryPerformanceCounter(&n);
+    return (double)n.QuadPart / (double)t_xr.freq.QuadPart;
+}
+
+void XrTimingFrame(double wait, XrTime display, XrDuration period) {
+    t_xr.frames++;
+    t_xr.waitSum += wait;
+    if (wait > t_xr.waitMax) t_xr.waitMax = wait;
+    if (t_xr.lastDisplay && period > 0) {
+        long long slots = (long long)((display - t_xr.lastDisplay + period / 2) / period);
+        if (slots > 1) {
+            t_xr.skipped += (int)(slots - 1);
+            if (slots - 1 > t_xr.skippedMax) t_xr.skippedMax = (int)(slots - 1);
+        }
+    }
+    t_xr.lastDisplay = display;
+    double now = XrSeconds();
+    if (!t_xr.last.QuadPart) QueryPerformanceCounter(&t_xr.last);
+    double since = now - (double)t_xr.last.QuadPart / (double)t_xr.freq.QuadPart;
+    if (since < 5.0 || t_xr.frames == 0) return;
+    Log("XR timing: %d frames, %d display slots skipped (at most %d in a row), xrWaitFrame %.1f/%.1f ms, "
+        "xrEndFrame %.1f/%.1f ms (avg/max), display period %.1f ms",
+        t_xr.frames, t_xr.skipped, t_xr.skippedMax, t_xr.waitSum / t_xr.frames * 1000.0, t_xr.waitMax * 1000.0,
+        t_xr.endSum / t_xr.frames * 1000.0, t_xr.endMax * 1000.0, period / 1e6);
+    XrTime keep = t_xr.lastDisplay;
+    LARGE_INTEGER freq = t_xr.freq;
+    t_xr = XrTiming();
+    t_xr.freq = freq;
+    t_xr.lastDisplay = keep;
+    QueryPerformanceCounter(&t_xr.last);
 }
 
 bool Xr_BeginFrame() {
@@ -701,7 +778,9 @@ bool Xr_BeginFrame() {
 
     s.frameState = {XR_TYPE_FRAME_STATE};
     XrFrameWaitInfo wi{XR_TYPE_FRAME_WAIT_INFO};
+    double waitStart = XrSeconds();
     if (XR_FAILED(xrWaitFrame(s.session, &wi, &s.frameState))) return false;
+    XrTimingFrame(XrSeconds() - waitStart, s.frameState.predictedDisplayTime, s.frameState.predictedDisplayPeriod);
     XrFrameBeginInfo bi{XR_TYPE_FRAME_BEGIN_INFO};
     if (XR_FAILED(xrBeginFrame(s.session, &bi))) return false;
     s.frameBegun = true;
@@ -846,11 +925,13 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         b.shm->hudRight = g_cfg.hudRight;
         b.shm->screenDistance = g_cfg.screenDistance;
         b.shm->screenWidth = g_cfg.screenWidth;
-        BridgeCall(kBridgeEndFrame);
+        if (g_cfg.asyncSubmit) BridgePost(kBridgeEndFrame);
+        else BridgeCall(kBridgeEndFrame);
         return;
     }
 #endif
 
+    double endStart = XrSeconds();
     bool ready = viewsValid && s.frameState.shouldRender && s.eyeSrv[0] && s.chains[0].handle;
     XrCompositionLayerProjectionView pv[2] = {{XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW},
                                              {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW}};
@@ -924,4 +1005,7 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
     ei.layers = layers;
     XrResult r = xrEndFrame(s.session, &ei);
     if (XR_FAILED(r)) Log("XR: xrEndFrame failed: %s", ResultStr(r));
+    double took = XrSeconds() - endStart;
+    t_xr.endSum += took;
+    if (took > t_xr.endMax) t_xr.endMax = took;
 }

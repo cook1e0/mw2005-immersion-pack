@@ -6,7 +6,7 @@ the mod, sent as one torque through a safety chain that keeps a strong motor cal
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest)
+Download the zip from the [latest release](https://github.com/cook1e0/mw2005-immersion-pack/releases/latest)
 and copy `nfsmw_ffb.asi` and `nfsmw_ffb.ini` into the `scripts` folder next to `speed.exe` (with the
 zip's `dinput8.dll`, Ultimate ASI Loader, next to `speed.exe`). Without a loader, rename
 `nfsmw_ffb.asi` to `dinput8.dll` and put it and the `.ini` next to `speed.exe`. To uninstall, delete it.
@@ -24,9 +24,9 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 
 | Force | From |
 |---|---|
-| Steering weight (self-aligning torque) | the front axle's direction of travel vs. where the front wheels point (the tyres' slip angle), scaled by front tyre load; heaviest at `GripPeakAngle`, light past it (understeer) |
+| Steering weight (self-aligning torque) | the front tyres' slip angle as the game's tyre model has it (where the front axle travels, yaw and slide included, vs. where the wheels point), scaled by front tyre load; heaviest at `GripPeakAngle`, light past it (understeer) |
 | Countersteer in a slide | the same: the front axle travels sideways, the wheel is pulled that way (`DriftAlign`) |
-| Centring | a spring that grows with speed (`Centering`, `CenteringParked`, `CenteringSpeed`), and a firm hold around straight ahead once moving (`CentreWeight`) |
+| Centring | a spring toward straight ahead while parked or slow, fading out by 20 km/h as the steering weight takes over (`Centering`) |
 | Damping and friction | the wheel's own speed: weight against fast movement, scrub when parked; the friction is smooth through standstill, so a wheel held still doesn't buzz |
 | Soft lock | the wheel past the gameplay mod's `[Controls] SteeringLock` |
 | Menus, pause, cutscenes | a light centring spring (`MenuCentering`) |
@@ -58,8 +58,10 @@ Next steps (not in this version yet): jump lightening and landings.
 
 - `src/telemetry.cpp`: hooks `LocalPlayer::DoFFB` (called every physics tick) and samples the car
   through `ISuspension`: wheel contact points and velocities give the car's frame (forward = rear
-  axle to front axle, right = forward x world up; the world is right-handed and Z-up), speed, the
-  front axle's sideways speed, yaw rate and front tyre load.
+  axle to front axle, right = front left wheel to front right wheel; taken from the car, since the
+  sim's world is Y-up and left-handed, unlike the renderer's Z-up), speed, sideways speeds, yaw
+  rate and front tyre load; `SuspensionRacer` gives the front tyres' slip angle and the steering
+  lock the game used this tick.
 - `src/ffb_model.cpp`: the forces above, as pure functions (+ = turns the wheel right).
 - `src/ffb_filters.h`: the safety chain's parts: a critically damped low-pass for the game-rate
   forces (`SmoothingHz`), a soft limiter that compresses peaks above `LimitKnee` instead of

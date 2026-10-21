@@ -85,12 +85,19 @@ template <typename T> T& At(void* base, int offset) { return *(T*)((char*)base +
 
 // Each draw entry's triangles are reordered body, arms (and hands), head, so the seated driver
 // can be drawn without any of the last two: one or two ranges of the entry.
+// Ranges the seated driver can be drawn in, per draw entry: the body (and the arms when shown), the
+// head when shown, and the triangles brought back by hand from a hidden part (see EditSet::show).
+constexpr int kDriverPartSlots = 34;
+
 struct Driver {
     bool ok = false;
     std::string car;
     float head[3] = {};                             // head centre, model space
     std::vector<int> body, arms, heads;             // triangles per entry, in that order
-    std::vector<uint8_t> parts;                     // per entry: two ranges to draw (kEntrySize each)
+    std::vector<uint8_t> parts;                     // per entry: kDriverPartSlots ranges to draw (kEntrySize each)
+    // Per entry: runs (first index, triangles) of hidden-part triangles shown by hand, for runsKey.
+    std::vector<std::vector<std::pair<int, int>>> shownRuns;
+    int runsKey = -1;
 };
 
 // The steering wheel inside a car's interior model (<CAR>_KIT00_INTERIOR_*), found as a ring of
@@ -144,13 +151,16 @@ struct TriRef {
 
 // The triangle editor's changes to one solid (by name, e.g. IS300_KIT00_INTERIOR_A), saved in
 // nfsmw_vr_edits.ini: hidden (made degenerate in the index buffer), drawn black, added to or taken
-// off the steering wheel. (Dash and NoAuto lines left by an earlier gauge blackout are not read.)
+// off the steering wheel, and shown although the seated driver's hidden arms or head contain them
+// (Restore on a driver's hidden triangles). (Dash and NoAuto lines left by an earlier gauge blackout
+// are not read.)
 struct EditSet {
     std::map<uint64_t, std::array<uint16_t, 3>> hide;   // with the original winding, to put it back
-    std::set<uint64_t> black, wheel, noWheel;
+    std::set<uint64_t> black, wheel, noWheel, show;
     bool loaded = false;
 };
-const char* const kEditKeys[3] = {"Black", "Wheel", "NoWheel"};
+const char* const kEditKeys[4] = {"Black", "Wheel", "NoWheel", "Show"};
+int s_editsGen = 0;                                 // counts edits, for caches built from them
 std::unordered_map<std::string, EditSet> s_edits;
 
 const char* EditsPath() {
@@ -205,10 +215,10 @@ EditSet& EditsFor(const std::string& solidName) {
         return ParseTris(buf.data());
     };
     for (auto& t : read("Hide")) e.hide[TriId(t[0], t[1], t[2])] = t;
-    std::set<uint64_t>* sets[3] = {&e.black, &e.wheel, &e.noWheel};
-    for (int k = 0; k < 3; k++)
+    std::set<uint64_t>* sets[4] = {&e.black, &e.wheel, &e.noWheel, &e.show};
+    for (int k = 0; k < 4; k++)
         for (auto& t : read(kEditKeys[k])) sets[k]->insert(TriId(t[0], t[1], t[2]));
-    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size();
+    size_t n = e.hide.size() + e.black.size() + e.wheel.size() + e.noWheel.size() + e.show.size();
     if (n) Log("editor: %s: %u edited triangles loaded", solidName.c_str(), (unsigned)n);
     return e;
 }
@@ -217,9 +227,9 @@ void SaveEdits(const std::string& solidName) {
     const EditSet& e = EditsFor(solidName);
     std::vector<std::array<uint16_t, 3>> hide;
     for (auto& h : e.hide) hide.push_back(h.second);
-    const std::set<uint64_t>* sets[3] = {&e.black, &e.wheel, &e.noWheel};
+    const std::set<uint64_t>* sets[4] = {&e.black, &e.wheel, &e.noWheel, &e.show};
     WritePrivateProfileStringA(solidName.c_str(), "Hide", hide.empty() ? nullptr : TrisText(hide).c_str(), EditsPath());
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 4; k++) {
         std::vector<std::array<uint16_t, 3>> v;
         for (uint64_t id : *sets[k]) v.push_back(IdTri(id));
         WritePrivateProfileStringA(solidName.c_str(), kEditKeys[k], v.empty() ? nullptr : TrisText(v).c_str(), EditsPath());
@@ -511,7 +521,7 @@ Driver* Prepare(uint8_t* solid, const char* name) {
     if (headVerts)
         for (int a = 0; a < 3; a++) d->head[a] = sum[a] / headVerts;
 
-    d->parts.assign(n * 2 * kEntrySize, 0);
+    d->parts.assign(n * kDriverPartSlots * kEntrySize, 0);
     for (int i = 0; i < n; i++) {
         uint8_t* e = entries + i * kEntrySize;
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
@@ -1208,14 +1218,14 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
 }
 
 // Whether a triangle (vertex indices) lies on the glass: in its plane (1.2 cm) and within its
-// outline (1 cm).
-bool OnGlass(const SolidMesh& m, const MirrorGlass& g, const uint16_t* tri) {
+// outline (`margin`, m).
+bool OnGlass(const SolidMesh& m, const MirrorGlass& g, const uint16_t* tri, float margin = 0.01f) {
     float d = mirror::Dot(g.centre, g.normal), cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
     for (int k = 0; k < 3; k++) {
         if (tri[k] >= m.numVerts) return false;
         V3 q = m.at(tri[k]);
-        if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + 0.01f &&
-              fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + 0.01f))
+        if (!(fabsf(mirror::Dot(q, g.normal) - d) < 0.012f && fabsf(mirror::Dot(q, g.u) - cu) < g.halfU + margin &&
+              fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + margin))
             return false;
     }
     return true;
@@ -1264,12 +1274,25 @@ void RegisterGlassEntry(uint8_t* solid, SolidInfo& info, int side) {
         int tris = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
         if (tris < 2 || first < 0 || first + tris * 3 > m.numIndices) continue;
         int on = 0;
-        for (int t = 0; t < tris; t++) on += OnGlass(m, g, m.indices + first + t * 3);
+        // 2.5 cm past the glass found: on the Supra's right mirror that is only part of the glass
+        // (its triangles are not quite in one plane), and the glass's own entries reach beyond it.
+        for (int t = 0; t < tris; t++) on += OnGlass(m, g, m.indices + first + t * 3, 0.025f);
         if (on * 10 < tris * 8) continue;
         // The glass's own coordinates, 0..1 across and down: what part of the rear view it shows
-        // is worked out each eye (NoteMirrors), as a mirror would show it.
-        const float basis[14] = {g.centre.x, g.centre.y, g.centre.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
-                                 g.halfU, g.halfV, 0.0f, 1.0f, 0};
+        // is worked out each eye (NoteMirrors), as a mirror would show it. Spanned over this entry's
+        // own extent, so a glass found smaller than its entry still gets the whole picture.
+        float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+        float minU = cu - g.halfU, maxU = cu + g.halfU, minV = cv - g.halfV, maxV = cv + g.halfV;
+        for (int t = 0; t < tris * 3; t++) {
+            if (m.indices[first + t] >= m.numVerts) continue;
+            V3 q = m.at(m.indices[first + t]);
+            float pu = mirror::Dot(q, g.u), pv = mirror::Dot(q, g.v);
+            minU = std::min(minU, pu), maxU = std::max(maxU, pu), minV = std::min(minV, pv), maxV = std::max(maxV, pv);
+        }
+        float du = 0.5f * (minU + maxU) - cu, dv = 0.5f * (minV + maxV) - cv;
+        V3 c = {g.centre.x + g.u.x * du + g.v.x * dv, g.centre.y + g.u.y * du + g.v.y * dv, g.centre.z + g.u.z * du + g.v.z * dv};
+        const float basis[14] = {c.x, c.y, c.z, g.u.x, g.u.y, g.u.z, g.v.x, g.v.y, g.v.z,
+                                 0.5f * (maxU - minU), 0.5f * (maxV - minV), 0.0f, 1.0f, 0};
         info.glassIb[side] = ib;
         info.glassFirsts[side].push_back(first);
         std::vector<uint16_t> used(m.indices + first, m.indices + first + tris * 3);
@@ -1477,9 +1500,13 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
 // about the glass's centre, with their place in the glass (0..1 across, 0..1 down) as texture
 // coordinates: x, y, z, u, v per vertex.
 void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, float lift = 0.008f, float scale = 1.0f) {
-    float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v);
+    float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v), cd = mirror::Dot(g.centre, g.normal);
     out.clear();
-    for (const V3& p0 : g.tris) {
+    for (const V3& p1 : g.tris) {
+        // Laid flat in the glass's plane: the Eclipse's glass and the back of its housing come out
+        // as one patch, folded, and drawn as they are they made a broken shape.
+        float off = mirror::Dot(p1, g.normal) - cd;
+        V3 p0 = {p1.x - g.normal.x * off, p1.y - g.normal.y * off, p1.z - g.normal.z * off};
         V3 p = {g.centre.x + (p0.x - g.centre.x) * scale, g.centre.y + (p0.y - g.centre.y) * scale,
                 g.centre.z + (p0.z - g.centre.z) * scale};
         V3 q = {p.x + g.normal.x * lift, p.y + g.normal.y * lift, p.z + g.normal.z * lift};
@@ -1928,6 +1955,7 @@ void RunEditCommand(int cmd) {
         bool wheel = cur.wheel != u.set.wheel || cur.noWheel != u.set.noWheel;
         cur = u.set;
         cur.loaded = true;
+        s_editsGen++;
         SaveEdits(u.name);
         ApplyEditsTo(u.name, wheel);
         Log("editor: %s: undone", u.name.c_str());
@@ -1950,6 +1978,7 @@ void RunEditCommand(int cmd) {
             case 1:
                 if (wound.count(id)) e.hide[id] = wound[id];
                 e.black.erase(id);
+                e.show.erase(id);
                 break;
             case 2:
                 e.black.insert(id);
@@ -1969,11 +1998,13 @@ void RunEditCommand(int cmd) {
                 wheel |= e.wheel.erase(id) + e.noWheel.erase(id) > 0;
                 e.hide.erase(id);
                 e.black.erase(id);
+                if (info.driver) e.show.insert(id);   // drawn even inside the seated driver's hidden arms / head
                 break;
         }
     }
     static const char* kWhat[] = {"", "hidden", "black", "on the steering wheel", "off the steering wheel", "restored"};
     Log("editor: %s: %u triangles %s", s_pick.name.c_str(), (unsigned)s_brush.size(), kWhat[cmd]);
+    s_editsGen++;
     SaveEdits(s_pick.name);
     ApplyEditsTo(s_pick.name, wheel);
 }
@@ -2041,6 +2072,44 @@ void DrawEditorOverlay() {
 uint8_t* s_driverEntry;
 int s_driverParts;
 
+// The triangles of the driver's hidden arms and head that the editor shows (EditSet::show), as runs
+// of consecutive triangles per draw entry. Rebuilt when the edits or the hide switches change.
+void UpdateShownRuns(uint8_t* solid, SolidInfo& info, Driver* d, bool hideArms, bool hideHead) {
+    int key = s_editsGen * 4 + (hideArms ? 2 : 0) + (hideHead ? 1 : 0);
+    if (d->runsKey == key && d->shownRuns.size() == d->body.size()) return;
+    d->runsKey = key;
+    d->shownRuns.assign(d->body.size(), {});
+    const EditSet& e = EditsFor(SolidName(info));
+    if (e.show.empty()) return;
+    uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
+    uint8_t* entries = plat ? At<uint8_t*>(plat, kPlatEntries) : nullptr;
+    const uint16_t* indices = plat ? At<uint16_t*>(plat, kPlatIndices) : nullptr;
+    int numIndices = plat ? At<int>(plat, kPlatNumIndices) : 0;
+    if (!entries || !indices) return;
+    int shown = 0, dropped = 0;
+    for (size_t i = 0; i < d->body.size(); i++) {
+        int first = At<int>(entries + i * kEntrySize, kEntryFirstIndex);
+        // The hidden parts' triangle ranges (in triangles from the entry's first index).
+        int hidden[2][2] = {{0, 0}, {0, 0}};
+        if (hideArms) hidden[0][0] = d->body[i], hidden[0][1] = d->arms[i];
+        if (hideHead) hidden[1][0] = d->body[i] + d->arms[i], hidden[1][1] = d->heads[i];
+        auto& runs = d->shownRuns[i];
+        for (auto& h : hidden)
+            for (int t = h[0]; t < h[0] + h[1]; t++) {
+                int p = first + t * 3;
+                if (p < 0 || p + 3 > numIndices) break;
+                const uint16_t* v = indices + p;
+                if (!e.show.count(TriId(v[0], v[1], v[2]))) continue;
+                shown++;
+                if (!runs.empty() && runs.back().first + runs.back().second * 3 == p) runs.back().second++;
+                else if ((int)runs.size() < kDriverPartSlots - 2) runs.push_back({p, 1});
+                else dropped++;
+            }
+    }
+    Log("cockpit: %s: %d hidden driver triangles shown by hand%s", SolidName(info).c_str(), shown,
+        dropped ? " (some left out: too many separate pieces in one draw entry)" : "");
+}
+
 // Returns the entry to submit (the first of the seated driver's ranges), or null for none.
 uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* solid = model ? At<uint8_t*>(model, kModelSolid) : nullptr;
@@ -2090,25 +2159,30 @@ uint8_t* __cdecl OnSubmit(uint8_t* model, const float* m, uint8_t* entry) {
     uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
     int i = (int)(entry - entries) / kEntrySize;
     if (entry < entries || i >= (int)d->body.size()) return entry;
-    // The seated driver: body, then the arms unless hidden, then the head unless hidden. Copied
-    // from the live entry each time, so its vertex buffer and data are the current ones.
+    // The seated driver: body, then the arms unless hidden, then the head unless hidden, then the
+    // hidden parts' triangles shown by hand. Copied from the live entry each time, so its vertex
+    // buffer and data are the current ones.
     int first = At<int>(entry, kEntryFirstIndex);
-    int ranges[2][2] = {{first, d->body[i] + (hideArms ? 0 : d->arms[i])}, {0, 0}};
+    std::vector<std::pair<int, int>> ranges;
+    ranges.push_back({first, d->body[i] + (hideArms ? 0 : d->arms[i])});
     if (!g_cfg.hideHead) {
-        if (hideArms) { ranges[1][0] = first + (d->body[i] + d->arms[i]) * 3; ranges[1][1] = d->heads[i]; }
-        else ranges[0][1] += d->heads[i];
+        if (hideArms) ranges.push_back({first + (d->body[i] + d->arms[i]) * 3, d->heads[i]});
+        else ranges[0].second += d->heads[i];
     }
+    UpdateShownRuns(solid, *info, d, hideArms, g_cfg.hideHead);
+    if (i < (int)d->shownRuns.size())
+        for (auto& r : d->shownRuns[i]) ranges.push_back(r);
     s_driverParts = 0;
     for (auto& r : ranges) {
-        if (r[1] <= 0) continue;
-        uint8_t* part = &d->parts[(i * 2 + s_driverParts++) * kEntrySize];
+        if (r.second <= 0 || s_driverParts >= kDriverPartSlots) continue;
+        uint8_t* part = &d->parts[(i * kDriverPartSlots + s_driverParts++) * kEntrySize];
         memcpy(part, entry, kEntrySize);
-        At<int>(part, kEntryFirstIndex) = r[0];
-        At<int>(part, kEntryTris) = r[1];
-        At<int>(part, kEntryNumIndices) = r[1] * 3;
+        At<int>(part, kEntryFirstIndex) = r.first;
+        At<int>(part, kEntryTris) = r.second;
+        At<int>(part, kEntryNumIndices) = r.second * 3;
     }
     if (!s_driverParts) return nullptr;
-    s_driverEntry = &d->parts[i * 2 * kEntrySize];
+    s_driverEntry = &d->parts[i * kDriverPartSlots * kEntrySize];
     return s_driverEntry;
 }
 

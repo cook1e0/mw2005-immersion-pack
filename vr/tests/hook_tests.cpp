@@ -11,6 +11,8 @@ void D3D_EyeRenderProfile(int, double) {}
 void D3D_ResetForNextEye() {}
 void D3D_CaptureEye(int) {}
 void D3D_BeginHudPhase() {}
+void D3D_DropDraws(bool) {}
+void D3D_ProfUpdateDone() {}
 bool Xr_Available() { return false; }
 bool Xr_BeginFrame() { return false; }
 void Xr_RecommendedSize(int* w, int* h) { *w = *h = 0; }
@@ -101,6 +103,30 @@ int main() {
         assert(fabsf(depthAt(car, kCarFarZ) - kCarDepth) < 1e-4f);
         assert(depthAt(car, 2.0f) < depthAt(world, n));
         g_cfg = Config();
+    }
+    // Shared shadow map guard: identical states pass, a 3 cm eye offset in a shadow matrix does not,
+    // a NaN on one side only does not.
+    {
+        static ShadowState a, b;
+        memset(&a, 0, sizeof(a));
+        for (int i = 0; i < 16; i++) a.tex[i] = 0.1f * i;
+        a.plat[12] = 1234.5f;
+        b = a;
+        assert(ShadowStateDiff(a, b) == 0.0f);
+        b.plat[12] += 0.03f;
+        int at = -2;
+        assert(ShadowStateDiff(a, b, &at) > 1e-5f && at == 12);
+        char what[64];
+        DescribeShadowField(at, what, sizeof(what));
+        assert(strstr(what, "view [3][0]"));
+        b = a;
+        b.tex[3] += 0.001f;
+        assert(ShadowStateDiff(a, b) > 1e-4f);
+        b = a;
+        float nan = 0.0f;
+        nan = nan / nan;
+        b.light[1] = nan;
+        assert(ShadowStateDiff(a, b) > 1.0f);
     }
     uint8_t flares[3 * kFlareSize] = {};
     uint32_t exclusions[3] = {4, 5, 6};

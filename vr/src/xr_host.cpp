@@ -66,6 +66,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
             shm->shouldRender = shm->result;
             shm->eyes[0] = Xr_Eye(0);
             shm->eyes[1] = Xr_Eye(1);
+            shm->displayHz = Xr_DisplayHz();
             break;
         case kBridgeSetTextures: {
             HANDLE h[3];

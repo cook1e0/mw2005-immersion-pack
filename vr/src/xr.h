@@ -25,6 +25,9 @@ void Xr_RecommendedSize(int* width, int* height);
 // Returns true when the application should render content this frame.
 bool Xr_BeginFrame();
 bool Xr_FrameBegun();
+// The headset's refresh rate (Hz) from the runtime's predicted display period, 0 until a frame has
+// been waited for.
+float Xr_DisplayHz();
 const EyeView& Xr_Eye(int eye);
 
 // D3D9Ex shared handles of the eye textures and the HUD texture (BGRA8). Re-call when the size changes.

@@ -86,6 +86,7 @@ void Log(const char* fmt, ...) {
 }
 
 static char s_ini[MAX_PATH];
+static char s_gameplayIni[MAX_PATH];
 
 static float ReadFloat(const char* sec, const char* key, float def) {
     char buf[64], defs[64];
@@ -102,6 +103,7 @@ void LoadConfig() {
     ConfigFile("nfsmw_ffb.ini", s_ini, true);
     Config& c = g_cfg;
     const char* s = "FFB";
+    ConfigFile("nfsmw_gameplay.ini", s_gameplayIni, false);
     c.enabled = ReadInt(s, "Enabled", c.enabled) != 0;
     c.nativeFfb = ReadInt(s, "NativeFFB", c.nativeFfb) != 0;
     c.gain = Clamp(ReadFloat(s, "Gain", c.gain), 0.0f, 3.0f);
@@ -115,14 +117,11 @@ void LoadConfig() {
     c.driftAlign = Clamp(ReadFloat(s, "DriftAlign", c.driftAlign), 0.0f, 2.0f);
     c.loadSensitivity = Clamp(ReadFloat(s, "LoadSensitivity", c.loadSensitivity), 0.0f, 2.0f);
     c.centering = Clamp(ReadFloat(s, "Centering", c.centering), 0.0f, 2.0f);
-    c.centeringParked = Clamp(ReadFloat(s, "CenteringParked", c.centeringParked), 0.0f, 1.0f);
-    c.centeringSpeed = Clamp(ReadFloat(s, "CenteringSpeed", c.centeringSpeed), 10.0f, 400.0f);
     c.damping = Clamp(ReadFloat(s, "Damping", c.damping), 0.0f, 2.0f);
     c.friction = Clamp(ReadFloat(s, "Friction", c.friction), 0.0f, 1.0f);
     c.parkingFriction = Clamp(ReadFloat(s, "ParkingFriction", c.parkingFriction), 0.0f, 1.0f);
     c.softLock = Clamp(ReadFloat(s, "SoftLock", c.softLock), 0.0f, 1.0f);
     c.menuCentering = Clamp(ReadFloat(s, "MenuCentering", c.menuCentering), 0.0f, 1.0f);
-    c.centreWeight = Clamp(ReadFloat(s, "CentreWeight", c.centreWeight), 0.0f, 1.0f);
     c.engineRumble = Clamp(ReadFloat(s, "EngineRumble", c.engineRumble), 0.0f, 1.0f);
     c.kerbs = Clamp(ReadFloat(s, "Kerbs", c.kerbs), 0.0f, 2.0f);
     c.surfaceRumble = Clamp(ReadFloat(s, "SurfaceRumble", c.surfaceRumble), 0.0f, 2.0f);
@@ -131,8 +130,10 @@ void LoadConfig() {
     c.breakables = Clamp(ReadFloat(s, "Breakables", c.breakables), 0.0f, 2.0f);
     c.landing = Clamp(ReadFloat(s, "Landing", c.landing), 0.0f, 2.0f);
     c.carHits = Clamp(ReadFloat(s, "CarHits", c.carHits), 0.0f, 2.0f);
+    c.hardImpactJerk = Clamp(ReadFloat(s, "HardImpactJerk", c.hardImpactJerk), 0.0f, 2.0f);
     c.offroadVibration = Clamp(ReadFloat(s, "OffroadVibration", c.offroadVibration), 0.0f, 2.0f);
     c.nosLighter = Clamp(ReadFloat(s, "NosLighter", c.nosLighter), 0.0f, 0.9f);
+    c.spinLighter = Clamp(ReadFloat(s, "SpinLighter", c.spinLighter), 0.0f, 0.9f);
     c.device = (float)Clamp(ReadInt(s, "Device", 0), -1, 15);
     // ForceSign moved from [Calibration] (written by older versions) to [FFB].
     int legacySign = ReadInt("Calibration", "ForceSign", 0);
@@ -143,18 +144,18 @@ void LoadConfig() {
     c.steerAxis = Clamp(ReadInt(s, "SteerAxis", c.steerAxis), 0, 6);
     c.updateHz = Clamp(ReadInt(s, "UpdateHz", c.updateHz), 60, 1000);
     c.keyReset = Clamp(ReadInt(s, "KeyReset", c.keyReset), 0, 255);
-    c.logTelemetry = ReadInt(s, "LogTelemetry", c.logTelemetry) != 0;
-    char gameplayIni[MAX_PATH];
-    ConfigFile("nfsmw_gameplay.ini", gameplayIni, false);
-    c.gameController = GetPrivateProfileIntA("Controls", "GameController", 1, gameplayIni) ? 1.0f : 0.0f;
-    c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, gameplayIni) ? 1.0f : 0.0f;
-    c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, gameplayIni) ? 1.0f : 0.0f;
+    c.logTelemetry = Clamp(ReadInt(s, "LogTelemetry", c.logTelemetry), 0, 2);
+    c.gameController = GetPrivateProfileIntA("Controls", "GameController", 1, s_gameplayIni) ? 1.0f : 0.0f;
+    c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, s_gameplayIni) ? 1.0f : 0.0f;
+    c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, s_gameplayIni) ? 1.0f : 0.0f;
     Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d | aligning=%.2f "
-        "peak=%.1f drift=%.2f load=%.2f centering=%.2f (%.0f%% parked, full at %.0f km/h) damping=%.2f friction=%.2f/%.2f "
-        "softlock=%.2f menu=%.2f centre=%.2f | engine=%.2f kerbs=%.2f surface=%.2f crashes=%.2f scrapes=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
+        "peak=%.1f drift=%.2f load=%.2f centering=%.2f damping=%.2f friction=%.2f/%.2f "
+        "softlock=%.2f menu=%.2f | engine=%.2f kerbs=%.2f surface=%.2f crashes=%.2f scrapes=%.2f | "
+        "hardjerk=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.aligning,
-        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.centering, c.centeringParked * 100.0f, c.centeringSpeed, c.damping,
-        c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.centreWeight, c.engineRumble, c.kerbs,
-        c.surfaceRumble, c.crashes, c.scrapes, (int)c.device, c.forceSign, c.reverse > 0.5f,
+        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.centering, c.damping,
+        c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.engineRumble, c.kerbs,
+        c.surfaceRumble, c.crashes, c.scrapes, c.hardImpactJerk,
+        (int)c.device, c.forceSign, c.reverse > 0.5f,
         c.forceDirection, c.restartEffects, c.steerAxis, c.updateHz, c.gameController > 0.5f ? "on" : "hidden");
 }

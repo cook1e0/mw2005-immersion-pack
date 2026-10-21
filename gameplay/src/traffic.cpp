@@ -89,7 +89,30 @@ static int __fastcall HkTurboRaceType(void* parms, void* edx) {
     return type == kRaceDrag && g_cfg.normalDragHud ? 0 : type;
 }
 
+// The pause menu's Performance Tuning (Pause_Performance_Tuning.fng: steering, handling, brakes,
+// ride height, aero, nitrous, turbo) is stored per car as Physics::Tunings, seven floats, 0 = stock,
+// which the physics reads through PVehicle::GetTunings (IVehicle vtable +0xCC, 0x670630; it may
+// return null, so every caller copes). With [Physics] GameTuning=0 the player's car reports a
+// block of zeros: stock, whatever the menu holds. The menu itself still opens; it has no effect.
+// AI cars keep theirs.
+constexpr uintptr_t kSlotGetTunings = 0x8AA8F4;
+constexpr uintptr_t kGetTunings = 0x670630;   // const Physics::Tunings* PVehicle::GetTunings(), thiscall (IVehicle this)
+
+static const float* __fastcall HkGetTunings(uint8_t* vehicle, void* edx) {
+    const float* t = ((const float*(__fastcall*)(uint8_t*, void*))kGetTunings)(vehicle, edx);
+    if (!t || g_cfg.gameTuning || *(int*)(vehicle + kIV_DriverClass) != 0) return t;
+    static const float kStock[16] = {};
+    static bool logged;
+    if (!logged) {
+        logged = true;
+        Log("traffic: the game's performance tuning ignored for the player's car (stock values)");
+    }
+    return kStock;
+}
+
 void Traffic_Install() {
+    if (!SetSlot(kSlotGetTunings, kGetTunings, (void*)&HkGetTunings))
+        Log("traffic: unexpected vehicle code, the game's performance tuning left as it is");
     if (!RetargetCall(kCallTurboRaceType, kGetRaceType, (void*)&HkTurboRaceType))
         Log("traffic: unexpected turbo dial code, its needle keeps the drag range in drag races");
     bool hudOk = true;

@@ -12,6 +12,7 @@ float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0
 const JoltShape kCrashJolt = {0.08f, 0.6f, 0.12f, 20.0f, 0.45f};
 const JoltShape kBreakJolt = {0.05f, 0.5f, 0.06f, 28.0f, 0.25f};   // short and sharp, a quick rattle
 const JoltShape kLandJolt = {0.07f, 0.7f, 0.10f, 18.0f, 0.35f};    // landings and vehicle hits
+const JoltShape kHardJolt = {0.06f, 0.8f, 0.10f, 18.0f, 0.40f};    // impacts that damage the car
 }
 
 float Jolt::Step(double now, const JoltShape& s, float* level) {
@@ -133,6 +134,22 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     float carLevel = 0.0f;
     e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
     e.carHitLevel = carLevel * drive;
+
+    // --- hard impact jerk: an impact that damaged the car (the gameplay mod counts them), away
+    // from the side of the latest contact if it was just now ---
+    if (t.damageSeq != lastDamageSeq_) {
+        lastDamageSeq_ = t.damageSeq;
+        bool recent = t.contactTime > 0 && fabs(t.time - t.contactTime) < 0.3;
+        float lat = recent ? t.contactLat : 0.0f;
+        // Harder hits jerk harder: a third of the strength at the threshold, all of it at twice
+        // it; away from the side that was hit (the push on the car), else the shake alone.
+        if (p.hardJerk > 0.0f)
+            hard_.Start(now, p.hardJerk * Clampf(0.35f + 0.65f * (t.damageStrength - 1.0f), 0.35f, 1.25f),
+                        fabsf(lat) > 0.05f ? (lat > 0.0f ? 1.0f : -1.0f) : 0.0f);
+    }
+    float hardLevel = 0.0f;
+    e.hardJerk = hard_.Step(now, kHardJolt, &hardLevel) * drive;
+    e.hardJerkLevel = hardLevel * drive;
 
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
     float since = (float)(now - t.scrapeTime);
