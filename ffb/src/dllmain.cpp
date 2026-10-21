@@ -44,8 +44,12 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"Scrapes", &g_cfg.scrapes}, {"Breakables", &g_cfg.breakables},
         {"Landing", &g_cfg.landing},
         {"CarHits", &g_cfg.carHits},
+        {"HardImpactJerk", &g_cfg.hardImpactJerk},
+        {"DamageHits", &g_cfg.damageHits}, {"DamageHitStrength", &g_cfg.damageHitStrength},
         {"OffroadVibration", &g_cfg.offroadVibration},
         {"NosLighter", &g_cfg.nosLighter},
+        {"SpinLighter", &g_cfg.spinLighter},
+        {"ParkingFriction", &g_cfg.parkingFriction},
     };
     for (auto& s : kSettings)
         if (!strcmp(name, s.key)) return s.value;

@@ -389,6 +389,14 @@ static void TestMirrorGlass() {
         Check(r.ok && fabsf(r.centre.x - 0.25f) < 0.01f && fabsf(2 * r.halfU - 0.2f) < 0.01f && r.normal.x < -0.9f,
               "rear view mirror found, visor passed over");
         Check(!mirror::FindGlass(inside, false, mirror::GlassKind::Side).ok, "rear view mirror is not a side mirror");
+        // The Punto: a scrap of the dashboard far below lies in the glass's plane; it stays out of it.
+        std::vector<V3> punto;
+        V3 pn = mirror::Norm({-0.98f, 0.17f, 0.0f}), pu = mirror::Norm(mirror::Cross({0, 0, 1}, pn)), pv = mirror::Cross(pn, pu);
+        AddQuad(punto, {0.29f, 0.0f, 1.05f}, pu, pv, 0.1f, 0.034f, false);                // mirror, 0.2 x 0.068
+        AddQuad(punto, {0.32f, 0.2f, 0.75f}, pu, pv, 0.02f, 0.02f, false);                // dashboard scrap
+        MirrorGlass pr = mirror::FindGlass(punto, false, mirror::GlassKind::RearView);
+        Check(pr.ok && fabsf(2 * pr.halfU - 0.2f) < 0.01f && fabsf(pr.centre.z - 1.05f) < 0.01f,
+              "rear view mirror found without a far piece in its plane");
         const float head[3] = {-0.2f, 0.37f, 0.97f};
         V3 at[3] = {{0.25f, 0.05f, 1.0f}, {0.3f, -0.05f, 1.0f}, {0.25f, 0.0f, 1.05f}};
         V3 ahead[3] = {{1.2f, 0.0f, 1.0f}, {1.3f, 0.0f, 1.0f}, {1.2f, 0.0f, 1.05f}};

@@ -15,7 +15,9 @@
 // (SPEEDBREAKER_METER_ICON_GROUP) gets the pause menu's car icon. While heat or damage is at
 // Warn or above both arcs pulse. The car icon is drawn like the game's own HUD: gray with no
 // damage, the HUD's beige (the arc's colour) when damaged, and pulsing red like the arc from
-// IconRedFrom (75%) up. Above it a clone of it shows the spike strip milestone icon
+// IconRedFrom (75%) up. (Now: gray under 1% damage, the speedbreaker clock icon's own beige from 1%,
+// blinking red like the other two icons from 75%; all three moved [HUD] IconShift right of the
+// arc's arrow.) Above it a clone of it shows the spike strip milestone icon
 // (MILESTONE_SPIKESTRIPS), only while a tire is popped, flashing red. It stays opaque (it sits
 // over the arc, so a translucent one takes on the arc's colour): it flashes by brightness, in
 // the car icon's rhythm. Neither icon has an outline. Left of the spike strip icon, at the same
@@ -25,6 +27,8 @@
 #include "hud.h"
 #include "common.h"
 #include "game.h"
+#include "physics.h"
+#include "iconpack.h"
 #include <math.h>
 
 namespace {
@@ -80,7 +84,7 @@ enum { FE_Image = 1, FE_Group = 5, FE_MultiImage = 12 };
 constexpr uint32_t kHeatColor = 0xFFE01E14;
 constexpr uint32_t kIconGray = 0xFFA8A8A8;          // car icon with no damage
 constexpr float kIconRedFrom = 0.75f;               // car icon pulses red from this much damage
-constexpr float kIconDamaged = 0.005f;              // any damage at all turns it beige
+constexpr float kIconDamaged = 0.01f;               // from 1% damage it turns beige
 constexpr uint32_t kOutlineColor = 0xC0000000;
 constexpr float kOutline = 1.5f;                    // outline width, in HUD units
 constexpr float kOutlineDepth = 0.01f;              // outline copies just behind their icon
@@ -166,6 +170,8 @@ struct {
     uint8_t* meter = nullptr;
     uint8_t* bar = nullptr;
     uint8_t* list = nullptr;        // the list holding bar and clone
+    uint8_t* pkg = nullptr;         // the HUD package they are in, and its name (to tell it still exists)
+    std::string pkgName;
     uint8_t* clone = nullptr;
     uint32_t barColor = 0;          // bar's own colour, restored after flashing
     std::vector<IconImage> icon;
@@ -173,6 +179,9 @@ struct {
     uint8_t* iconList = nullptr;    // the list holding the car icon image and the spike icon
     uint8_t* spike = nullptr;       // spike strip icon (a clone of the car icon)
     uint8_t* heatIcon = nullptr;    // engine warning icon (a clone of the car icon), left of the spike icon
+    uint8_t* aid[2] = {};           // ABS icon (above the engine warning icon) and TC icon (right of it)
+    uint32_t aidTex[2] = {};        // their textures, 0 = none loaded (looked for again each second)
+    double aidLooked = -1e9;
     uint32_t heatTex = 0;           // its texture hash, 0 = none loaded
     int heatPick = -1;              // which [HUD] HeatIcon name it is (0 = the first), -1 = none
     double heatLooked = -1e9;       // when a better one was last looked for
@@ -188,8 +197,9 @@ struct {
 } s;
 
 // Mask rotation for a level 0..1. The game turns the mask from minAngle (empty) to 0 (full);
-// filling up turns it from the opposite side, from -180 (empty) to 0 (full) as well. (It used to
-// stop at minAngle - 180, -5: the last 5 degrees, up to the arrow at the arc's end, never filled.)
+// filling up turns it from the opposite side, from -180 (empty) to 0 (full) as well, so 100%
+// fills the whole arc up to the small arrow at its end (minAngle - 180 left the last 5 degrees
+// empty: the bar never looked full).
 float Angle(float level) {
     level = Clamp(level, 0.0f, 1.0f);
     if (!g_cfg.hudFillUp) return s.minAngle * (1.0f - level);
@@ -241,7 +251,8 @@ void PickHeatIcon() {
 void Setup(uint8_t* meter) {
     s.meter = meter;
     s.bar = Field<uint8_t*>(meter, kSB_Bar);
-    s.list = s.clone = s.iconList = s.spike = s.heatIcon = nullptr;
+    s.list = s.clone = s.iconList = s.spike = s.heatIcon = s.pkg = nullptr;
+    s.aid[0] = s.aid[1] = nullptr;
     s.arrow = {};
     s.icon.clear();
     s.carOutline.clear();
@@ -255,6 +266,8 @@ void Setup(uint8_t* meter) {
         s.failed = true;
         return;
     }
+    s.pkg = pkg;
+    s.pkgName = pkgName;
     s.list = FindList(pkg + kPK_Objects, s.bar);
     if (!s.list) {
         Log("hud: arc %p not found in %s", s.bar, pkgName);
@@ -288,6 +301,23 @@ void Setup(uint8_t* meter) {
         }
         s.arrow = small != big ? s.icon[small] : IconImage{};
         if (!s.icon.empty()) s.icon = {s.icon[big]};
+        // Clear of the arc's arrow: the car icon moved right (once per icon object; the spike strip
+        // and engine warning icons are copies of it, placed relative to it, made after this).
+        // Its colour as the game had it is kept from then on (we paint it every update after).
+        static uint8_t* shifted;
+        static uint32_t gameColor;
+        uint8_t* d = !s.icon.empty() ? Field<uint8_t*>(s.icon[0].img, kFO_Data) : nullptr;
+        if (d && s.icon[0].img == shifted) s.icon[0].color = gameColor;
+        if (d && s.icon[0].img != shifted) {
+            shifted = s.icon[0].img;
+            gameColor = s.icon[0].color;
+            Field<float>(d, kOD_PosX) += g_cfg.hudIconShift;
+            Field<uint32_t>(s.icon[0].img, kFO_Flags) |= kDirty;
+            uint8_t* a = s.arrow.img ? Field<uint8_t*>(s.arrow.img, kFO_Data) : nullptr;
+            Log("hud: car icon moved %.1f right: at x %.1f (width %.1f), the arc's arrow at x %.1f (width %.1f)",
+                g_cfg.hudIconShift, Field<float>(d, kOD_PosX), Field<float>(d, kOD_SizeX), a ? Field<float>(a, kOD_PosX) : 0.0f,
+                a ? Field<float>(a, kOD_SizeX) : 0.0f);
+        }
         if (!s.icon.empty()) s.iconList = FindList(icon + kFG_Children, s.icon[0].img);
     }
     if (!s.carIcon) s.carIcon = PickIcon();
@@ -428,6 +458,70 @@ void Apply() {
     s.applied = true;
 }
 
+// The ABS / TC icons' textures, from [HUD] AbsIcon / TcIcon (first loaded name wins).
+uint32_t PickAidTex(const std::string& list, const char* what) {
+    std::string names = list;
+    for (char* n = strtok(&names[0], ", "); n; n = strtok(nullptr, ", ")) {
+        uint32_t hash = ((StringHash_t)kStringHash)(n);
+        if (((GetTextureInfo_t)kGetTextureInfo)(hash, 0, 0)) {
+            Log("hud: %s icon texture %s", what, n);
+            return hash;
+        }
+    }
+    static int logged[2];
+    int k = what[0] == 'A' ? 0 : 1;
+    if (logged[k]++ < 3) Log("hud: %s icon: none of %s loaded in the race", what, list.c_str());
+    return 0;
+}
+
+// ABS (above the engine warning icon) and TC (right of ABS): invisible while that aid is off, gray
+// while it is on but idle, blinking in the HUD's beige while it works, like a real dash light.
+void UpdateAidIcons(float wave) {
+    if (!s.iconList || s.icon.empty()) return;
+    if (Now() - s.aidLooked > 1.0 && (!s.aidTex[0] || !s.aidTex[1])) {
+        s.aidLooked = Now();
+        if (!s.aidTex[0]) s.aidTex[0] = PickAidTex(g_cfg.hudAbsIcon, "ABS");
+        if (!s.aidTex[1]) s.aidTex[1] = PickAidTex(g_cfg.hudTcIcon, "TC");
+    }
+    bool active[2];
+    Physics_Aids(&active[0], &active[1]);
+    bool on[2] = {g_cfg.abs, g_cfg.tc};
+    uint32_t beige = s.icon[0].color | 0xFF000000;
+    for (int k = 0; k < 2; k++) {
+        if (!s.aidTex[k]) continue;
+        uint8_t*& img = s.aid[k];
+        if (!img || !InList(s.iconList, img)) {
+            img = CloneIcon(k == 0 ? 0.0f : -SideOffsetX(), 2.0f * SpikeOffset(), 0.0f, s.aidTex[k]);
+            if (!img) {
+                s.aidTex[k] = 0;
+                continue;
+            }
+            Log("hud: %s icon %p added", k == 0 ? "ABS" : "TC", img);
+        }
+        // Placed from the car icon every update, so [HUD] AidIconRight / AidIconUp (F4 sliders) move
+        // it live: its own spot (ABS above the engine warning icon, TC right of it) plus the offset.
+        uint8_t* car = Field<uint8_t*>(s.icon[0].img, kFO_Data);
+        uint8_t* d = Field<uint8_t*>(img, kFO_Data);
+        if (car && d) {
+            float x = Field<float>(car, kOD_PosX) + (k == 0 ? 0.0f : -SideOffsetX()) + g_cfg.hudAidRight;
+            float y = Field<float>(car, kOD_PosY) + 2.0f * SpikeOffset() - g_cfg.hudAidUp;   // screen y runs down
+            if (Field<float>(d, kOD_PosX) != x || Field<float>(d, kOD_PosY) != y) {
+                Field<float>(d, kOD_PosX) = x;
+                Field<float>(d, kOD_PosY) = y;
+                Field<uint32_t>(img, kFO_Flags) |= kDirty;
+            }
+        }
+        SetColor(img, active[k] ? Bright(beige, 0.2f + 0.8f * wave) : kIconGray);
+        uint32_t& flags = Field<uint32_t>(img, kFO_Flags);
+        uint32_t vis = (flags & ~1u) | (Field<uint32_t>(s.icon[0].img, kFO_Flags) & 1u) | (on[k] ? 0u : 1u);
+        if (vis != flags) {
+            flags = vis | kDirty;
+            Log("hud: %s icon %s", k == 0 ? "ABS" : "TC",
+                !(vis & 1u) ? "shown" : on[k] ? "hidden with the car icon" : "hidden (aid off)");
+        }
+    }
+}
+
 void Restore() {
     if (!s.applied) return;
     for (auto& i : s.icon) {
@@ -442,6 +536,8 @@ void Restore() {
     if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, WithAlpha(kHeatColor, 0.0f));
     if (s.spike && InList(s.iconList, s.spike)) SetColor(s.spike, 0);
     if (s.heatIcon && InList(s.iconList, s.heatIcon)) SetColor(s.heatIcon, 0);
+    for (uint8_t* a : s.aid)
+        if (a && InList(s.iconList, a)) SetColor(a, 0);
     for (auto* out : {&s.carOutline, &s.spikeOutline})
         if (!out->empty() && InList(s.iconList, (*out)[0]))
             for (uint8_t* c : *out) SetColor(c, 0);
@@ -465,17 +561,21 @@ void Update(uint8_t* meter, const HudStatus& h) {
     SetRotation(s.clone, Angle(heat));
     float wave = 0.5f + 0.5f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f);
     float flash = 0.2f + 0.8f * wave;               // same swing as the car icon's red pulse
-    // The car icon in the HUD's own colours, no outline (an outlined, opaque copy looked harsh).
-    uint32_t iconColor = h.damage >= kIconRedFrom ? WithAlpha(kHeatColor, 0.6f + 0.4f * cosf((float)fmod(Now(), 0.5) * 6.2831853f / 0.5f))
-                         : h.damage >= kIconDamaged ? (s.barColor | 0xFF000000)
+    // The car icon, no outline (an outlined, opaque copy looked harsh): gray undamaged, the
+    // speedbreaker clock icon's own beige when damaged, and from IconRedFrom red, blinking by
+    // brightness in the rhythm of the spike strip and engine warning icons (opaque: a translucent
+    // icon takes on the arc's colour behind it).
+    uint32_t beige = (s.icon.empty() ? s.barColor : s.icon[0].color) | 0xFF000000;
+    uint32_t iconColor = h.damage >= kIconRedFrom ? Bright(kHeatColor, flash)
+                         : h.damage >= kIconDamaged ? beige
                          : kIconGray;
     for (auto& i : s.icon)
         SetColor(i.img, iconColor);
-    if (s.arrow.img) SetColor(s.arrow.img, iconColor);   // the arc's arrow glows with the car icon
     if (!s.carOutline.empty() && InList(s.iconList, s.carOutline[0]))
         UpdateOutline(s.carOutline, 0.0f, Field<uint32_t>(s.icon[0].img, kFO_Handle), false);
     UpdateSpike(h.poppedTires, flash);
     UpdateHeatIcon(h.heat >= g_cfg.hudHeatIconFrom || h.engineBlown, flash);
+    UpdateAidIcons(wave);
     // Visible whenever the arc is (bit 0 = invisible, FEngSetInvisible); the clone keeps the
     // flag the arc had when it was cloned and the game never touches it again.
     uint32_t& flags = Field<uint32_t>(s.clone, kFO_Flags);
@@ -512,6 +612,44 @@ void __fastcall Hook_SetPursuitLevel(uint8_t* iface, void*, float level) {
     Update(iface - kSB_Iface, h);
 }
 
+// The pause menu: the game's own HUD goes, but what this file colours (the arc, its heat overlay,
+// the car, spike strip, engine warning and ABS / TC icons) kept the colours the last update gave
+// it. While the game time stands still they are all made transparent before the HUD is drawn;
+// the next HUD update after the pause colours them again.
+constexpr uintptr_t kSimTime = 0x9885D8;            // float: game time (Sim::GetTime), stops while paused
+constexpr double kPausedAfter = 0.15;               // seconds of real time without the game time moving
+
+bool Paused() {
+    static float last = -1.0f;
+    static double movedAt = 0;
+    float t = *(volatile float*)kSimTime;
+    if (t != last) {
+        last = t;
+        movedAt = Now();
+    }
+    return Now() - movedAt > kPausedAfter;
+}
+
+void HideForPause() {
+    static bool hidden = false;
+    // Only while the meter's HUD package is still loaded (the frontend unloads it; its objects are
+    // gone then).
+    uint8_t* feng = *(uint8_t**)kFEngInstance;
+    bool alive = s.applied && s.pkg && feng && ((FindPackage_t)kFindPackage)(feng, s.pkgName.c_str()) == s.pkg &&
+                 s.bar && *(uintptr_t*)s.bar == kVtblMultiImage;
+    bool paused = Paused() && alive;
+    if (paused != hidden) {
+        hidden = paused;
+        Log("hud: %s", paused ? "game paused: meter and icons hidden" : "game running: meter and icons back");
+    }
+    if (!paused) return;
+    if (s.bar) SetColor(s.bar, 0);
+    if (s.clone && InList(s.list, s.clone)) SetColor(s.clone, 0);
+    for (auto& i : s.icon) SetColor(i.img, 0);
+    for (uint8_t* c : {s.spike, s.heatIcon, s.aid[0], s.aid[1]})
+        if (c && InList(s.iconList, c)) SetColor(c, 0);
+}
+
 // The game's Update turns the arc's mask when the level changes; ours is put back after it.
 void __fastcall Hook_MeterUpdate(uint8_t* meter, void*, void* player) {
     ((MeterUpdate_t)kUpdate)(meter, player);
@@ -546,8 +684,53 @@ void FreeDragPack() {
     s_dragPack = nullptr;
 }
 
+// The mod's own HUD icons (the ABS and TC icons: PERFORMANCE_BRAKES and MAIN_ICON_QUICK_RACE, which
+// only the front end's pack has): scripts\nfsmw_hud_icons.bin, a two-texture pack built from the
+// game's FRONTEND\FrontB.lzc on the first start (iconpack.cpp; gameplay\tools\make_icon_pack.py
+// makes the same file), laid out like HUDTEXDRAG.BIN.
+// Loaded with every race HUD, its textures unloaded (by path, 0x5033C0, as the loader does for its
+// own packs) and its file freed when the HUD's are.
+constexpr const char* kIconPackPath = "scripts\\nfsmw_hud_icons.bin";
+constexpr uintptr_t kUnloadTexturePack = 0x5033C0;  // cdecl (file path): the pack's textures unloaded
+void* s_iconPack = nullptr;
+bool s_iconPackLoaded = false;      // its textures are in (only then unloaded by path)
+
+void __cdecl IconPackLoaded(void*) {
+    s_iconPackLoaded = true;
+    Log("hud: mod HUD icons loaded (%s)", kIconPackPath);
+}
+
+void LoadIconPack() {
+    if (s_iconPack) return;
+    if (GetFileAttributesA(kIconPackPath) == INVALID_FILE_ATTRIBUTES) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("hud: %s missing: no ABS / TC icons", kIconPackPath);
+        }
+        return;
+    }
+    void* file = ((void*(__cdecl*)(const char*, int, int, int, int))kCreateResourceFile)(kIconPackPath, 3, 0, 0, 0);
+    if (!file) {
+        Log("hud: mod HUD icons not loaded (no resource file)");
+        return;
+    }
+    ((void(__fastcall*)(void*, void*, int, const char*))kSetAllocationParams)(file, nullptr, 0x2000, kIconPackPath);
+    ((void(__fastcall*)(void*, void*, void*, void*))kBeginLoading)(file, nullptr, (void*)&IconPackLoaded, nullptr);
+    s_iconPack = file;
+}
+
+void FreeIconPack() {
+    if (!s_iconPack) return;
+    if (s_iconPackLoaded) ((void(__cdecl*)(const char*))kUnloadTexturePack)(kIconPackPath);
+    s_iconPackLoaded = false;
+    ((void(__cdecl*)(void*))kUnloadResourceFile)(s_iconPack);
+    s_iconPack = nullptr;
+}
+
 void __fastcall Hook_LoaderLoad(void* loader, void* edx, int type, int extra) {
     ((void(__fastcall*)(void*, void*, int, int))kLoaderLoad)(loader, edx, type, extra);
+    LoadIconPack();
     if (type != kHudStandard || !g_cfg.hudMeter || g_cfg.hudHeatIcon.find("ENGINE_HEAT_ICON") == std::string::npos) return;
     if (s_dragPack) return;   // still loaded (its textures may be in use): kept, never freed under them
     const char* path = *(const char**)kDragPackPath;
@@ -564,6 +747,7 @@ void __fastcall Hook_LoaderLoad(void* loader, void* edx, int type, int extra) {
 void __fastcall Hook_LoaderUnload(void* loader, void* edx, int type) {
     ((void(__fastcall*)(void*, void*, int))kLoaderUnload)(loader, edx, type);
     FreeDragPack();
+    FreeIconPack();
 }
 
 bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
@@ -578,6 +762,8 @@ bool RetargetCall(uintptr_t site, uintptr_t target, void* hook) {
 }
 
 }  // namespace
+
+void Hud_Frame() { HideForPause(); }
 
 bool Hud_Message(const char* text) {
     if (!s.meter || Now() - s.seen > 0.5) return false;
@@ -605,6 +791,14 @@ void Hud_Install() {
         VirtualProtect((void*)slot.first, 4, old, &old);
     }
     Log("hud: speedbreaker meter shows damage and heat (%s)", g_cfg.hudMeter ? "on" : "off");
+    // The ABS / TC icons' pack, made from the game's own files the first time (it isn't shipped).
+    char iconPack[MAX_PATH];
+    snprintf(iconPack, sizeof(iconPack), "%s%s", GameDir(), kIconPackPath);
+    if (GetFileAttributesA(iconPack) == INVALID_FILE_ATTRIBUTES) {
+        std::string error;
+        if (IconPack_Build(GameDir(), &error)) Log("hud: %s made from FRONTEND\\FrontB.lzc (ABS / TC icons)", kIconPackPath);
+        else Log("hud: %s not made (%s): no ABS / TC icons", kIconPackPath, error.c_str());
+    }
     const char* path = *(const char**)kDragPackPath;
     if (path && !IsBadStringPtrA(path, 32) && strstr(path, "HUDTEXDRAG") &&
         RetargetCall(kCallLoaderUnload, kLoaderUnload, (void*)&Hook_LoaderUnload)) {

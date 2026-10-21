@@ -12,12 +12,15 @@
 #include "spectator.h"
 #include "cockpit.h"
 #include "crash.h"
+#include "smaa.h"
+#include "frametrace.h"
 
 #include <d3d9.h>
 #include "d3d9device_gen.h"
 #include <d3dcommon.h>
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <algorithm>
@@ -80,6 +83,38 @@ static void* s_hideTex[3];               // draws sampling these are left out (t
 static void* s_boundTex[4];              // textures bound to stages 0..3
 static bool s_texHidden;                 // one of them is hidden
 
+// 16x anisotropic filtering ([VR] Anisotropic): a sampler the game sets to linear minification is
+// switched to anisotropic, except while a depth texture is bound to it (the shadow map: its
+// hardware comparison needs linear). Kept per stage: the game's own filter and the texture bound.
+static std::vector<void*> s_depthTex;            // textures created as depth buffers
+static DWORD s_gameMinFilter[16];                // the game's D3DSAMP_MINFILTER per stage
+static bool s_stageDepth[16];                    // a depth texture is bound to the stage
+static DWORD s_setMinFilter[16];                 // what we passed on
+static int s_anisoLevel = 0;                     // 0 off, else the maximum anisotropy (2..16)
+// What the game asks for, for the log: minification filters set, by value (none, point, linear,
+// anisotropic, other), and how many we turned anisotropic.
+static unsigned s_minFilterAsked[5], s_minFilterTurned;
+
+static bool IsDepthFormat(D3DFORMAT f) {
+    return f == D3DFMT_D24S8 || f == D3DFMT_D24X8 || f == D3DFMT_D16 || f == D3DFMT_D32 || f == D3DFMT_D24FS8 ||
+           f == D3DFMT_D15S1 || f == D3DFMT_D24X4S4 || f == D3DFMT_D16_LOCKABLE || f == D3DFMT_D32F_LOCKABLE ||
+           f == (D3DFORMAT)MAKEFOURCC('I', 'N', 'T', 'Z') || f == (D3DFORMAT)MAKEFOURCC('D', 'F', '1', '6') ||
+           f == (D3DFORMAT)MAKEFOURCC('D', 'F', '2', '4') || f == (D3DFORMAT)MAKEFOURCC('R', 'A', 'W', 'Z');
+}
+
+static DWORD EffectiveMinFilter(DWORD stage) {
+    DWORD f = s_gameMinFilter[stage];
+    return s_anisoLevel && (f == D3DTEXF_LINEAR || f == D3DTEXF_ANISOTROPIC) && !s_stageDepth[stage] ? (DWORD)D3DTEXF_ANISOTROPIC : f;
+}
+
+static void ApplyMinFilter(IDirect3DDevice9* real, DWORD stage) {
+    DWORD want = EffectiveMinFilter(stage);
+    if (want == s_setMinFilter[stage]) return;
+    if (want == D3DTEXF_ANISOTROPIC) real->SetSamplerState(stage, D3DSAMP_MAXANISOTROPY, s_anisoLevel ? s_anisoLevel : 1);
+    real->SetSamplerState(stage, D3DSAMP_MINFILTER, want);
+    s_setMinFilter[stage] = want;
+}
+
 static bool IsHidden(void* t) { return t && (t == s_hideTex[0] || t == s_hideTex[1] || t == s_hideTex[2]); }
 
 void D3D_HideTextures(void* a, void* b, void* c) {
@@ -140,6 +175,7 @@ static void ReleaseEyeTargets() {
     s_mirrorW = s_mirrorH = 0;
     ReleaseDash();
     ReleaseSavedState();
+    Smaa_Release();
     s_eyeW = s_eyeH = 0;
     s_eyeOk = false;
 }
@@ -173,6 +209,12 @@ void D3D_CaptureEye(int eye) {
     D3DSURFACE_DESC d;
     bb->GetDesc(&d);
     if (EnsureEyeTargets(d.Width, d.Height, d.MultiSampleType, d.MultiSampleQuality)) {
+        // With SMAA the picture goes through its three passes on the way into the eye texture.
+        int preset = (int)lrintf(g_cfg.smaa);
+        if (preset >= 1 && preset <= 4 && Smaa_Apply(s_dev, bb, s_eyeSurf[eye], s_eyeW, s_eyeH, preset, g_cfg.smaaEdges > 0.5f)) {
+            bb->Release();
+            return;
+        }
         HRESULT hr = s_dev->StretchRect(bb, nullptr, s_eyeSurf[eye], nullptr, D3DTEXF_NONE);
         static bool warned;
         if (FAILED(hr) && !warned) {
@@ -1390,6 +1432,7 @@ void D3D_WarmUp() {
     bool needed = g_cfg.dashGlass > 0.01f;
     bool glassTex = !needed || GlassTexture() != nullptr;
     bool state = SavedStateBlock() != nullptr;
+    if (g_cfg.smaa > 0.5f) Smaa_Prepare(s_dev, (int)lrintf(g_cfg.smaa));
     Log("d3d9: warm-up %.1f ms: d3dcompiler %s, mirror shaders %d%d%d, dashboard %s, glass texture %s, state block %s",
         (D3D_ProfNow() - t0) * 1000.0, compiler ? "ok" : "missing", (int)grade, (int)glass, (int)map,
         dash ? "ready" : "unavailable", needed ? (glassTex ? "ready" : "unavailable") : "off", state ? "ready" : "failed");
@@ -1605,6 +1648,7 @@ static bool ProbeHud() {
         if (FAILED(s_dev->StretchRect(s_eyeSurf[2], nullptr, s_probeRT, nullptr, D3DTEXF_LINEAR)) ||
             FAILED(s_dev->GetRenderTargetData(s_probeRT, s_probeMem)))
             return false;
+        Trace_HudProbe();
         s_probePending = true;
         s_probeSpin = 0;
     }
@@ -1863,14 +1907,28 @@ static int s_tallyEye = -1;   // 0/1 while that eye's scene renders, -1 outside
 static double s_eyeSceneSum[2], s_eyeSceneMax[2];
 static unsigned s_eyeDrawCalls[2];
 
+static unsigned s_eyeDrawsAtBegin[2];
+
 void D3D_EyePassBegin(int eye) {
     s_tallyEye = eye;
+    if (eye >= 0 && eye < 2) {
+        s_eyeDrawsAtBegin[eye] = s_eyeDrawCalls[eye];
+        Trace_EyeBegin(eye);
+    }
 }
 
 void D3D_EyeRenderProfile(int eye, double seconds) {
     if (eye < 0 || eye > 1) return;
+    Trace_EyeEnd(eye, seconds, s_eyeDrawCalls[eye] - s_eyeDrawsAtBegin[eye]);
     s_eyeSceneSum[eye] += seconds;
     if (seconds > s_eyeSceneMax[eye]) s_eyeSceneMax[eye] = seconds;
+}
+
+static double s_updateStart = 0;   // end of the last Present (see D3D_ProfUpdateDone)
+
+void D3D_ProfUpdateDone() {
+    if (s_updateStart > 0) D3D_ProfAdd(PROF_UPDATE, D3D_ProfNow() - s_updateStart);
+    s_updateStart = 0;
 }
 
 static bool s_dropDraws = false;
@@ -1942,12 +2000,13 @@ static void ProfFrame() {
         if (s_profLastAvg > 0 && now - s_profLastHitch > 1.0 && frame > s_profLastAvg * 1.5) {
             s_profLastHitch = now;
             Log("hitch: frame %.1f ms (%.0f%% over the %.1f ms average): headset wait %.1f eyes (CPU) %.1f GPU wait %.1f "
-                "submit %.1f spectator %.1f present %.1f game %.1f ms",
+                "submit %.1f spectator %.1f present %.1f update %.1f game %.1f ms",
                 frame * 1000.0, (frame / s_profLastAvg - 1.0) * 100.0, s_profLastAvg * 1000.0,
                 s_prof.frame[PROF_WAITFRAME] * 1000.0, s_prof.frame[PROF_EYES] * 1000.0, s_prof.frame[PROF_GPUWAIT] * 1000.0,
                 s_prof.frame[PROF_SUBMIT] * 1000.0, s_prof.frame[PROF_SPECTATOR] * 1000.0, s_prof.frame[PROF_PRESENT] * 1000.0,
-                game * 1000.0);
+                s_prof.frame[PROF_UPDATE] * 1000.0, game * 1000.0);
         }
+        Trace_Frame(s_prof.frame, PROF_COUNT, frame, game);
     } else {
         s_prof.since = now;
     }
@@ -1955,7 +2014,8 @@ static void ProfFrame() {
     s_prof.last = now;
     double span = now - s_prof.since;
     if (span < 5.0 || s_prof.frames == 0) return;
-    static const char* names[PROF_COUNT] = {"headset wait", "eyes (CPU)", "GPU wait", "submit", "spectator", "present"};
+    static const char* names[PROF_COUNT] = {"headset wait", "eyes (CPU)", "GPU wait", "submit", "spectator", "present",
+                                            "update"};
     char line[3072];   // the passes line lists up to 24 targets
     int n = snprintf(line, sizeof(line), "perf: %.1f fps (frame %.1f ms avg, %.1f max):", s_prof.frames / span,
                      span / s_prof.frames * 1000.0, s_prof.frameMax * 1000.0);
@@ -2004,10 +2064,37 @@ static void ProfFrame() {
 }
 
 // D3D9Ex has no keyed mutex, so wait for the GPU before D3D11 reads the shared textures.
+// It spun on the fence at full speed: on a busy CPU that starved the game's other threads and the
+// runtime's (SteamVR, Link) right before the hand-off. It spins for the first 1.5 ms (the usual
+// wait is ~0.5 ms), then gives its core to any other ready thread between checks (SwitchToThread
+// returns at once when none is waiting, so the hand-off is not delayed).
 static void WaitForGpu() {
     if (!s_fence && FAILED(s_dev->CreateQuery(D3DQUERYTYPE_EVENT, &s_fence))) return;
     s_fence->Issue(D3DISSUE_END);
-    while (s_fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) YieldProcessor();
+    double start = D3D_ProfNow();
+    while (s_fence->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
+        if (D3D_ProfNow() - start < 0.0015) YieldProcessor();
+        else SwitchToThread();
+    }
+}
+
+// The render thread (the game's, which runs the eyes and the hand-off) registered with Windows'
+// multimedia scheduler as a "Games" task, and the system timer at 1 ms, once ([VR] RenderPriority).
+// The missed headset slots came with ~5 ms of headroom: the thread being scheduled late, not out
+// of time. Both are loaded by name so nothing new is linked; the eyes are not affected.
+static void RaiseRenderPriority() {
+    static bool done;
+    if (done || g_cfg.renderPriority <= 0) return;
+    done = true;
+    HMODULE winmm = LoadLibraryA("winmm.dll");
+    auto beginPeriod = winmm ? (UINT(WINAPI*)(UINT))GetProcAddress(winmm, "timeBeginPeriod") : nullptr;
+    bool timer = beginPeriod && beginPeriod(1) == 0;
+    HMODULE avrt = LoadLibraryA("avrt.dll");
+    auto setTask = avrt ? (HANDLE(WINAPI*)(LPCSTR, LPDWORD))GetProcAddress(avrt, "AvSetMmThreadCharacteristicsA") : nullptr;
+    DWORD index = 0;
+    HANDLE task = setTask ? setTask("Games", &index) : nullptr;
+    Log("d3d9: render thread %s, timer resolution %s", task ? "registered as a \"Games\" multimedia task" : "left at its priority (MMCSS unavailable)",
+        timer ? "1 ms" : "unchanged");
 }
 
 static void DumpEyes() {
@@ -2044,6 +2131,132 @@ static void DumpEyes() {
     s_dumpIndex++;
 }
 
+// The widescreen fix's ini (it sets the shadow map size: ShadowsRes, read when the game starts).
+static std::string WidescreenIni() {
+    std::string dir = GameDir();
+    for (const char* p : {"scripts\\NFSMostWanted.WidescreenFix.ini", "NFSMostWanted.WidescreenFix.ini"}) {
+        std::string f = dir + p;
+        if (GetFileAttributesA(f.c_str()) != INVALID_FILE_ATTRIBUTES) return f;
+    }
+    return std::string();
+}
+
+// ShadowsRes's value in the widescreen fix's ini, or 0. Its lines are "Key = value ; comment".
+static int ReadShadowsRes(const std::string& ini) {
+    return ini.empty() ? 0 : (int)GetPrivateProfileIntA("GRAPHICS", "ShadowsRes", 0, ini.c_str());
+}
+
+// Rewrites the number on a "Key = value ; comment" line of the widescreen fix's ini, keeping the
+// line's spacing and comment.
+static bool WriteWsfixInt(const std::string& ini, const char* key, int value) {
+    FILE* f = fopen(ini.c_str(), "rb");
+    if (!f) return false;
+    std::string text;
+    char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) text.append(buf, n);
+    fclose(f);
+    size_t at = 0;
+    size_t keyLen = strlen(key);
+    while ((at = text.find(key, at)) != std::string::npos) {
+        bool lineStart = at == 0 || text[at - 1] == '\n';
+        size_t eq = text.find_first_not_of(" \t", at + keyLen);
+        if (!lineStart || eq == std::string::npos || text[eq] != '=') {
+            at += keyLen;
+            continue;
+        }
+        size_t num = text.find_first_not_of(" \t", eq + 1);
+        size_t end = num;
+        if (end < text.size() && text[end] == '-') end++;
+        while (end < text.size() && isdigit((unsigned char)text[end])) end++;
+        if (num == std::string::npos || end == num) return false;
+        text.replace(num, end - num, std::to_string(value));
+        f = fopen(ini.c_str(), "wb");
+        if (!f) return false;
+        fwrite(text.data(), 1, text.size(), f);
+        fclose(f);
+        return true;
+    }
+    return false;
+}
+
+static bool WriteShadowsRes(const std::string& ini, int value) { return WriteWsfixInt(ini, "ShadowsRes", value); }
+
+// The game's physics rate follows the headset. The widescreen fix sets it from its [MISC] SimRate
+// when the game starts (-1 = the desktop monitor's refresh rate: ~103 Hz here against the
+// headset's 72, so a frame got one or two physics steps in an uneven pattern, and motion stepped).
+// Once the headset's rate is known, SimRate is set to a whole multiple of it near 144 Hz (72 -> 144,
+// two steps a frame; 90 -> 180; 120 -> 120), from the next start. [VR] SimRateFromHeadset=0 = off.
+static void MatchSimRateToHeadset(const std::string& ini) {
+    static bool done;
+    static int stableFrames;
+    static float lastHz;
+    if (done || ini.empty() || g_cfg.simRateFromHeadset <= 0) return;
+    float hz = Xr_DisplayHz();
+    if (hz < 30.0f || hz > 500.0f) return;
+    stableFrames = fabsf(hz - lastHz) < 0.5f ? stableFrames + 1 : 0;
+    lastHz = hz;
+    if (stableFrames < 72) return;   // a second of the same rate
+    done = true;
+    int headset = (int)lrintf(hz);
+    int target = headset * std::max(1, (int)lrintf(144.0f / (float)headset));
+    int now = (int)GetPrivateProfileIntA("MISC", "SimRate", 0, ini.c_str());
+    if (now == target) {
+        Log("d3d9: physics rate %d Hz matches the headset's %d Hz (%d steps a frame)", now, headset, target / headset);
+        return;
+    }
+    if (WriteWsfixInt(ini, "SimRate", target))
+        Log("d3d9: physics rate was %d (widescreen fix SimRate, -1 = monitor); set to %d Hz for the headset's %d Hz (%d steps a "
+            "frame) from the next start", now, target, headset, target / headset);
+    else
+        Log("d3d9: physics rate: SimRate not found in the widescreen fix's ini, left at %d", now);
+}
+
+// Once a frame: the anisotropic switch takes effect on every stage, and a new shadow resolution
+// from F4 is written into the widescreen fix's ini for the next start.
+static void UpdatePictureSettings() {
+    int idx = std::max(0, std::min(4, (int)lrintf(g_cfg.anisotropic)));
+    int level = idx ? 1 << idx : 0;
+    if (level != s_anisoLevel && s_dev) {
+        s_anisoLevel = level;
+        for (DWORD s = 0; s < 16; s++) {
+            s_setMinFilter[s] = ~0u;     // set again, with the new maximum
+            ApplyMinFilter(s_dev, s);
+        }
+        if (level) Log("d3d9: anisotropic filtering %dx", level);
+        else Log("d3d9: anisotropic filtering off");
+    }
+    // Every 30 s: what the game asked for, so the log shows what the switch can act on.
+    static DWORD lastStats = GetTickCount();
+    if (GetTickCount() - lastStats > 30000) {
+        lastStats = GetTickCount();
+        Log("d3d9: texture minification filters the game set (30 s): none %u, point %u, linear %u, anisotropic %u, other %u;"
+            " %u made anisotropic", s_minFilterAsked[0], s_minFilterAsked[1], s_minFilterAsked[2], s_minFilterAsked[3],
+            s_minFilterAsked[4], s_minFilterTurned);
+        memset(s_minFilterAsked, 0, sizeof(s_minFilterAsked));
+        s_minFilterTurned = 0;
+    }
+    static std::string ini;
+    static int applied = -1;       // the ShadowsRes the ini has
+    if (applied < 0) {
+        ini = WidescreenIni();
+        applied = ReadShadowsRes(ini);
+        if (applied > 0) g_cfg.shadowRes = applied / 1024.0f;
+        Log("d3d9: shadow resolution %d (widescreen fix ShadowsRes%s)", applied, ini.empty() ? ": its ini not found" : "");
+        if (applied == 0) applied = 1;   // looked; nothing to keep in step with
+    }
+    MatchSimRateToHeadset(ini);
+    int want = (int)lrintf(std::max(1.0f, std::min(16.0f, g_cfg.shadowRes))) * 1024;
+    if (ini.empty() || want == applied) return;
+    static DWORD lastTry;
+    if (GetTickCount() - lastTry < 1000) return;
+    lastTry = GetTickCount();
+    if (WriteShadowsRes(ini, want)) {
+        Log("d3d9: shadow resolution %d written to the widescreen fix's ini (ShadowsRes), from the next start", want);
+        applied = want;
+    }
+}
+
 static bool KeyPressed(int vk) {
     if (vk <= 0 || vk > 255) return false;
     static bool down[256];
@@ -2068,6 +2281,7 @@ static UINT s_bbW, s_bbH;
 static void FitWindow(HWND wnd, UINT w, UINT h);
 
 static void OnPresent() {
+    RaiseRenderPriority();
     if (KeyPressed(g_cfg.keySpectator)) {
         Spectator_CycleMode();
         FitWindow(s_wnd, s_bbW, s_bbH);
@@ -2076,6 +2290,7 @@ static void OnPresent() {
     if (KeyPressed(g_cfg.keyToggle)) Game_ToggleStereo();
     if (KeyPressed(g_cfg.keyLevel)) Game_ToggleLevel();
     if (KeyPressed(g_cfg.keyDump)) s_dumpRequested = g_cfg.dumpFrames > 0 ? g_cfg.dumpFrames : 1;
+    Trace_KeyCheck(g_cfg.keyTrace, s_dev);
     // Debug key: the same frame with the shared-view rule flipped, to tell a pass that differs
     // between the eyes from one that does not. (There is no key for StableReflections: a stray
     // press - F12 is also Steam's screenshot key - left reflections turning with the head.)
@@ -2085,6 +2300,7 @@ static void OnPresent() {
             g_cfg.sharedViewsOnce ? "rendered for the first eye only" : "rendered for every eye");
     }
     Cockpit_Keys();
+    UpdatePictureSettings();
 
     if (s_xr) {
         bool stereo = Game_StereoThisFrame(), captured = false;
@@ -2092,7 +2308,9 @@ static void OnPresent() {
             captured = true;
             EndHudPhase();
             double t0 = D3D_ProfNow();
+            Trace_BeforeGpuWait();
             WaitForGpu();
+            Trace_AfterGpuWait();
             double t1 = D3D_ProfNow();
             float tx, ty;
             Game_RenderedFov(&tx, &ty);
@@ -2244,7 +2462,32 @@ public:
         s_skipPostPass = false;
         return real->EndScene();
     }
+    HRESULT STDMETHODCALLTYPE SetSamplerState(DWORD stage, D3DSAMPLERSTATETYPE type, DWORD value) override {
+        if (type != D3DSAMP_MINFILTER || stage >= 16) return real->SetSamplerState(stage, type, value);
+        s_gameMinFilter[stage] = value;
+        s_setMinFilter[stage] = ~0u;     // passed on now, whatever it was
+        DWORD want = EffectiveMinFilter(stage);
+        s_minFilterAsked[value <= D3DTEXF_ANISOTROPIC ? value : 4]++;
+        if (want != value) s_minFilterTurned++;
+        if (want == D3DTEXF_ANISOTROPIC) real->SetSamplerState(stage, D3DSAMP_MAXANISOTROPY, s_anisoLevel ? s_anisoLevel : 1);
+        s_setMinFilter[stage] = want;
+        return real->SetSamplerState(stage, type, want);
+    }
+    HRESULT STDMETHODCALLTYPE GetSamplerState(DWORD stage, D3DSAMPLERSTATETYPE type, DWORD* value) override {
+        if (type == D3DSAMP_MINFILTER && stage < 16 && value) {
+            *value = s_gameMinFilter[stage];
+            return D3D_OK;
+        }
+        return real->GetSamplerState(stage, type, value);
+    }
     HRESULT STDMETHODCALLTYPE SetTexture(DWORD stage, IDirect3DBaseTexture9* tex) override {
+        if (stage < 16) {
+            bool depth = tex && !s_depthTex.empty() && std::find(s_depthTex.begin(), s_depthTex.end(), (void*)tex) != s_depthTex.end();
+            if (depth != s_stageDepth[stage]) {
+                s_stageDepth[stage] = depth;
+                ApplyMinFilter(real, stage);
+            }
+        }
         if (stage < 4) {
             s_boundTex[stage] = tex;
             s_texHidden = false;
@@ -2296,6 +2539,7 @@ public:
         HRESULT hr = real->Present(src, dst, wnd, dirty);
         D3D_ProfAdd(PROF_PRESENT, D3D_ProfNow() - tp);
         ProfFrame();
+        s_updateStart = D3D_ProfNow();
         return hr;
     }
 
@@ -2308,6 +2552,12 @@ public:
         if (FAILED(hr) && p != pool) {
             Log("d3d9: dynamic texture %ux%u fmt=%d failed 0x%08lx, retrying static", w, h, fmt, hr);
             hr = real->CreateTexture(w, h, levels, usage, fmt, p, tex, shared);
+        }
+        // Depth textures (the shadow map) keep their linear filter (see ApplyMinFilter).
+        if (SUCCEEDED(hr) && tex && *tex && ((usage & D3DUSAGE_DEPTHSTENCIL) || IsDepthFormat(fmt))) {
+            if (s_depthTex.size() > 64) s_depthTex.erase(s_depthTex.begin());
+            s_depthTex.push_back(*tex);
+            Log("d3d9: depth texture %ux%u fmt=%d: no anisotropic filtering on it", w, h, (int)fmt);
         }
         return hr;
     }
@@ -2482,6 +2732,13 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "WheelOverHud")) return &g_cfg.wheelOverHud;
     if (!strcmp(name, "HudPerCar")) return &g_cfg.hudPerCar;
     if (!strcmp(name, "Dash")) return &g_cfg.dash;
+    if (!strcmp(name, "Smaa")) return &g_cfg.smaa;
+    if (!strcmp(name, "SmaaEdges")) return &g_cfg.smaaEdges;
+    if (!strcmp(name, "RearViewEvery")) return &g_cfg.rearViewEvery;
+    if (!strcmp(name, "DepthSplit")) return &g_cfg.depthSplit;
+    if (!strcmp(name, "SharedShadows")) return &g_cfg.sharedShadows;
+    if (!strcmp(name, "Anisotropic")) return &g_cfg.anisotropic;
+    if (!strcmp(name, "ShadowRes")) return &g_cfg.shadowRes;
     if (!strcmp(name, "DashRight")) return &g_cfg.dashRight;
     if (!strcmp(name, "DashUp")) return &g_cfg.dashUp;
     if (!strcmp(name, "DashZoom")) return &g_cfg.dashZoom;

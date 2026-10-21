@@ -179,11 +179,17 @@ static void TestModel() {
     float atPeak = fabsf(m.Compute(Car(30), Wheel(peakDeg / 45.0f), p, 1.0f, 0.0025f).aligning);
     float beyond = fabsf(m.Compute(Car(30), Wheel(4 * peakDeg / 45.0f), p, 1.0f, 0.0025f).aligning);
     assert(beyond < atPeak * 0.6f);
-    // Parked: no aligning torque, more friction against movement than at speed.
-    f = m.Compute(Car(0), Wheel(0.1f, 1.0f), p, 1.0f, 0.0025f);
-    assert(NearZero(f.aligning) && f.friction < -0.15f);
-    float movingFriction = m.Compute(Car(30), Wheel(0.1f, 1.0f), p, 1.0f, 0.0025f).friction;
-    assert(f.friction < movingFriction);
+    // Parked: no aligning torque; turned right past the stiction, the friction holds against it,
+    // more than at speed.
+    {
+        Model a, b;
+        a.Compute(Car(0), Wheel(0.0f), p, 1.0f, 0.0025f);
+        f = a.Compute(Car(0), Wheel(0.1f, 1.0f), p, 1.0f, 0.0025f);
+        assert(NearZero(f.aligning) && f.friction < -0.15f);
+        b.Compute(Car(30), Wheel(0.0f), p, 1.0f, 0.0025f);
+        float movingFriction = b.Compute(Car(30), Wheel(0.1f, 1.0f), p, 1.0f, 0.0025f).friction;
+        assert(f.friction < movingFriction);
+    }
     // Front wheels off the ground: no aligning torque.
     Telemetry air = Car(30);
     air.frontOnGround = 0;
@@ -201,11 +207,21 @@ static void TestModel() {
     f = m.Compute(menu, Wheel(0.8f), p, 0.0f, 0.0025f);      // past 2/3 of the lock: full spring
     assert(NearZero(f.aligning) && fabsf(f.centering + p.menuCentering) < 1e-4f);
 
-    // Friction is smooth through standstill: a wheel all but still feels almost none of it, so
-    // the quantised position readings don't flip it back and forth (the buzz standing still).
-    float still = fabsf(m.Compute(Car(0), Wheel(0.0f, 0.005f), p, 1.0f, 0.0025f).friction);
-    float turning = fabsf(m.Compute(Car(0), Wheel(0.0f, 0.5f), p, 1.0f, 0.0025f).friction);
-    assert(still < 0.15f * turning);
+    // Stiction: a wheel held still at its anchor feels almost none of it (no flipping on the
+    // quantised readings); turned, the full friction; turned back a little, it eases off at once
+    // (no lagging push that would wobble the wheel), and past the break-away angle it holds the
+    // other way.
+    {
+        Model s;
+        s.Compute(Car(0), Wheel(0.0f), p, 1.0f, 0.0025f);
+        float still = fabsf(s.Compute(Car(0), Wheel(0.0f, 0.005f), p, 1.0f, 0.0025f).friction);
+        float turning = s.Compute(Car(0), Wheel(0.05f, 0.5f), p, 1.0f, 0.0025f).friction;
+        assert(still < 0.15f * fabsf(turning) && turning < -0.15f);
+        float back = s.Compute(Car(0), Wheel(0.045f, 0.0f), p, 1.0f, 0.0025f).friction;
+        assert(back > turning * 0.3f);   // eased off at once
+        float slipping = s.Compute(Car(0), Wheel(0.03f, -0.5f), p, 1.0f, 0.0025f).friction;
+        assert(slipping > 0.15f);
+    }
 
     // Centre weight: once moving, a few degrees off centre already pull back clearly, more than
     // the friction holds the wheel; none parked.
@@ -412,6 +428,40 @@ static void TestEffects() {
         }
         assert(sum > 0 && hi - lo > 0.1f);                     // pulls right, toward the wall, and grinds
         assert(NearZero(fx.Step(t, 1.0f, now + 0.5, dt, p).scrape));
+    }
+    // Hard impact jerk: only when the gameplay mod counts a damaging impact, away from the hit
+    // (the latest contact's push), harder for a harder hit, gone after it; none at strength 0.
+    {
+        auto jerk = [&](float lat, float strength, float slider, bool recent) {
+            EffectParams q = p;
+            q.hardJerk = slider;
+            Effects fx;
+            Telemetry t = Car(20);
+            t.time = now;
+            t.contactTime = recent ? now - 0.05 : now - 2.0;
+            t.contactLat = lat;
+            fx.Step(t, 1.0f, now, dt, q);                      // nothing counted yet
+            t.damageSeq = 1;
+            t.damageStrength = strength;
+            float peak = 0;
+            for (int i = 0; i < 12; i++) {
+                float e = fx.Step(t, 1.0f, now + 0.004 + i * 0.004, dt, q).hardJerk;
+                if (fabsf(e) > fabsf(peak)) peak = e;
+            }
+            assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, q).hardJerk));
+            return peak;
+        };
+        Effects quiet;
+        Telemetry t = Car(20);
+        t.contactTime = now;
+        t.contactLat = 1;
+        assert(NearZero(quiet.Step(t, 1.0f, now, dt, p).hardJerk));   // contact without damage: none
+        float right = jerk(0.8f, 1.5f, 0.8f, true), left = jerk(-0.8f, 1.5f, 0.8f, true);
+        assert(right > 0.2f && left < -0.2f);                  // away from the side that was hit
+        assert(fabsf(jerk(0.8f, 3.0f, 0.8f, true)) > fabsf(jerk(0.8f, 1.0f, 0.8f, true)));
+        assert(NearZero(jerk(0.8f, 1.5f, 0.0f, true)));         // slider at 0: none
+        float unknown = jerk(0.8f, 1.5f, 0.8f, false);          // no recent contact: the shake alone
+        assert(fabsf(unknown) < fabsf(right));
     }
 }
 

@@ -36,6 +36,7 @@ if [ -n "$NFSMW_SETTINGS" ]; then
 fi
 cp release/README.txt release/FIXES.md release/LICENSE-asi-loader.txt LICENSE "$OUT/"
 cp gameplay/third_party/imgui/LICENSE.txt "$OUT/LICENSE-imgui.txt"
+cp vr/third_party/smaa/LICENSE.txt "$OUT/LICENSE-smaa.txt"
 PS=pwsh; command -v pwsh >/dev/null || PS=powershell
 $PS -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath '$ZIP'"
 echo "packaged $ZIP"

@@ -101,7 +101,7 @@ struct {
     uint32_t hitSeq;
     float hitSpeed, hitImpulse, hitLat;
     uint32_t carHitSeq;
-    float carHitSpeed, carHitLat;
+    float carHitSpeed, carHitLat, carHitImpulse;
     double carHitTime;
     void* carHitObject;
     double hitTime, scrapeTime, scrapeLogTime;
@@ -188,8 +188,10 @@ void OnPlayerCollision(const uint8_t* info) {
             s_car.carHitObject = other;
             s_car.carHitSpeed = s_car.speed;
             s_car.carHitLat = Clamp(lat * noseShare, -1.0f, 1.0f);
+            s_car.carHitImpulse = impulse;
             if (g_cfg.logTelemetry)
-                Log("contact: vehicle hit %.1f m/s (car at %.1f m/s), side %.2f", closingSpeed, s_car.speed, s_car.carHitLat);
+                Log("contact: vehicle hit %.1f m/s (car at %.1f m/s), impulse %.1f, side %.2f", closingSpeed, s_car.speed,
+                    impulse, s_car.carHitLat);
         }
         return;
     }
@@ -234,12 +236,18 @@ void Sample(void* player) {
     t.carHitSeq = s_car.carHitSeq;
     t.carHitSpeed = s_car.carHitSpeed;
     t.carHitLat = s_car.carHitLat;
+    t.carHitImpulse = s_car.carHitImpulse;
     t.breakSeq = s_car.breakSeq;
     t.breakSpeed = s_car.breakSpeed;
     t.breakLat = s_car.breakLat;
     t.scrapeTime = s_car.scrapeTime;
     t.scrapeSpeed = s_car.scrapeSpeed;
     t.scrapeLat = s_car.scrapeLat;
+    bool carLatest = s_car.carHitTime > s_car.hitTime;
+    t.contactTime = carLatest ? s_car.carHitTime : s_car.hitTime;
+    t.contactLat = carLatest ? s_car.carHitLat : s_car.hitLat;
+    t.damageSeq = (uint32_t)g_cfg.damageHits;
+    t.damageStrength = g_cfg.damageHitStrength;
 
     // CanDoFFB also requires the in-game rumble option; force it on just for the check.
     int* rumble = (int*)addr::bRumbleEnabled;
@@ -318,6 +326,28 @@ void Sample(void* player) {
         if (rpm >= 0.0f && rpm < 30000.0f) {
             t.rpm = rpm;
             t.rpmNorm = red > idle + 1.0f ? Clamp((rpm - idle) / (red - idle), 0.0f, 1.0f) : 0.0f;
+        }
+        // Driven wheel slip. The IEngine interface sits at +0x54 in EngineRacer (its vtable
+        // 0x8AB6E0 checked first); EngineRacer::GetDifferentialAngularVelocity (0x692140, thiscall,
+        // locked = false) is the driven wheels' angular speed, rad/s, + forward. The wheel radius is
+        // learnt while all four wheels are down at a steady speed (no wheelspin to speak of then).
+        if (*(uintptr_t*)engine == 0x8AB6E0) {
+            uint8_t* racer = (uint8_t*)engine - 0x54;
+            float w = ((float(__thiscall*)(void*, bool))0x692140)(racer, false);
+            static float radius = 0.33f, lastSpeed = 0.0f;
+            static double lastTime = 0.0;
+            float dts = (float)(t.time - lastTime);
+            float accel = dts > 0.001f && dts < 0.5f ? (t.speed - lastSpeed) / dts : 99.0f;
+            lastSpeed = t.speed;
+            lastTime = t.time;
+            if (w == w && fabsf(w) < 2000.0f) {
+                if (t.speed > 8.0f && fabsf(w) > 5.0f && fabsf(accel) < 0.8f && t.wheelsOnGround == 4) {
+                    float r = t.speed / fabsf(w);
+                    if (r > 0.2f && r < 0.6f) radius += (r - radius) * 0.02f;
+                }
+                float surface = fabsf(w) * radius;
+                t.wheelSpin = t.wheelsOnGround >= 2 ? Clamp((surface - t.speed) / std::max(t.speed, 3.0f), 0.0f, 3.0f) : 0.0f;
+            }
         }
     }
 

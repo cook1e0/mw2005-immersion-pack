@@ -4,6 +4,11 @@ https://github.com/cook1e0/nfsmw05-mod
 Needs speed.exe v1.3. The mods are .asi plugins loaded by Ultimate ASI Loader (dinput8.dll),
 the same loader the widescreen fix and most other NFS mods use.
 
+Quick install: extract the whole zip into the folder with speed.exe (all three mods, the
+loader and the VR helper), start the game, press F4 while driving to set things up.
+
+Or pick and choose:
+
 1. Copy dinput8.dll next to speed.exe (skip it if you already have it, e.g. from the
    widescreen fix), and create a "scripts" folder there if there is none.
 2. Copy the mods you want:
@@ -28,6 +33,13 @@ nothing. The latest crash replaces the previous dump/report; copy logs before re
 Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
+
+Upgrading from v0.20.0: replace the three scripts
+fsmw_*.asi plugins, nfsmw_vr_host.exe and
+nfsmw_crashdump.exe. Keep your scripts
+fsmw_*.ini files (new settings start at their defaults).
+F4 now opens a short menu (Gameplay, Controls, Force feedback); the old one is its Dev menu. A car
+with its own physics settings keeps them; give it a preset with Load into this car. See FIXES.md.
 
 Upgrading from v0.13.0: replace the three scripts\nfsmw_*.asi plugins and nfsmw_vr_host.exe.
 Keep your scripts\nfsmw_*.ini files: new settings start at their defaults. See FIXES.md.

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
+#include <vector>
 
 namespace ffb {
 namespace {
@@ -289,21 +291,6 @@ BOOL CALLBACK FirstFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
 }
 
 // For the F4 menu: "n: name (axes, buttons)" of the nth FFB device in Windows' order.
-struct FfbNames { int index, want; char* out; int len; };
-BOOL CALLBACK NameFfbDeviceCb(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
-    FfbNames* e = (FfbNames*)p;
-    if (e->index++ == e->want && e->out) {
-        DIDEVCAPS caps = {};
-        caps.dwSize = sizeof(caps);
-        IDirectInputDevice8A* d = nullptr;
-        if (s_di && SUCCEEDED(s_di->CreateDevice(inst->guidInstance, &d, nullptr)) && d) {
-            d->GetCapabilities(&caps);
-            d->Release();
-        }
-        snprintf(e->out, e->len, "%d: %s (%lu axes, %lu buttons)", e->want, inst->tszProductName, caps.dwAxes, caps.dwButtons);
-    }
-    return DIENUM_CONTINUE;
-}
 
 }  // namespace
 
@@ -500,11 +487,64 @@ int Ffb_Status(char* out, int len) {
     return (int)strlen(out);
 }
 
+// The force feedback devices for the gameplay mod's F4 menu, "n: name (axes, buttons)". Listing
+// them opens each one (CreateDevice, GetCapabilities): ~100-200 ms. Done on the game's DirectInput
+// object it had to hold g_diLock, which the game's own input reads (DeviceWrap) and the FFB thread
+// also take, so the game froze for that long at every F4 menu open. It is done on a DirectInput
+// object of our own instead, without g_diLock, and only for index 0 (the menu asks for the count
+// first): the other indexes are answered from that list.
+namespace {
+SRWLOCK s_namesLock = SRWLOCK_INIT;
+std::vector<std::string> s_names;
+
+IDirectInput8A* OwnDirectInput() {
+    static IDirectInput8A* di;
+    static bool tried;
+    if (tried) return di;
+    tried = true;
+    char path[MAX_PATH];
+    GetSystemDirectoryA(path, MAX_PATH);
+    strcat(path, "\\dinput8.dll");
+    HMODULE m = LoadLibraryA(path);
+    auto create = m ? (HRESULT(WINAPI*)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN))GetProcAddress(m, "DirectInput8Create") : nullptr;
+    if (!create || FAILED(create(GetModuleHandleA(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8A, (LPVOID*)&di, nullptr))) di = nullptr;
+    if (!di) Log("ffb: device names: no DirectInput of our own, the menu lists none");
+    return di;
+}
+
+struct NameCollect { IDirectInput8A* di; std::vector<std::string>* names; };
+BOOL CALLBACK CollectName(LPCDIDEVICEINSTANCEA inst, LPVOID p) {
+    NameCollect* c = (NameCollect*)p;
+    DIDEVCAPS caps = {};
+    caps.dwSize = sizeof(caps);
+    IDirectInputDevice8A* d = nullptr;
+    if (SUCCEEDED(c->di->CreateDevice(inst->guidInstance, &d, nullptr)) && d) {
+        d->GetCapabilities(&caps);
+        d->Release();
+    }
+    char buf[160];
+    snprintf(buf, sizeof(buf), "%u: %s (%lu axes, %lu buttons)", (unsigned)c->names->size(), inst->tszProductName, caps.dwAxes,
+             caps.dwButtons);
+    c->names->push_back(buf);
+    return c->names->size() < 16 ? DIENUM_CONTINUE : DIENUM_STOP;
+}
+}  // namespace
+
 int Ffb_DeviceName(int index, char* out, int len) {
-    EnterCriticalSection(&g_diLock);
-    ffb::FfbNames e = {0, index, out, len};
     if (out && len > 0) out[0] = 0;
-    if (ffb::s_di) ffb::s_di->EnumDevices(DI8DEVCLASS_GAMECTRL, ffb::NameFfbDeviceCb, &e, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
-    LeaveCriticalSection(&g_diLock);
-    return e.index;
+    if (index == 0) {
+        std::vector<std::string> names;
+        if (IDirectInput8A* di = OwnDirectInput()) {
+            NameCollect c = {di, &names};
+            di->EnumDevices(DI8DEVCLASS_GAMECTRL, CollectName, &c, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
+        }
+        AcquireSRWLockExclusive(&s_namesLock);
+        s_names.swap(names);
+        ReleaseSRWLockExclusive(&s_namesLock);
+    }
+    AcquireSRWLockShared(&s_namesLock);
+    int count = (int)s_names.size();
+    if (out && len > 0 && index >= 0 && index < count) snprintf(out, len, "%s", s_names[index].c_str());
+    ReleaseSRWLockShared(&s_namesLock);
+    return count;
 }

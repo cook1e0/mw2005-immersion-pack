@@ -15,6 +15,15 @@ double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * 
 float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0f); }
 }
 
+void Effects::HardImpact(float strength, float lat, double now, const EffectParams& p) {
+    if (p.hardJerk <= 0.0f) return;
+    hardStart_ = now;
+    // Harder hits jerk harder: a third of the strength at the threshold, all of it at twice it.
+    hardAmp_ = p.hardJerk * Clampf(0.35f + 0.65f * (strength - 1.0f), 0.35f, 1.25f);
+    // The hit pushes the car (and the wheel) away from the side that was hit.
+    hardDir_ = fabsf(lat) > 0.05f ? (lat > 0.0f ? 1.0f : -1.0f) : 0.0f;
+}
+
 EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p) {
     EffectParts e;
     drive = Clampf(drive, 0.0f, 1.0f);
@@ -168,6 +177,25 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
             float shake = 0.7f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
             e.carHit = carAmp_ * (carDir_ * kick + shake) * drive;
             e.carHitLevel = carAmp_ * expf(-tau / 0.1f) * drive;
+        }
+    }
+
+    // --- hard impact jerk: an impact that damaged the car (the gameplay mod counts them), away
+    // from the side of the latest contact if it was just now ---
+    if (t.damageSeq != lastDamageSeq_) {
+        lastDamageSeq_ = t.damageSeq;
+        bool recent = t.contactTime > 0 && fabs(t.time - t.contactTime) < 0.3;
+        HardImpact(t.damageStrength, recent ? t.contactLat : 0.0f, now, p);
+    }
+    if (hardStart_ >= 0) {
+        float tau = (float)(now - hardStart_);
+        if (tau > 0.4f || tau < 0) {
+            hardStart_ = -1;
+        } else {
+            float kick = tau < 0.06f ? sinf(3.14159265f * tau / 0.06f) : 0.0f;
+            float shake = 0.8f * expf(-tau / 0.1f) * sinf((float)(kTwoPi * 18.0) * tau);
+            e.hardJerk = hardAmp_ * (hardDir_ * kick + shake) * drive;
+            e.hardJerkLevel = hardAmp_ * expf(-tau / 0.1f) * drive;
         }
     }
 

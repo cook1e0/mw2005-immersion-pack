@@ -16,6 +16,8 @@ struct InputSnapshot {
     uint32_t pops = 0;          // ... of [Tires] DebugPopTires
     uint32_t menu = 0;          // ... of [UI] Menu
     uint32_t recenters = 0;     // ... of [Controls] RecenterVr
+    uint32_t absToggles = 0;    // ... of [Controls] ToggleAbs
+    uint32_t tcToggles = 0;     // ... of [Controls] ToggleTc
     uint32_t seatDown = 0;      // bit per Seat: held
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 
@@ -25,6 +27,7 @@ struct InputSnapshot {
     float wheelDeg = 0.0f;      // the wheel's own angle in degrees (+ right), from WheelRotation
     bool  pedalBound[2] = {};   // accelerate, brake
     float pedal[2] = {};        // 0 = up .. 1 = floored
+    float handbrake = 0.0f;     // 0..1: analogue from an axis binding, else 0 / 1 from a button
     uint32_t buttonBound = 0;   // bit per Button: some binding is usable
     uint32_t buttonDown = 0;    // bit per Button: held
 };
@@ -39,6 +42,8 @@ enum Seat { SEAT_FORWARD, SEAT_BACK, SEAT_LEFT, SEAT_RIGHT, SEAT_UP, SEAT_DOWN, 
 // (controls already held when capture starts must be released first). Game thread.
 void Input_BeginCapture();
 void Input_CancelCapture();
+// While on, keyboard bindings read as released (the menu is taking typed text). Any thread.
+void Input_SetTyping(bool on);
 // True once something was pressed: binding text ("key:F4", "joy0:b3", "joy1:-rz", ...) and, for an
 // axis, its raw value at rest.
 bool Input_Captured(std::string* binding, int* axisRest);

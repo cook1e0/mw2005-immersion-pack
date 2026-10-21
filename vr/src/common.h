@@ -28,7 +28,7 @@ struct Config {
     float resolutionScale = 1.0f;  // multiplies the "auto" resolution
     float fovScale = 1.0f;         // >1 renders a slightly wider FOV than the HMD (more reprojection margin)
     float nearZ = 0.05f;           // player view near clip plane (m; the game's is 0.5), so the cockpit isn't cut off; 0 = the game's own
-    bool  depthSplit = true;       // seated: the player car gets NearZ, the world WorldNearZ, in separate parts of the depth buffer
+    float depthSplit = 1.0f;       // seated: the player car gets NearZ, the world WorldNearZ, in separate parts of the depth buffer (0/1, live)
     float worldNearZ = 0.3f;       // with DepthSplit, the near plane of everything but the player car (m)
     float screenDistance = 2.5f;   // menu/movie virtual screen distance (m)
     float screenWidth = 3.0f;      // menu/movie virtual screen width (m)
@@ -43,6 +43,8 @@ struct Config {
     int   dumpFrames = 1;          // debug: consecutive frames written per dump key press
     int   keyRecenter = VK_F8;
     int   keyDump = 0;               // debug: dump eye/HUD images to BMP (0 = disabled)
+    int   keyTrace = VK_DELETE;      // debug: record a 30 s per-frame trace to nfsmw_frametrace_NNN.csv (0 = disabled)
+    float renderPriority = 1;        // the render thread as an MMCSS "Games" task and a 1 ms system timer (0 = off)
     int   keyToggle = 0;             // debug: toggle stereo rendering (0 = disabled)
     int   keyLevel = VK_F7;
     int   keySpectator = VK_F6;
@@ -74,17 +76,17 @@ struct Config {
     // Each element's crop of the HUD: left, top, right, bottom (shares of the HUD picture, the game's
     // own 4:3 layout: the widescreen fix's FixHUD off). Keys Dash<Name>L / T / R / B; the same for every
     // car (it's the HUD's layout).
-    float dashCrop[6][4] = {{0.165f, 0.600f, 0.415f, 0.990f},   // minimap
-                            {0.355f, 0.000f, 0.645f, 0.110f},   // cop radar
-                            {0.585f, 0.620f, 0.835f, 0.990f},   // speedometer
-                            {0.400f, 0.660f, 0.600f, 0.990f},   // pursuit info
-                            {0.645f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
-                            {0.300f, 0.210f, 0.700f, 0.590f}};  // messages
-    float dashBox = 0.85f;           // the display: a white screen with an orange outline the elements sit on, its opacity (0 = none)
+    float dashCrop[6][4] = {{0.165f, 0.555f, 0.415f, 0.980f},   // minimap
+                            {0.370f, 0.165f, 0.630f, 0.295f},   // cop radar
+                            {0.585f, 0.5375f, 0.8575f, 0.990f}, // speedometer
+                            {0.350f, 0.7025f, 0.6625f, 0.900f}, // pursuit info
+                            {0.635f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
+                            {0.355f, 0.2925f, 0.6325f, 0.5325f}}; // messages
+    float dashBox = 0.55f;           // the display: a white screen with an orange outline the elements sit on, its opacity (0 = none)
     unsigned dashColor = 0x3C3F44u;       // the display's colour (DashColor, hex RRGGBB): the game's HUD gray
-    float dashGlass = 0.35f;              // the glass sheen over the display and its elements: its opacity (0 = none)
+    float dashGlass = 0.05f;              // the glass sheen over the display and its elements: its opacity (0 = none)
     float dashGlassDepth = 0.01f;         // ... how far in front of the display (m)
-    float dashReflect = 0.3f;             // ... the world (the rear view picture) reflected in it: strength (0 = none)
+    float dashReflect = 0.05f;             // ... the world (the rear view picture) reflected in it: strength (0 = none)
     float wheelPivot[2] = {0, 0};         // the steering wheel's turning centre moved right, up in its plane (m; per car, [WheelPivot])
     float dashScreenW = 0.30f, dashScreenH = 0.13f;   // ... its size (m, at zoom 1; per car in [Dash]), centred on the panel's anchor
     float dashElBox[6] = {1, 1, 1, 1, 1, 0};   // (no longer used: one display for all)
@@ -102,8 +104,13 @@ struct Config {
     float headSize = 0.25f;          // how far down from the top of the driver model the head reaches (m)
     bool  sharedViewsOnce = true;    // rear view and environment map rendered once a frame, not per eye
     int   envMapFacesPerFrame = 2;   // environment map cube faces refreshed per VR frame (1..6, 6 = every face every frame)
-    int   rearViewEvery = 1;         // the rear view is rendered every Nth VR frame (1 = every frame)
-    bool  sharedShadows = true;      // the sun shadow map drawn for the first eye only; the second eye reuses it
+    float rearViewEvery = 1.0f;      // the rear view is rendered every Nth VR frame (1 = every frame; live)
+    float sharedShadows = 1.0f;      // the sun shadow map drawn for the first eye only; the second eye reuses it (0/1, live)
+    float smaa = 3.0f;               // SMAA on each eye's picture: 0 off, 1 low, 2 medium, 3 high, 4 ultra (live from F4)
+    float smaaEdges = 0.0f;          // test: the eyes show the edges SMAA found instead of the picture (0/1)
+    float anisotropic = 4.0f;        // anisotropic filtering: 0 off, 1 2x, 2 4x, 3 8x, 4 16x (live from F4)
+    float simRateFromHeadset = 1.0f; // the widescreen fix's SimRate set to a multiple of the headset's rate (next start)
+    float shadowRes = 2.0f;          // the widescreen fix's ShadowsRes over the game's 1024 (F4; next start)
     float shadowArea = 0.75f;        // the sun shadow map's coverage around you (1 = the game's ~350 m square)
     bool  asyncSubmit = true;        // hand the finished frame to the XR bridge without waiting for it
     bool  logGlassShader = false;    // debug: disassemble the game's glass vertex shader into the log (one-off cost)

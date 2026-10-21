@@ -8,16 +8,7 @@
 //   (TuneWheelParams / YawFrictionBoost);
 // - drift stabiliser: DoDrifting damps rotation by DriftStabilizerTable;
 // - drift assist: DoDrifting lowers rear grip in a slide by DriftRearFrictionTable.
-// Drivetrain multiplication: in Tire::UpdateLoaded a driving tyre's forward force is multiplied by
-// TireForceEllipseRatio (1.5) before the tyre's grip limit is applied (and divided back if under
-// it), so a tyre putting power down runs out of side grip sooner: why rear drive cars step out
-// under power and front drive cars push wide, and all-wheel drive does a bit of both by its
-// torque split. The ratio is multiplied for the player's car, so the driven axle's character is
-// exaggerated (2 = a rear drive car's power oversteer, a front drive car's understeer, doubled)
-// or, below 1, softened. Both uses in UpdateLoaded are pointed at our own copies (the constants
-// are shared with other code).
-// These, the grip (Tweak_GlobalGripScale) and the torque split (the transmission's TORQUE_SPLIT,
-// the front wheels' share) are tuning data read while a car's suspension simulates. SuspensionRacer::OnTaskSimulate is wrapped: for the
+// These and the grip (Tweak_GlobalGripScale) are tuning data read while a car's suspension simulates. SuspensionRacer::OnTaskSimulate is wrapped: for the
 // player's car the slider values are swapped in for the duration of the call and the game's own
 // values put back after it, so AI and traffic keep the stock physics.
 //
@@ -43,7 +34,7 @@
 //
 // Grip balance and off-road grip: SuspensionRacer::TuneWheelParams sets each tyre's traction boost
 // for the step (Tire::BeginFrame resets it every step) and ends with DoDrifting; that call is
-// wrapped, and for the player's car the rear tyres' boost is scaled by [Physics] RearGrip (below 1:
+// wrapped, and for the player's car the front tyres' boost is scaled by [Physics] FrontGrip, the rear ones' by [Physics] RearGrip (below 1:
 // the rear lets go first, oversteer) and any tyre on an off-road surface (its simsurface name:
 // grass, dirt, mud, gravel, sand...) by [Physics] OffroadGrip, and every tyre in the rain by
 // [Physics] RainGrip (with the player view's rain intensity: eViews[1].Precipitation, a Rain, at
@@ -65,6 +56,19 @@
 // drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
 // degrees, so lifting or countersteering catches the slide instead of the car spinning.
 //
+// ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
+// the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
+// the tyre, set at 0x69F209): strongly negative when a wheel locks under braking, positive when it
+// spins. Both run in the DoDrifting hook, after TuneWheelParams has set each tyre's brake (+0xC8)
+// for the step and before the tyres are updated, from the slip of the step before.
+// - ABS ([Physics] ABS): a wheel braked while turning more than 12% slower than the road (the
+//   lock) has its brake eased off (to a quarter at most) and reapplied as it rolls again, a few
+//   times a second: real ABS pulsing, the car stops straight. The handbrake (+0xCC) is untouched.
+// - Traction control ([Physics] TC): the game's own traction control at 100% for the step (it cuts
+//   a spinning wheel's torque while steering), and the throttle this mod sends (controls.cpp) is
+//   trimmed while the driven wheels (by the torque split) spin past 12% slip; launch control: from a
+//   standstill (under 4 m/s) the limit is 6%, so a launch hooks up without wheelspin.
+//
 // Popped tires: SuspensionRacer::TuneWheelParams gives a blown tire (Chassis::State blowOuts, from
 // ISpikeable::GetTireDamage) full brake, no handbrake and 0.3 of its traction, so a car that
 // runs over a spike strip can barely move. That branch is replaced by a call: for the player's
@@ -78,7 +82,9 @@
 #include "physics.h"
 #include "game.h"
 #include "input.h"
+#include "inisave.h"
 #include <math.h>
+#include <vector>
 
 namespace {
 
@@ -94,10 +100,6 @@ constexpr uintptr_t kISuspensionHandle = 0x404040;
 constexpr uintptr_t kIRigidBodyHandle = 0x4039F0;
 constexpr uintptr_t kBlownTire = 0x6A9ECA;          // TuneWheelParams: blown tire branch (44 bytes, to 0x6A9EF6)
 constexpr int kBlownTireLen = 0x2C;
-constexpr uintptr_t kEllipseMul = 0x69DF61;         // UpdateLoaded: fmul [TireForceEllipseRatio]
-constexpr uintptr_t kEllipseDiv = 0x69E03A;         // UpdateLoaded: fmul [1 / TireForceEllipseRatio]
-constexpr uintptr_t kEllipseRatio = 0x8AAC78;       // 1.5
-constexpr uintptr_t kEllipseRatioInv = 0x896D64;    // 0.6667
 
 constexpr int kSR_Tranny = 0xDC;                    // SuspensionRacer: transmission layout (+0x70 TORQUE_SPLIT)
 constexpr int kTR_TorqueSplit = 0x70;
@@ -118,7 +120,12 @@ constexpr int kTire_Traction = 0xEC;                // ... traction scale for th
 constexpr int kTire_Surface = 0x9C;                 // ... road surface: Attrib::Instance (layout at +8)
 constexpr int kSurf_Name = 0xDC;                    // simsurface layout: CollectionName (char*)
 constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
-constexpr int kTire_SlipAngle = 0x118;              // Tire: slip angle of the last step, in turns (UMath::Atan2a)
+constexpr int kTire_SlipAngle = 0x118;
+constexpr int kTire_Radius = 0xC4, kTire_AngVel = 0xD0, kTire_SlipSpeed = 0xE8;
+// Tire: the ground's speed under the wheel along it at the last step (m/s), stored by
+// Tire::UpdateLoaded (0x69F065) from its argument whatever the wheel does; the slip speed at +0xE8
+// is forced to 0 in some states (0x69F1EB), so a locked wheel can't be told from it.
+constexpr int kTire_RoadSpeed = 0xF4;
 constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
@@ -143,8 +150,6 @@ float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
-// UpdateLoaded's ellipse ratio and its inverse, ours (the game's while not the player's car).
-float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f, s_ellipseGame = 1.5f;
 
 // The game's own values, captured once.
 struct {
@@ -178,8 +183,6 @@ bool Owns(uint8_t* obj, void* iface) { return iface && (uint8_t*)iface >= obj &&
 // Saved values while the player's suspension simulates.
 struct Saved {
     float grip, slip, yaw;
-    float split;
-    float* tranny;
 };
 
 void Apply(uint8_t* susp, Saved& sv) {
@@ -189,21 +192,13 @@ void Apply(uint8_t* susp, Saved& sv) {
     sv.yaw = *(float*)kMaxYawBonus;
     *(float*)kGlobalGripScale = sv.grip * c.grip;
     // DoDriveForces scales the cut by Ramp(slip, 1, limit) = (slip - 1) / (limit - 1).
-    *(float*)kTractionFwdSlip = c.tractionControl > 0.01f ? 1.0f + (sv.slip - 1.0f) / c.tractionControl : 1.0e9f;
+    float tcStrength = c.tc ? 1.0f : c.tractionControl;   // TC on: the game's own at full strength
+    *(float*)kTractionFwdSlip = tcStrength > 0.01f ? 1.0f + (sv.slip - 1.0f) / tcStrength : 1.0e9f;
     *(float*)kMaxYawBonus = sv.yaw * c.stability;
     float* graph = *(float**)kDriftStabTable;
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i] * c.stability;
     float* rear = *(float**)(kDriftRearTable + 0x10);
     for (int i = 0; i < g.rearN; i++) rear[i] = 1.0f + (g.rear[i] - 1.0f) * c.driftAssist;
-    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
-    sv.tranny = tranny ? (float*)(tranny + kTR_TorqueSplit) : nullptr;
-    if (sv.tranny) {
-        sv.split = *sv.tranny;
-        *sv.tranny = Clamp(sv.split * c.torqueSplit, 0.0f, 1.0f);
-    }
-    // Never below 1: the forward force is not made smaller than it is.
-    s_ellipse = std::max(s_ellipseGame * c.drivetrain, 1.0f);
-    s_ellipseInv = 1.0f / s_ellipse;
 }
 
 void Restore(const Saved& sv) {
@@ -214,15 +209,12 @@ void Restore(const Saved& sv) {
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i];
     float* rear = *(float**)(kDriftRearTable + 0x10);
     memcpy(rear, g.rear, g.rearN * sizeof(float));
-    if (sv.tranny) *sv.tranny = sv.split;
-    s_ellipse = s_ellipseGame;
-    s_ellipseInv = 1.0f / s_ellipseGame;
 }
 
 bool Stock() {
     const Config& c = g_cfg;
-    return c.tractionControl >= 1.0f && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.torqueSplit == 1.0f && c.drivetrain == 1.0f && c.slideGrip == 1.0f && c.slideOversteer == 1.0f &&
+    return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
+           c.slideGrip == 1.0f && c.slideOversteer == 1.0f &&
            c.speedGripLoss == 0.0f;
 }
 
@@ -476,21 +468,114 @@ float RainIntensity() {
     return r;
 }
 
+// ABS and traction control (see the header).
+struct {
+    float absMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    bool absRelease[4] = {};         // ABS letting a wheel's brake off until the wheel turns with the road again
+    bool absActive = false;         // ABS releasing a wheel now (the HUD icon flashes)
+    float tcGas = 1.0f;              // the throttle share traction control lets through
+    bool tcActive = false;
+    float absLock = 0.0f, tcSpin = 0.0f;   // for the log
+    double absSince = 0, tcSince = 0;     // last time each was active (the icon keeps flashing briefly)
+} s_aid;
+
+void Aids(uint8_t* susp, uint8_t* iface, float dT) {
+    if (!(dT > 0.0f && dT < 0.1f)) dT = 0.01f;
+    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+    float front = tranny ? Clamp(Field<float>(tranny, kTR_TorqueSplit), 0.0f, 1.0f) : 0.0f;
+    float speed = s_playerSpeed;
+    bool absNow = false;
+    float spin = 0.0f, lockMax = 0.0f;
+    for (int i = 0; i < 4; i++) {
+        uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+        if ((uintptr_t)tire < 0x10000 || (uintptr_t)tire >= 0x7FFF0000) continue;
+        float r = Field<float>(tire, kTire_Radius), w = Field<float>(tire, kTire_AngVel), road = Field<float>(tire, kTire_RoadSpeed);
+        if (!(r > 0.1f && r < 1.0f) || !(fabsf(w) < 2000.0f) || !(fabsf(road) < 200.0f)) continue;
+        float surface = w * r;
+        // ABS: how much slower than the road the wheel turns (1 = locked). Past 15% the brake is let
+        // off quickly until the wheel is back under 5%, then it comes back on: the pulsing of a real
+        // ABS, ~10 times a second, and the wheel keeps turning, so the car still steers.
+        float& m = s_aid.absMul[i];
+        bool& release = s_aid.absRelease[i];
+        float& brake = Field<float>(tire, kTire_Brake);
+        if (g_cfg.abs && brake > 0.05f && fabsf(road) > 3.0f) {
+            float lock = surface * road <= 0.0f ? 1.0f : Clamp(1.0f - surface / road, 0.0f, 1.0f);
+            lockMax = std::max(lockMax, lock);
+            if (lock > 0.15f) release = true;
+            else if (lock < 0.05f) release = false;
+            m = release ? std::max(0.0f, m - 25.0f * dT) : std::min(1.0f, m + 6.0f * dT);
+            brake *= m;
+            if (m < 0.97f) absNow = true;
+        } else {
+            m = 1.0f;
+            release = false;
+        }
+        // TC: how much faster than the road the driven wheels turn, in m/s.
+        float share = i < 2 ? front : 1.0f - front;
+        if (share > 0.2f && road * surface >= 0.0f) spin = std::max(spin, fabsf(surface) - fabsf(road));
+    }
+    if (absNow) s_aid.absSince = Now();
+    s_aid.absActive = absNow;
+    s_aid.absLock = lockMax;
+    s_aid.tcSpin = spin;
+    if (g_cfg.tc) {
+        // The wheels may turn 10% faster than the road, and at least 1 m/s faster: launch control
+        // from a standstill keeps that bit of slip, which is what pulls hardest, instead of none
+        // (an exact 0 at a standstill held the throttle shut). Over it the throttle is taken back
+        // in proportion; it never goes under 30% at a launch, so the car always pulls away.
+        float allowed = std::max(1.0f, 0.10f * speed);
+        float floor = speed < 5.0f ? 0.3f : 0.15f;
+        if (spin > allowed) s_aid.tcGas = std::max(floor, s_aid.tcGas - std::min((spin - allowed) * 1.5f, 8.0f) * dT);
+        else if (spin < 0.7f * allowed) s_aid.tcGas = std::min(1.0f, s_aid.tcGas + 1.5f * dT);
+    } else {
+        s_aid.tcGas = 1.0f;
+    }
+    s_aid.tcActive = s_aid.tcGas < 0.97f;
+    if (s_aid.tcActive) s_aid.tcSince = Now();
+    static double lastLog;
+    if (g_cfg.logInputs && (absNow || s_aid.tcActive) && Now() - lastLog > 0.5) {
+        lastLog = Now();
+        Log("physics: aids: ABS %s (lock %.2f, brake x%.2f %.2f %.2f %.2f) TC %s (spin %.1f m/s, throttle x%.2f) speed %.1f",
+            absNow ? "active" : "-", lockMax, s_aid.absMul[0], s_aid.absMul[1], s_aid.absMul[2], s_aid.absMul[3],
+            s_aid.tcActive ? "active" : "-", spin, s_aid.tcGas, speed);
+    }
+}
+
+// The ABS / TC bindings, from the input thread's press counts.
+void AidToggles() {
+    InputSnapshot in = Input_Get();
+    static uint32_t abs = in.absToggles, tc = in.tcToggles;
+    if (in.absToggles != abs) {
+        abs = in.absToggles;
+        g_cfg.abs = !g_cfg.abs;
+        IniSave_Queue({{IniPath(), "Physics", "ABS", g_cfg.abs ? "1" : "0"}});
+        Log("physics: ABS %s (binding)", g_cfg.abs ? "on" : "off");
+    }
+    if (in.tcToggles != tc) {
+        tc = in.tcToggles;
+        g_cfg.tc = !g_cfg.tc;
+        IniSave_Queue({{IniPath(), "Physics", "TC", g_cfg.tc ? "1" : "0"}});
+        Log("physics: traction control %s (binding)", g_cfg.tc ? "on (with launch control)" : "off");
+    }
+}
+
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
-    if (!s_playerSusp || !g_cfg.physics) return;
-    float rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
+    if (!s_playerSusp) return;
+    if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
+    if (!g_cfg.physics) return;
+    float front = g_cfg.frontGrip, rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
     // Full RainGrip from a light rain on (intensity 0.3).
     float wet = 1.0f - (1.0f - g_cfg.rainGrip) * std::min(RainIntensity() / 0.3f, 1.0f);
-    if (rear == 1.0f && off == 1.0f && wet == 1.0f) return;
+    if (front == 1.0f && rear == 1.0f && off == 1.0f && wet == 1.0f) return;
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
     if (!iface) return;
     for (int i = 0; i < 4; i++) {
         uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
         if ((uintptr_t)tire < 0x10000 || (uintptr_t)tire >= 0x7FFF0000) continue;
-        float k = (i >= 2 ? rear : 1.0f) * wet;
+        float k = (i >= 2 ? rear : front) * wet;
         if (off != 1.0f && OffroadTire(tire)) k *= off;
         Field<float>(tire, kTire_Traction) *= k;
     }
@@ -614,22 +699,25 @@ const PerCar kPerCar[] = {
     {&Config::stability, "Stability", 0.0f, 1.0f},
     {&Config::driftAssist, "DriftAssist", 0.0f, 1.0f},
     {&Config::grip, "Grip", 0.3f, 2.0f},
-    {&Config::torqueSplit, "TorqueSplit", 0.0f, 3.0f},
-    {&Config::drivetrain, "Drivetrain", 0.7f, 3.0f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
     {&Config::rearGrip, "RearGrip", 0.5f, 1.5f},
+    {&Config::frontGrip, "FrontGrip", 0.5f, 1.5f},
     {&Config::offroadGrip, "OffroadGrip", 0.2f, 1.0f},
     {&Config::slideGrip, "SlideGrip", 0.4f, 1.0f},
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
     {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
+    {&Config::smokeBack, "SmokeBack", 0.0f, 5.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
+// The driving aids' switches (ABS, TC) are the same for every car: always [Physics], never a car's
+// own section or a preset (ABS / TC keys left in [Car.<name>] or a preset are ignored).
 
 struct {
     std::string car;            // the player's vehicle name, empty = none yet
     bool own = false;           // it has its own [Car.<name>] section
+    std::string preset;         // the preset it was given (its section's Preset key), empty = none
     float global[kNumPerCar];   // the [Physics] values while a car has its own
 } pc;
 
@@ -641,10 +729,72 @@ void LoadGlobal() {
     for (int i = 0; i < kNumPerCar; i++) g_cfg.*kPerCar[i].field = pc.global[i];
 }
 
+// Presets: named sets of the per-car values (the sliders), one [<name>] section each
+// in nfsmw_physics_presets.ini next to the gameplay ini. Read once, kept here, written through
+// inisave's thread like the menu's settings.
+struct Preset {
+    std::string name;
+    float value[kNumPerCar];
+};
+std::vector<Preset> s_presets;
+bool s_presetsRead = false;
+
+const char* PresetPath() {
+    static char path[MAX_PATH];
+    if (!path[0]) ConfigFile("nfsmw_physics_presets.ini", path, false);
+    return path;
+}
+
+void ReadPresets() {
+    if (s_presetsRead) return;
+    s_presetsRead = true;
+    std::vector<char> names(32768);
+    DWORD n = GetPrivateProfileSectionNamesA(names.data(), (DWORD)names.size(), PresetPath());
+    const Config def;
+    for (const char* s = names.data(); s < names.data() + n && *s; s += strlen(s) + 1) {
+        Preset p;
+        p.name = s;
+        char buf[64];
+        for (int i = 0; i < kNumPerCar; i++) {
+            float v = def.*kPerCar[i].field;
+            if (GetPrivateProfileStringA(s, kPerCar[i].key, "", buf, sizeof(buf), PresetPath()) > 0) v = (float)atof(buf);
+            p.value[i] = Clamp(v, kPerCar[i].lo, kPerCar[i].hi);
+        }
+        s_presets.push_back(p);
+    }
+    Log("physics: %u presets in %s", (unsigned)s_presets.size(), PresetPath());
+}
+
+void WritePreset(const Preset& p) {
+    std::vector<IniWrite> w;
+    char buf[32];
+    for (int i = 0; i < kNumPerCar; i++) {
+        snprintf(buf, sizeof(buf), "%g", p.value[i]);
+        w.push_back({PresetPath(), p.name, kPerCar[i].key, buf});
+    }
+    IniSave_Queue(w);
+}
+
+// The presets as the file has them now (it may have been edited by hand or by the menu's
+// Overwrite since it was read). Pending writes go first.
+void RereadPresets() {
+    IniSave_Flush();
+    s_presets.clear();
+    s_presetsRead = false;
+    ReadPresets();
+}
+
+const Preset* FindPreset(const std::string& name) {
+    for (const Preset& p : s_presets)
+        if (_stricmp(p.name.c_str(), name.c_str()) == 0) return &p;
+    return nullptr;
+}
+
 }  // namespace
 
 std::string Physics_Section() { return pc.own ? "Car." + pc.car : "Physics"; }
 const char* Physics_Car() { return pc.car.c_str(); }
+const char* Physics_CarPreset() { return pc.own ? pc.preset.c_str() : ""; }
 bool Physics_OwnSettings() { return pc.own; }
 
 bool Physics_IsPerCar(const void* value) {
@@ -653,9 +803,96 @@ bool Physics_IsPerCar(const void* value) {
     return false;
 }
 
+int Physics_PresetCount() {
+    ReadPresets();
+    return (int)s_presets.size();
+}
+
+const char* Physics_PresetName(int i) {
+    ReadPresets();
+    return i >= 0 && i < (int)s_presets.size() ? s_presets[i].name.c_str() : "";
+}
+
+int Physics_SavePreset(int i) {
+    ReadPresets();
+    if (i < 0 || i >= (int)s_presets.size()) {
+        // A new one, named "Preset <n>" with the first free n (rename it in the presets file).
+        Preset p;
+        for (int n = 1;; n++) {
+            p.name = "Preset " + std::to_string(n);
+            bool used = false;
+            for (const Preset& q : s_presets) used |= _stricmp(q.name.c_str(), p.name.c_str()) == 0;
+            if (!used) break;
+        }
+        s_presets.push_back(p);
+        i = (int)s_presets.size() - 1;
+    }
+    Preset& p = s_presets[i];
+    for (int k = 0; k < kNumPerCar; k++) p.value[k] = g_cfg.*kPerCar[k].field;
+    WritePreset(p);
+    Log("physics: preset %s saved", p.name.c_str());
+    return i;
+}
+
+bool Physics_LoadPreset(int i) {
+    ReadPresets();
+    if (i < 0 || i >= (int)s_presets.size()) return false;
+    // On a known car the preset becomes that car's own settings; the shared ones are left alone.
+    if (!pc.car.empty() && !pc.own) Physics_SetOwnSettings(true);
+    const Preset& p = s_presets[i];
+    for (int k = 0; k < kNumPerCar; k++) g_cfg.*kPerCar[k].field = p.value[k];
+    // The car keeps the preset's name and takes its values afresh every time it is driven, so a
+    // preset changed later reaches every car that uses it without loading it on each again.
+    if (pc.own) {
+        pc.preset = p.name;
+        IniSave_Queue({{IniPath(), "Car." + pc.car, "Preset", p.name}});
+    }
+    Log("physics: preset %s loaded (%s)", p.name.c_str(), pc.own ? pc.car.c_str() : "shared settings");
+    return true;
+}
+
+const char* Physics_RenamePreset(int i, const std::string& name) {
+    ReadPresets();
+    if (i < 0 || i >= (int)s_presets.size()) return "No preset picked";
+    size_t a = name.find_first_not_of(' '), b = name.find_last_not_of(' ');
+    std::string n = a == std::string::npos ? "" : name.substr(a, b - a + 1);
+    if (n.empty()) return "A name needs at least one letter";
+    if (n.find_first_of("[]=;") != std::string::npos) return "Names can't have [ ] = or ;";
+    for (int k = 0; k < (int)s_presets.size(); k++)
+        if (k != i && _stricmp(s_presets[k].name.c_str(), n.c_str()) == 0) return "Another preset has that name";
+    Preset& p = s_presets[i];
+    if (p.name == n) return nullptr;
+    IniSave_Queue({{PresetPath(), p.name, "", ""}});   // the old section goes, then the new one is written
+    Log("physics: preset %s renamed to %s", p.name.c_str(), n.c_str());
+    // The cars that use it follow the new name.
+    IniSave_Flush();
+    std::vector<char> names(65536);
+    DWORD len = GetPrivateProfileSectionNamesA(names.data(), (DWORD)names.size(), IniPath());
+    std::vector<IniWrite> links;
+    char buf[256];
+    for (const char* sec = names.data(); sec < names.data() + len && *sec; sec += strlen(sec) + 1)
+        if (_strnicmp(sec, "Car.", 4) == 0 && GetPrivateProfileStringA(sec, "Preset", "", buf, sizeof(buf), IniPath()) > 0 &&
+            _stricmp(buf, p.name.c_str()) == 0)
+            links.push_back({IniPath(), sec, "Preset", n});
+    if (!links.empty()) IniSave_Queue(links);
+    if (_stricmp(pc.preset.c_str(), p.name.c_str()) == 0) pc.preset = n;
+    p.name = n;
+    WritePreset(p);
+    return nullptr;
+}
+
+void Physics_DeletePreset(int i) {
+    ReadPresets();
+    if (i < 0 || i >= (int)s_presets.size()) return;
+    IniSave_Queue({{PresetPath(), s_presets[i].name, "", ""}});
+    Log("physics: preset %s deleted", s_presets[i].name.c_str());
+    s_presets.erase(s_presets.begin() + i);
+}
+
 void Physics_SetCar(const char* name) {
     std::string car = name ? name : "";
     if (car == pc.car) return;
+    IniSave_Flush();   // the last car's section written before this one's is read
     if (!pc.own) StoreGlobal();
     pc.car = car;
     std::string section = "Car." + car;
@@ -667,6 +904,17 @@ void Physics_SetCar(const char* name) {
             if (GetPrivateProfileStringA(section.c_str(), p.key, "", buf, sizeof(buf), IniPath()) > 0)
                 g_cfg.*p.field = Clamp((float)atof(buf), p.lo, p.hi);
     }
+    pc.preset.clear();
+    if (pc.own && GetPrivateProfileStringA(section.c_str(), "Preset", "", buf, sizeof(buf), IniPath()) > 0) {
+        pc.preset = buf;
+        RereadPresets();
+        if (const Preset* p = FindPreset(pc.preset)) {
+            for (int k = 0; k < kNumPerCar; k++) g_cfg.*kPerCar[k].field = p->value[k];
+            Log("physics: car %s: preset %s applied", car.c_str(), p->name.c_str());
+        } else {
+            Log("physics: car %s: preset %s not found, its own values kept", car.c_str(), pc.preset.c_str());
+        }
+    }
     Log("physics: car %s (%s)", car.empty() ? "?" : car.c_str(), pc.own ? "own settings" : "[Physics] settings");
 }
 
@@ -677,14 +925,43 @@ void Physics_SetOwnSettings(bool on) {
         StoreGlobal();
         pc.own = true;
     } else {
-        WritePrivateProfileStringA(("Car." + pc.car).c_str(), nullptr, nullptr, IniPath());
+        // Queued behind any save of the car's values, so none can bring the section back.
+        IniSave_Queue({{IniPath(), "Car." + pc.car, "", ""}});
         pc.own = false;
+        pc.preset.clear();
         LoadGlobal();
     }
     Log("physics: %s %s", pc.car.c_str(), on ? "has its own settings" : "back to [Physics] settings");
 }
 
+float Physics_PlayerSpeed() { return s_playerSpeed; }
+
+float Physics_TcThrottle() { return g_cfg.tc ? s_aid.tcGas : 1.0f; }
+
+void Physics_Aids(bool* absActive, bool* tcActive) {
+    *absActive = g_cfg.abs && Now() - s_aid.absSince < 0.15;
+    *tcActive = g_cfg.tc && Now() - s_aid.tcSince < 0.15;
+}
+
 void Physics_DropCar() { s_dropAt = Now(); }
+
+// The perfect launch: at the race start PVehicle keeps a launch amount (IVehicle+0xB8, from how
+// well the revs were held at GO), and its slot at 0x8AA84C (0x6700E0, thiscall) turns a positive
+// one into a 4.5 s boost (IVehicle+0xB4 = 4.5) and fires EPerfectLaunch; only for the player's
+// car (driver class 0 at +0x94; others get it cleared). With the physics mod on the amount is
+// cleared first, so no launch boost: the start is down to the car, the throttle and TC.
+constexpr uintptr_t kSlotPerfectLaunch = 0x8AA84C;
+constexpr uintptr_t kPerfectLaunch = 0x6700E0;
+constexpr int kIV_LaunchAmount = 0xB8;
+
+void __fastcall Hook_PerfectLaunch(uint8_t* vehicle, void* edx) {
+    float& amount = Field<float>(vehicle, kIV_LaunchAmount);
+    if (g_cfg.physics && amount > 0.0f) {
+        Log("physics: perfect launch (%.2f) dropped", amount);
+        amount = 0.0f;
+    }
+    ((void(__fastcall*)(uint8_t*, void*))kPerfectLaunch)(vehicle, edx);
+}
 
 void Physics_Install() {
     if (!Expect(kSuspSimulate, {0x81, 0xEC, 0xFC, 0x00, 0x00, 0x00, 0x56, 0x8B, 0xF1}) ||
@@ -728,38 +1005,33 @@ void Physics_Install() {
     } else {
         Log("physics: slide grip unavailable");
     }
+    if (*(uintptr_t*)kSlotPerfectLaunch == kPerfectLaunch && Expect(kPerfectLaunch + 0x41, {0xD9, 0x86, 0xB8, 0x00, 0x00, 0x00})) {
+        DWORD old;
+        VirtualProtect((void*)kSlotPerfectLaunch, 4, PAGE_READWRITE, &old);
+        *(void**)kSlotPerfectLaunch = (void*)&Hook_PerfectLaunch;
+        VirtualProtect((void*)kSlotPerfectLaunch, 4, old, &old);
+        Log("physics: perfect launch %s", g_cfg.physics ? "off" : "as the game's (physics mod off)");
+    } else {
+        Log("physics: unexpected vehicle code, the perfect launch stays");
+    }
     if (Expect(kCallDoDrifting, {0xE8}) && kCallDoDrifting + 5 + *(int32_t*)(kCallDoDrifting + 1) == kDoDrifting) {
         DWORD old;
         VirtualProtect((void*)kCallDoDrifting, 5, PAGE_EXECUTE_READWRITE, &old);
         *(int32_t*)(kCallDoDrifting + 1) = (int32_t)((uintptr_t)&Hook_DoDrifting - (kCallDoDrifting + 5));
         VirtualProtect((void*)kCallDoDrifting, 5, old, &old);
         FlushInstructionCache(GetCurrentProcess(), (void*)kCallDoDrifting, 5);
-        Log("physics: grip balance ready (rear grip %.2f, off-road grip %.2f)", g_cfg.rearGrip, g_cfg.offroadGrip);
+        Log("physics: grip balance ready (front grip %.2f, rear grip %.2f, off-road grip %.2f)", g_cfg.frontGrip, g_cfg.rearGrip,
+            g_cfg.offroadGrip);
     } else {
         Log("physics: grip balance unavailable");
     }
-    // fmul dword ptr [abs32] at both uses of the ratio: point them at our copies.
-    if (Expect(kEllipseMul, {0xD8, 0x0D, 0x78, 0xAC, 0x8A, 0x00}) && Expect(kEllipseDiv, {0xD8, 0x0D, 0x64, 0x6D, 0x89, 0x00}) &&
-        *(float*)kEllipseRatio > 1.0f) {
-        s_ellipseGame = s_ellipse = *(float*)kEllipseRatio;
-        s_ellipseInv = 1.0f / s_ellipse;
-        for (auto at : {std::make_pair(kEllipseMul, &s_ellipse), std::make_pair(kEllipseDiv, &s_ellipseInv)}) {
-            DWORD old;
-            VirtualProtect((void*)(at.first + 2), 4, PAGE_EXECUTE_READWRITE, &old);
-            *(float**)(at.first + 2) = at.second;
-            VirtualProtect((void*)(at.first + 2), 4, old, &old);
-            FlushInstructionCache(GetCurrentProcess(), (void*)at.first, 6);
-        }
-        Log("physics: drivetrain multiplication ready (ellipse ratio %.2f)", s_ellipseGame);
-    } else {
-        Log("physics: unexpected tire code, drivetrain multiplication unavailable");
-    }
-    Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, torque split x%.2f, "
+    Log("physics: %s (traction control %.0f%%, stability %.0f%%, drift assist %.0f%%, grip %.2f, "
         "gravity %.2f%s)", g_cfg.physics ? "on" : "off", g_cfg.tractionControl * 100, g_cfg.stability * 100,
-        g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.torqueSplit, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
+        g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
 }
 
 void Physics_Frame() {
+    AidToggles();
     // The drift tables are built by static constructors; read them once the game runs.
     if (!g.ok) {
         static bool tried;

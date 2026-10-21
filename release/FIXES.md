@@ -1,4 +1,4 @@
-### Unreleased
+### v0.21.0: new F4 menu, ABS and traction control, physics presets, SMAA and smoother frames in VR
 
 - **Challenge Series: the car is handed back at the start:** time trials (toll booths) give the
   player's car to the AI at the start (`Game.ForceAIControl`) in the same frame as the race timers
@@ -8,6 +8,69 @@
   press a pedal or steer, and 3 s after the start at the latest. Player input left blocked is
   unblocked with it. A car the AI takes over later (a finished race) is left alone. Every step is
   logged as `race start:` lines in `nfsmw_gameplay.log`.
+
+- **VR: the road is back in the mirrors:** skipping the sun glare in the headset skipped the whole
+  pass that draws it, and that pass ends by turning depth testing back on (it turns it off for its
+  quad). Without it, what rendered next - the rear view among it - drew with no depth test, and the
+  sky covered the road in the mirrors. The skip now turns depth testing back on itself whenever the
+  pass would have drawn.
+
+- **FFB: a jerk away from the hit when an impact damages the car:** every impact the gameplay mod's
+  car damage counts (its speed change over `[Damage] MinImpact`) is passed to the FFB mod
+  (`NfsmwFfb_Setting("DamageHits")`), which kicks the wheel away from the side of that contact and
+  shakes it briefly, harder for harder hits; the other short effects step back while it lasts.
+  `[FFB] HardImpactJerk` (0.8), also in F4 > Force feedback.
+- **VR: SMAA anti-aliasing in the headset:** the widescreen fix's own SMAA only ever reached the flat
+  screen (the eyes are taken before it runs). Each eye's picture now goes through SMAA (the
+  reference SMAA.hlsl by Jimenez et al., MIT licence) on its way into the eye texture, with SMAA's
+  quality presets: `[VR] Smaa` 0 off, 1 low, 2 medium, 3 high (default), 4 ultra, also F4 > Menu and
+  testing. "SMAA: show the edges it finds" there replaces the picture with the edges SMAA detects, to
+  see it working. (SMAA's 2x / 4x modes need MSAA and motion vectors across frames, which this game
+  does not have; the presets are what changes SMAA 1x.)
+- **VR: anisotropic filtering:** textures at an angle (the road ahead, walls) stay sharp. Samplers the
+  game sets to linear minification are switched to anisotropic, except with a depth texture bound (the
+  shadow map, whose hardware comparison needs linear): `[VR] Anisotropic` 0 off, 1 2x, 2 4x, 3 8x,
+  4 16x (default), also in F4. Every 30 s the log counts the filters the game set and how many were
+  made anisotropic.
+- **Shadow resolution in F4:** F4 > Menu and testing > Shadow resolution sets the widescreen fix's
+  `ShadowsRes` (x1 = the game's 1024 .. x16), written into its ini for the next start.
+
+- **VR: hidden driver parts can be brought back with the triangle editor:** with Hide arms / Hide
+  head the seated driver's arms and head are left out of the draw (their index ranges are skipped),
+  so the editor's Restore had nothing to undo for them and pieces wrongly counted as arms stayed
+  hidden. Restore on the driver's triangles now puts them on a per-model `Show` list in
+  nfsmw_vr_edits.ini, and they are drawn again inside the hidden parts (Hide takes them off it).
+
+- **No more crash when the engine blows at the end of a race:** engine wear destroys the car when the
+  engine blows (the drag race crash path, IDamageable::Destroy), and the game's handling of a
+  destroyed racer reads the race's parameters without checking them; with none there (free roam,
+  or a race just over) the game crashed (speed.exe+0x1FDEB5). The car is now destroyed only in a
+  race that has them; otherwise the engine blows the game's own way, and full damage leaves the car
+  totaled in free roam without destroying it.
+- **A car left with the AI in free roam is handed back:** after beating a Blacklist rival the car
+  stayed still with a revving engine until the next race (even in another car from the safehouse):
+  the game had handed it to the AI at the race's end and never back. In free roam, a car the AI has
+  had for 10 s, standing still while you hold the throttle for 2 s, gets the game's EBecomePlayerCar
+  and its controls unblocked. Every block and unblock of your controls is now logged (`input:`).
+- **Gameplay HUD: the car icon's colours and place:** gray with no damage, the speedbreaker clock
+  icon's own beige from 1% to 74%, and from 75% red, blinking by brightness in the same rhythm as the
+  spike strip and engine warning icons (it pulsed by transparency before, and was beige from 0.5% in
+  the arc's colour). The car icon is moved a little right, clear of the small arrow at the meter's
+  end, and the other two icons with it, keeping their spacing (`[HUD] IconShift`, 2 HUD units).
+
+- **Damage / heat meter fills to 100%:** at full damage or heat the bar fills the whole arc, up to the
+  small arrow at its end (it stopped 5 degrees short), and the arrow keeps its own colour instead of
+  glowing with the car icon.
+
+- **VR: the shared shadow map now actually stays on:** its per-frame check switched it off at every
+  race start (`shadow matrices differ ... by 0.97`), so the map was still drawn for each eye. Only the
+  camera's position had been made the same for both eyes; the pass now gets the whole head-free seat
+  camera (matrix, direction, target too). The check compares only what the pass writes (view 15's
+  matrices, the shadow projection, the light), names the value that differed, and a difference
+  pauses sharing for a second instead of ending it; five within a minute end it for the session.
+- **VR: hitch diagnosis in the logs:** the `perf` and `hitch` lines have an `update` phase (the game's
+  own update, from Present to the next scene render), and the 64-bit host logs `XR timing` every 5 s
+  (display slots the headset skipped, and how long xrWaitFrame and xrEndFrame took).
 
 - **VR: the sun shadow map is drawn once a frame:** it was the biggest pass by far - up to 6,800 of
   10,200 draws a frame in traffic, because the game draws every caster in a ~350 m square and the
@@ -169,6 +232,178 @@
   hidden popup has. Area names are dropped by their own message style, so every other message
   (totaled, busted, cops taken out, the free roam "TOTALED") still shows; a first version hid the
   message text object itself and with it every message.
+- **VR: the shared shadow map stays on:** after a frame where the eyes' shadow matrices differed,
+  sharing pauses for a second while each eye draws its own map. The check went on counting
+  differences during that pause, when nothing is shared and per-eye maps may differ, so the first
+  frames after every spawn turned sharing off for the whole session (seen in every log today:
+  "5 mismatches in 3600 frames"). Only frames that actually reused the first eye's map count now;
+  a difference while paused only keeps the pause going. Both eyes still see the same map.
+- **Gameplay: no freeze when F4 settings are saved:** the save wrote each of ~300 settings with its
+  own WritePrivateProfileString, each rewriting the whole file, on the game thread: ~475 ms every
+  time. The values are collected on the game thread and written by a background thread, in order,
+  logged as "settings written in the background".
+- **Gameplay: no freeze while the F4 menu is open:** the FFB device names were looked up on the game
+  thread every 3 s, each name a DirectInput enumeration of the force feedback devices holding the
+  FFB mod's device lock: ~200 ms. They are fetched on a thread of their own when the menu opens and
+  when the device setting changes; the menu shows the last names it has.
+- **VR: per-frame trace (debug):** Delete (`[VR] KeyTrace`, 0 = off) records 30 s of frames,
+  one CSV line each, to `nfsmw_frametrace_NNN.csv` next to speed.exe: every phase's time, each eye's
+  CPU time, draws and GPU time (timestamp queries), the frame's GPU span, the game time stepped
+  (physics steps), the reflection faces and rear view drawn, the shadow map (per eye / shared /
+  paused) and the HUD probe. Measurement only: nothing is drawn differently, and the GPU queries
+  exist only while a trace runs. The file is written by a thread of its own when the 30 s are up.
+- **VR: shared shadow map stays on all race, with one set of matrices for both eyes:** the sun's
+  direction drifts a little between the two eye passes (~1e-4; the shadow camera sits 2000 m up it),
+  so every 10-20 s the second eye's shadow matrices came out a hair off the first's, and five of
+  those ended sharing after about a minute. On a shared frame the second eye now takes the first
+  eye's shadow matrices and light outright (view 15's matrices, the shadow projection, the light),
+  so both eyes draw with one map and one set of matrices. The second eye's own pass came out 1-25%
+  off in the next session too, so there is no comparison fallback any more: every stereo frame the
+  second eye uses the first eye's map, matrices and light, always the same shadow in both eyes (only
+  a first-eye value that is not a number makes the second eye draw its own map, for that frame).
+  Differences are still logged (up to 10 lines) for diagnosis.
+- **No freeze at F4 menu open (FFB device names):** listing the force feedback devices opens each one
+  (~100-200 ms) and was done on the game's DirectInput object holding the FFB mod's device lock,
+  which the game's own input reads also take, so the game still froze at every menu open even with
+  the lookup on a background thread. The FFB mod now lists them on a DirectInput object of its own,
+  without that lock, once per refresh (the menu asks for index 0 first); the names are answered from
+  that list.
+- **VR: render thread scheduled on time:** the game's render thread (eyes and the hand-off to the
+  headset) registers as a "Games" multimedia task and sets the system timer to 1 ms, once
+  (`[VR] RenderPriority=1`, 0 = off). The missed headset slots came with ~5 ms of headroom, which
+  points at the thread being run late. The eyes are drawn exactly as before.
+- **VR: the GPU wait no longer burns a core:** it spun on the fence at full speed every frame before
+  the hand-off. It now spins for 1.5 ms (the usual wait is ~0.5 ms), then hands its core to any other
+  ready thread between checks (the game's, SteamVR's, Link's), with no added delay when none waits.
+- **Gameplay: Front torque share and Drivetrain multiplication removed** (sliders and what they
+  did): the game's own torque split and tyre force ellipse apply again. Old ini values are ignored.
+- **Gameplay: sim pedals:** the game clamps gas and brake to a deadzone at each end (0x8F876C, 5% in
+  the exe, used only by those clamps), so a light brake did nothing and 95% was already full. With
+  pedals bound it is set to 0 (any small runtime value accepted, logged): the whole travel counts,
+  and the mod's own [Controls] PedalDeadzone is the only one.
+- **Gameplay: analogue handbrake:** bind Handbrake to an axis (pedal or lever) and its value goes to
+  the game as it is; the game passes the handbrake action's value on to the car (FetchInput
+  0x6A8BE5). A button or key still gives 0 / 1.
+- **FFB: lighter steering during wheelspin** (`[FFB] SpinLighter`, 50% by default, F4 > FFB >
+  Wheelspin FFB): the driven wheels' slip is measured from the engine's differential speed against
+  the car's speed (wheel radius learnt while cruising); from 10% slip (full at 50%) the aligning and
+  centring forces lighten by that share, eased in and out. Damping, friction and effects stay. The
+  telemetry log line shows `spin=`.
+- **FFB: stationary friction** (`[FFB] ParkingFriction`, now 30% by default, F4 > FFB > Stationary
+  friction): the tyre scrub that makes the wheel heavy to turn at a standstill, gone by 18 km/h.
+  It existed at 15% with no slider.
+- **Gameplay: Front grip slider** (`[Physics] FrontGrip`, per car): the front tyres' grip, next to
+  Rear grip (below 100% understeer).
+- **Gameplay: ABS** (`[Physics] ABS=1`, on by default; F4 > Physics; `[Controls] ToggleAbs`): from each
+  tyre's own wheel speed (UpdateLoaded keeps the radius +0xC4, angular speed +0xD0 and slip speed
+  +0xE8, set at 0x69F209), a wheel turning more than 12% slower than the road under braking has its
+  brake (+0xC8, after TuneWheelParams) eased off and reapplied as it rolls: full braking stops the car
+  straight instead of spinning it. The handbrake is untouched.
+- **Gameplay: traction control with launch control** (`[Physics] TC`, off by default; F4 > Physics;
+  `[Controls] ToggleTc`): the game's own traction control at 100%, plus the throttle this mod sends
+  trimmed while the driven wheels (by the torque split) slip past 12%; from a standstill the limit is
+  6%, so launches hook up without wheelspin. Both toggles are saved to the ini when pressed.
+- **Gameplay HUD: ABS and TC icons** (`[HUD] AbsIcon` / `TcIcon`): ABS directly above the engine
+  warning icon, TC to its right, copies of the car icon in its object list (shown with it). Like a
+  dash light: invisible while that aid is off, gray while on but idle, blinking in the HUD's beige
+  while it works. Their textures (PERFORMANCE_BRAKES, MAIN_ICON_QUICK_RACE) only exist in the front
+  end pack, which races unload, so `scripts
+fsmw_hud_icons.bin` (a two-texture pack built from
+  FRONTEND\FrontB.lzc by `gameplay\tools\make_icon_pack.py`, laid out like HUDTEXDRAG.BIN) is
+  loaded with every race HUD and unloaded with it.
+- **Gameplay: physics presets** (F4 > Physics > Presets): save the values in use as a preset
+  (Preset 1, 2, ...), pick one, load it into the current car (turns on its own settings, so other
+  cars keep theirs), overwrite or delete it (second press). Stored in `nfsmw_physics_presets.ini`
+  next to the gameplay ini, one section per preset. "Rename this preset" takes a new name typed on
+  the keyboard (Enter keeps it, Escape cancels; the mod's keyboard bindings, such as the seat keys,
+  are muted while typing).
+- **FFB: stationary friction no longer wobbles:** the friction was a velocity sign (tanh of the
+  smoothed wheel speed), which kept pushing after the wheel reversed and set up a wobble that
+  damping couldn't stop. It is now a stiction spring to an anchor the wheel drags along once
+  turned past ~0.6% of its rotation (about 2.7 degrees on a 900 degree wheel), with a little damping
+  inside: position based, so it holds the wheel without lag or flipping.
+- **Gameplay: per-car settings fixes:** ABS and TC are now kept per car with the sliders (a car
+  section without them uses [Physics]'s), and their bindings save to the car's section while it has
+  one instead of always to [Physics]. Turning "Settings for this car only" off now deletes the
+  section through the background writer, after any pending save of it (before, a save still queued
+  could write the section back), and switching cars waits for pending writes before reading.
+- **Gameplay: a new main menu, the old one is its Dev menu:** F4 (`[UI] Menu`) opens a short menu
+  with four entries. **Gameplay:** traction control, ABS, shifting,
+  clutch needed to shift, engine wear, car damage, engine smoke when damaged, classic inputs,
+  adjusted physics (the physics sliders' switch), no head-on ramming SUVs, both drag race switches,
+  speedbreaker, damage / heat meter, the in-car dashboard switch, the VR
+  HUD's size, left / right, up / down and distance, and Reset to default. **Controls:** every
+  binding and controller setting except the testing keys, including the gears and the menu keys.
+  **Force feedback:** everything except wall scrapes, road surface rumble and crash jolts. **Dev
+  menu:** the full tuning menu as it was. The same settings are shared, so a change in one place
+  shows in the other.
+- **Gameplay: classic inputs:** `[Controls] ClassicInput=1` (Gameplay and Controls tabs) gives
+  steering, throttle and brake back to the game: nothing is injected, the steering type is the
+  game's, and the game reads the controllers itself (set them up in its own options). What the mod
+  held down is let go once. Shifting, the clutch and everything else stay.
+- **Gameplay HUD: ABS / TC icon position:** `[HUD] AidIconRight` / `AidIconUp` (HUD units, -1000 to
+  +1000; sliders in Dev menu > Menu and testing) move both icons from their place, live.
+- **Your settings are the defaults:** every Reset button now goes back to the values in use on
+  2026-10-20/21 (the gameplay plugin's built-in values already matched; the FFB and VR settings the
+  menu holds, and the VR plugin's built-in HUD crops and display opacity / glass / reflection, were
+  changed to match). Per-car values (seat, dashboard size and position, wheel pivot) and the
+  dashboard layout are not part of it.
+- **VR: physics rate follows the headset:** the widescreen fix sets the game's physics rate from its
+  [MISC] SimRate at start, and -1 (its setting here) means the desktop monitor's refresh rate: ~103 Hz
+  against the headset's 72, so each frame got one or two physics steps in an uneven pattern and
+  motion moved in steps (climbing a slope felt like stairs). The VR plugin now reads the headset's
+  refresh rate (the 64-bit bridge passes it on) and sets SimRate to a whole multiple of it near
+  144 Hz (72 -> 144, two steps every frame; 90 -> 180; 120 -> 120), from the next start, logged.
+  `[VR] SimRateFromHeadset=0` leaves SimRate alone. Needs the updated nfsmw_vr_host.exe.
+- **Gameplay: ABS and TC are the same for every car:** they were kept per car while a car had its own
+  physics settings, so switching them on in one car left them off in the others and looked like a
+  lost save. They are now always `[Physics]`'s: never a car's own section or a preset (ABS / TC
+  keys left there are ignored).
+- **Gameplay: settings saved in one write per file:** the background save set each of ~300 settings
+  with its own WritePrivateProfileString, each rewriting the whole file: ~1.5 s, and quitting in that
+  time lost the rest. Each file is now read once, every value set in memory, and written once to a
+  temporary copy that replaces it: a few milliseconds, and a quit leaves the old file or the new one,
+  never half of one. Comments, order and line endings are kept (checked against
+  WritePrivateProfileString on a copy of a real ini: 490 values, all the same). If a file can't be
+  replaced (locked), that file falls back to the old way, logged.
+- **Gameplay: the pause menu's Performance Tuning no longer acts on your car:** its seven sliders
+  (steering, handling, brakes, ride height, aero, nitrous, turbo) are read by the physics through
+  PVehicle::GetTunings; for the player's car that now returns stock values (all 0), whatever the
+  menu holds. The menu still opens. `[Physics] GameTuning=1` (Dev menu > Physics) gives it back. AI
+  cars are unchanged.
+- **Gameplay: engine smoke for rear-engined cars:** Dev menu > Physics > *Engine smoke in the back*
+  (`[Physics] SmokeBack`, 0-5 m) moves the engine smoke back along the car from where the game puts
+  it; per car, through the car's preset.
+- **Keys:** F2 and F5 (Camera Toolkit free camera and pause), F9 (VR image dump), F10 (FFB restart)
+  and F11 (VR shared-views debug flip) unbound in the installed inis; the packaged FFB ini no longer
+  binds F10 (`KeyReset=0`; the F4 > Force feedback restart button remains). `[VR] SharedViewsOnce=1`
+  (rear view and reflections drawn once for both eyes) written explicitly before F11 was unbound.
+
+- **Gameplay HUD: the ABS / TC icons need no extra step:** their texture pack
+  (`scripts\nfsmw_hud_icons.bin`, the game's own art, so not in the zip) is made from the game's
+  `FRONTEND\FrontB.lzc` on the first start; before, it took running a Python script.
+- **Gameplay: ABS that works:** it judged a wheel's lock from its slip speed, which the game zeroes
+  for a locked wheel, so it never saw one. It now compares the wheel's speed with the ground's under
+  it, lets the brake off quickly past 15% lock until the wheel turns with the road again, then brakes
+  again: the pulsing of a real ABS, the car still steers at full braking, and the ABS icon blinks.
+- **Gameplay: launch control lets the car go:** from a standstill traction control held the throttle
+  almost shut at the first sign of wheel movement. It now allows the wheels 10% (at least 1 m/s) more
+  than the road, the slip that pulls hardest, and never takes the throttle under 30% at a launch.
+- **Gameplay: no perfect launch with the physics mod:** the game's race start boost (4.5 s for revs
+  held right at GO) no longer fires; the start is down to the car, the throttle and TC.
+- **Gameplay HUD: the meter and icons go with the pause menu:** the damage / heat bar, its red heat
+  fill and the car, spike strip, engine and ABS / TC icons stayed on screen in the pause menu. They
+  are hidden while the game time stands still.
+- **Gameplay: cars keep their preset:** *Load into this car* gives the car the preset, and the car
+  takes that preset's values again every time it's driven: changing a preset (Overwrite, or by hand
+  in `nfsmw_physics_presets.ini`) changes every car that uses it. Renaming keeps the cars linked.
+  *Settings for this car only* is gone; a car without a preset uses the shared values.
+- **VR: mirrors on more cars:** the glass search groups only connected triangles in one plane, so a
+  piece elsewhere in the same plane can't stretch the glass past a mirror's size. The Punto's and the
+  GTO's interior mirrors are found now; the BMW M3's and Elise's right side mirrors match their left.
+  The Eclipse's interior mirror is laid flat on its glass (its glass and housing back came out as one
+  folded patch). The Supra's right side mirror shows the rear view (its glass is matched 2.5 cm wider,
+  and the picture is spread over the glass's whole draw entry). Checked offline against every car.
 
 ### v0.20.0: car mirrors in VR, grip sliders, spin limit, new force feedback jolts
 

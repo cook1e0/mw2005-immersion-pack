@@ -24,6 +24,7 @@
 #include "vfx.h"
 #include "common.h"
 #include "game.h"
+#include <math.h>
 
 namespace {
 
@@ -157,6 +158,16 @@ static void __fastcall SmokeUpdate(void* eff, void*, const float* mtx, uint32_t 
                 vel[1], vel[2], ((unsigned(__thiscall*)(void*))kGroupNumParticles)(group));
         }
         vel = nullptr;  // keep these instead of the game's
+        // A rear-engined car: the smoke comes out [Physics] SmokeBack metres further back, along the
+        // car's forward axis (its render matrix's first row: the car's local X is forward).
+        if (g_cfg.smokeBack > 0.0f) {
+            static float moved[16];
+            memcpy(moved, mtx, sizeof(moved));
+            float len = sqrtf(mtx[0] * mtx[0] + mtx[1] * mtx[1] + mtx[2] * mtx[2]);
+            if (len > 1e-4f)
+                for (int a = 0; a < 3; a++) moved[12 + a] -= mtx[a] / len * g_cfg.smokeBack;
+            mtx = moved;
+        }
     }
     bool player = s_playerSmoke;
     ((EffectUpdate_t)kEffectUpdate)(eff, mtx, key, dt, intensity, vel);

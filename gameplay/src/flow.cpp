@@ -21,6 +21,7 @@
 #include "common.h"
 #include "game.h"
 #include "input.h"
+#include "physics.h"
 #include <math.h>
 #include <cstring>
 #include <cwchar>
@@ -341,7 +342,17 @@ struct {
     float goAt = -1;        // game time of the last GO (MCountdownDone or StartRaceTimers), -1 = none pending
     bool ai = false;        // the player's car was AI-driven at the last step
     float aiSince = 0;      // ... since this game time
+    float stuckSince = -1;  // free roam: AI-driven, standing still and the throttle held since, -1 = not
 } s_start;
+
+// Free roam: after a race the game hands the player's car to the AI and normally takes it back on
+// the way out; when it does not, the car sits still and ignores the controls until the next race
+// start (seen after beating a Blacklist rival, 2026-10-20: it even carried over to another car from
+// the safehouse). In free roam, a car the AI has had for kFreeAiGrace, standing still while the
+// throttle has been held for kFreeStuckHeld, is handed back like a race start's.
+constexpr float kFreeAiGrace = 10.0f;
+constexpr float kFreeStuckHeld = 2.0f;
+constexpr float kFreeStuckSpeed = 1.0f;     // m/s
 
 float SimTime() { return *(float*)kSimTime; }
 
@@ -430,6 +441,39 @@ void RaceStart_Install() {
 
 }  // namespace
 
+// EBecomePlayerCar's own handler, and the player's input unblocked if it was left blocked.
+void HandBackToPlayer(void* ai, const char* who) {
+    uint8_t event[16] = {};
+    ((void(__fastcall*)(void*, void*))kBecomePlayerCar)(event, nullptr);
+    if (AiControl(ai)) Log("%s: the car is still AI-driven (game mode flag set?)", who);
+    // The player's input left blocked would keep the car still: unblocked too (vtbl+4 BlockInput, +8 IsBlocked).
+    void* input = Game_PlayerInterface((void*)kIInputPlayerHandle);
+    if (input && ((bool(__fastcall*)(void*, void*))(*(void***)input)[2])(input, nullptr)) {
+        Log("%s: the player's input was blocked, unblocked", who);
+        ((void(__fastcall*)(void*, void*, bool))(*(void***)input)[1])(input, nullptr, false);
+    }
+}
+
+// See kFreeAiGrace.
+void FreeRoamHandBack(void* ai, bool on, float now) {
+    uint8_t* race = *(uint8_t**)kRaceStatus;
+    bool roaming = race && *(int*)(race + 0x1960) == 0;
+    InputSnapshot in = Input_Get();
+    bool throttle = in.pedalBound[0] && in.pedal[0] > 0.5f;
+    bool stuck = on && roaming && s_start.goAt < 0 && now - s_start.aiSince > kFreeAiGrace && throttle &&
+                 Physics_PlayerSpeed() < kFreeStuckSpeed;
+    if (!stuck) {
+        s_start.stuckSince = -1;
+        return;
+    }
+    if (s_start.stuckSince < 0) s_start.stuckSince = now;
+    if (now - s_start.stuckSince < kFreeStuckHeld) return;
+    s_start.stuckSince = -1;
+    Log("free roam: the player's car AI-driven for %.0f s, standing still with the throttle held: EBecomePlayerCar run here",
+        now - s_start.aiSince);
+    HandBackToPlayer(ai, "free roam");
+}
+
 void Flow_PlayerStep() {
     void* ai = PlayerHumanAI();
     bool on = ai && AiControl(ai);
@@ -439,6 +483,7 @@ void Flow_PlayerStep() {
         s_start.aiSince = now;
         Log("race start: the player's car %s at %.2f (%s)", on ? "AI-driven" : "under your control", now, RaceState());
     }
+    if (ai) FreeRoamHandBack(ai, on, now);
     if (!on || s_start.goAt < 0) return;
     if (s_start.aiSince > s_start.goAt + kAiAroundGo) {   // the AI took over well after GO: a finished race
         s_start.goAt = -1;
@@ -454,15 +499,7 @@ void Flow_PlayerStep() {
     if (late > kHandBackUntil) return;
     Log("race start: still AI-driven %.1f s after GO (%s), the game didn't hand it back: EBecomePlayerCar run here",
         late, touched ? "you took the controls" : "time");
-    uint8_t event[16] = {};
-    ((void(__fastcall*)(void*, void*))kBecomePlayerCar)(event, nullptr);
-    if (AiControl(ai)) Log("race start: the car is still AI-driven (game mode flag set?)");
-    // The player's input left blocked would keep the car still: unblocked too (vtbl+4 BlockInput, +8 IsBlocked).
-    void* input = Game_PlayerInterface((void*)kIInputPlayerHandle);
-    if (input && ((bool(__fastcall*)(void*, void*))(*(void***)input)[2])(input, nullptr)) {
-        Log("race start: the player's input was blocked, unblocked");
-        ((void(__fastcall*)(void*, void*, bool))(*(void***)input)[1])(input, nullptr, false);
-    }
+    HandBackToPlayer(ai, "race start");
 }
 
 void Flow_Install() {

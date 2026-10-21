@@ -14,6 +14,8 @@
 //   landing   a hard kick and a short shake when the car lands after a jump (stronger with airtime)
 //   breakables a sharp knock when the car smashes a breakable prop (bench, sign post, fence, bin),
 //             toward the side it was on: the game's own Smackable objects, not any light contact
+//   hardJerk  a kick away from the side that was hit and a short shake, on every impact that damages
+//             the car (as the gameplay mod counts them: Telemetry::damageSeq), harder for harder hits
 //
 // All in shares of full scale, + = turns the wheel to the right. Pure: no DirectInput or globals.
 #pragma once
@@ -31,12 +33,15 @@ struct EffectParams {
     float landing = 0.8f;
     float offroad = 0.4f;
     float carHits = 0.8f;
+    float hardJerk = 0.8f;   // the jerk on impacts that damage the car
 };
 
 struct EffectParts {
     float engine = 0, kerb = 0, surface = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
+    float hardJerk = 0;
     float carHitLevel = 0;
-    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit; }
+    float hardJerkLevel = 0;
+    float Sum() const { return engine + kerb + surface + crash + scrape + breakable + offroad + landing + carHit + hardJerk; }
 };
 
 class Effects {
@@ -56,9 +61,17 @@ private:
     uint32_t lastCarHitSeq_ = 0;
     float carAmp_ = 0, carDir_ = 0;
     double carStart_ = -1;
+    double hardStart_ = -1;
+    float hardAmp_ = 0, hardDir_ = 0;
+    uint32_t lastDamageSeq_ = 0;
     float kerbKick_ = 0, kerbShake_ = 0;
     double hitStart_ = -1;
     float hitAmp_ = 0, hitDir_ = 0;
+
+    // An impact that damaged the car (strength: its speed change over the damage threshold): a
+    // kick away from the side that was hit (lat: the push on the car, + = right; 0 = unknown, the
+    // shake alone) and a short shake, as hard as the hit was.
+    void HardImpact(float strength, float lat, double now, const EffectParams& p);
 };
 
 }  // namespace ffb

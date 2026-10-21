@@ -12,6 +12,7 @@ void D3D_ResetForNextEye() {}
 void D3D_CaptureEye(int) {}
 void D3D_BeginHudPhase() {}
 void D3D_DropDraws(bool) {}
+void D3D_ProfUpdateDone() {}
 bool Xr_Available() { return false; }
 bool Xr_BeginFrame() { return false; }
 void Xr_RecommendedSize(int* w, int* h) { *w = *h = 0; }
@@ -109,11 +110,15 @@ int main() {
         static ShadowState a, b;
         memset(&a, 0, sizeof(a));
         for (int i = 0; i < 16; i++) a.tex[i] = 0.1f * i;
-        a.plat[0][12] = 1234.5f;
+        a.plat[12] = 1234.5f;
         b = a;
         assert(ShadowStateDiff(a, b) == 0.0f);
-        b.plat[0][12] += 0.03f;
-        assert(ShadowStateDiff(a, b) > 1e-5f);
+        b.plat[12] += 0.03f;
+        int at = -2;
+        assert(ShadowStateDiff(a, b, &at) > 1e-5f && at == 12);
+        char what[64];
+        DescribeShadowField(at, what, sizeof(what));
+        assert(strstr(what, "view [3][0]"));
         b = a;
         b.tex[3] += 0.001f;
         assert(ShadowStateDiff(a, b) > 1e-4f);

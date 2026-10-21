@@ -29,8 +29,8 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 - **No head-on ramming SUVs** (on by default): heavy support, the SUVs a pursuit sends to ram you
   head-on out of oncoming traffic, doesn't come. SUV patrols and SUVs in roadblocks still do.
 - **Physics sliders**: turn down the game's hidden driving aids (traction control, stability,
-  drift assist) so front, rear and all-wheel drive cars handle differently, and set grip,
-  the front torque share and gravity, for all cars or per car. Only your car is affected
+  drift assist) so front, rear and all-wheel drive cars handle differently, and set grip and
+  gravity, for all cars or per car. Only your car is affected
   (gravity optionally all cars).
 - **Wheel and pedals**: steering, accelerate, brake and the driving buttons (handbrake, nitrous,
   speedbreaker, reset, camera, look back) are bound in the F4 menu and handed to the game as its
@@ -40,16 +40,17 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
   controllers completely, its menus included (needs the force feedback mod;
   the keyboard keeps working).
 - **Menu controller input**: analog axes are ignored in the game's menus by default, so pedals
-  and steering cannot scroll them. Buttons and the d-pad still work. F4 > Controls >
+  and steering cannot scroll them. Buttons and the d-pad still work. F4 > Dev menu > Controls >
   *Controller input in game menus: Off* disables those too; *Analog axes in game menus: On*
   restores axis navigation. Driving and the F4 menu's own bindings are unaffected. Requires
   the updated force feedback mod; it also works with its `NativeFFB=1` setting.
-- **Tuning menu**: F4 while driving. Engine wear, damage, shifter and clutch settings, traffic,
+- **Tuning menu**: F4 while driving opens the menu (Gameplay, Controls, Force feedback); its Dev menu
+  holds every setting. Engine wear, damage, shifter and clutch settings, traffic,
   the force feedback mod's strength and centring spring, and the VR mod's view recentre and HUD
   panel size, distance and height (when those mods are installed), changed
   live and saved to the ini, and a CONTROLS section to bind gears, clutch and menu keys by
   pressing them. Works with a wheel's d-pad and shows on the HUD panel in VR.
-- **Force feedback restart**: F4 > Force Feedback > *Restart wheel force feedback* requests
+- **Force feedback restart**: F4 > Dev menu > Force Feedback > *Restart wheel force feedback* requests
   a wheel reacquisition and effect rebuild from the updated force feedback mod, keeping
   calibration and tuning. F10 provides the same restart directly from the FFB mod.
 
@@ -85,8 +86,8 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size, damage per hit |
 | `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
 | `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
-| `[Physics] Grip / TorqueSplit / Gravity` | tire grip, multiplier on the torque sent to the front wheels, gravity in g |
-| `[Car.<name>]` | a car's own physics values (set with *Settings for this car only* in the menu) |
+| `[Physics] Grip / Gravity` | tire grip, gravity in g |
+| `[Car.<name>]` | a car's own physics values and its preset (`Preset=`), set by *Load into this car* in the menu; the preset's values are applied every time the car is driven |
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
@@ -161,8 +162,6 @@ A customised gameplay INI is kept, with the old shifter INI retained for manual 
 - The engine can't stall: the game has no engine-off state and keeps the engine at idle or above.
 - A refused shift plays the gear grind of the intro's sabotaged BMW (`[Shifter] GrindSound`, a
   sound moment key; 0 = silent), with the drag race missed-shift exhaust pop.
-- `TorqueSplit` multiplies the car's own front share, so a rear-wheel drive car (0% front) stays
-  rear-wheel drive.
 - Not yet tested with a physical wheel and shifter, only keyboard bindings.
 - Car damage: the player's `DamageRacer` keeps the game's damage total (`IDamageable::GetHealth`),
   which racers never fill. `DamageVehicle::OnImpact` (DamageRacer vtable 0x8AD378) is replaced to

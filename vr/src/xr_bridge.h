@@ -52,6 +52,7 @@ struct BridgeShared {
     // Appended to keep command/result offsets stable for a helpful old-host error.
     uint32_t protocolVersion, hostProtocolVersion;
     float   hudRight;                           // appended: sideways offset of the HUD panel
+    float   displayHz;                          // appended: the headset's refresh rate (0 = not known yet)
 };
 
 static_assert(sizeof(EyeView) == 18 * 4, "EyeView must be plain floats");

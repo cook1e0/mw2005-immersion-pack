@@ -67,7 +67,17 @@ inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true, G
         if (outward ? Dot(n, at) < 0 : n.x > 0) n = {-n.x, -n.y, -n.z};
         if (n.x < -0.5f) rear.push_back({&tris[i], n, a});
     }
-    // Groups of triangles in one plane.
+    // Groups of connected triangles in one plane: grown from a triangle by the ones in its plane
+    // that come within 2 cm of one already in. A piece elsewhere that happens to lie in the same
+    // plane (a strip of the dashboard behind the Punto's rear view mirror) stays out, so it can't
+    // stretch the glass past a mirror's size.
+    auto touches = [](const Tri& a, const Tri& b) {
+        for (int i = 0; i < 3; i++)
+            for (int k = 0; k < 3; k++)
+                if (fabsf(a.p[i].x - b.p[k].x) < 0.02f && fabsf(a.p[i].y - b.p[k].y) < 0.02f && fabsf(a.p[i].z - b.p[k].z) < 0.02f)
+                    return true;
+        return false;
+    };
     struct Group { std::vector<const Tri*> tris; float area = 0; };
     std::vector<Group> groups;
     std::vector<bool> used(rear.size(), false);
@@ -76,12 +86,17 @@ inline MirrorGlass FindGlass(const std::vector<V3>& tris, bool outward = true, G
         V3 n = rear[i].n;
         float d = Dot(n, rear[i].p[0]);
         Group gr;
-        for (size_t j = 0; j < rear.size(); j++) {
-            if (used[j] || Dot(n, rear[j].n) <= 0.97f || fabsf(Dot(n, rear[j].p[0]) - d) >= 0.01f) continue;
-            used[j] = true;
-            gr.tris.push_back(&rear[j]);
-            gr.area += rear[j].area;
-        }
+        used[i] = true;
+        gr.tris.push_back(&rear[i]);
+        gr.area += rear[i].area;
+        for (size_t k = 0; k < gr.tris.size(); k++)
+            for (size_t j = 0; j < rear.size(); j++) {
+                if (used[j] || Dot(n, rear[j].n) <= 0.97f || fabsf(Dot(n, rear[j].p[0]) - d) >= 0.01f || !touches(*gr.tris[k], rear[j]))
+                    continue;
+                used[j] = true;
+                gr.tris.push_back(&rear[j]);
+                gr.area += rear[j].area;
+            }
         groups.push_back(gr);
     }
     std::sort(groups.begin(), groups.end(), [](const Group& a, const Group& b) { return a.area > b.area; });

@@ -53,6 +53,13 @@ constexpr uintptr_t kSunGlare = 0x6D04E0;
 constexpr uintptr_t kSetCurrentSun = 0x4FD370;     // cdecl, the sun set's name hash
 constexpr uintptr_t kBStringHash = 0x460BF0;       // cdecl
 constexpr uintptr_t kSunGlareSetName = 0x8AF998;   // "E3DEMO" in speed.exe
+// When the pass draws (only while kSunGlareState is 6) it turns depth testing off for the quad and
+// back on at its end (SetRenderState(D3DRS_ZENABLE, TRUE) at 0x6D0953); what renders after it,
+// the rear view among them, relies on that. Skipping the pass left depth testing off there: the
+// sky was drawn over the road in the mirrors. The skip does that last step itself.
+constexpr uintptr_t kSunGlareState = 0x925E90;     // int; the pass draws when it is 6
+constexpr uintptr_t kGameDevice = 0x982BDC;        // IDirect3DDevice9* the game draws with
+constexpr int kVtblSetRenderState = 57;            // IDirect3DDevice9::SetRenderState (+0xE4)
 // Reflections: elSetupEnvMap puts the reflection "eye" 2.78 m from the car (or model) toward the
 // camera position it is given. In the cockpit the camera sits next to the car's centre, so a few
 // centimetres of head movement swung that direction, and every car and window reflection with
@@ -157,18 +164,24 @@ constexpr uint8_t kSunLensFlareType = 0x15;
 // up (sub_6D7950) and draws every caster in it - in a busy street more draws than the eye itself.
 // It also writes the shadow texture matrix (view 15's eViewPlatInfo +0x40, kShadowTexMatrix) and
 // the light (kShadowLight) that the scene pass reads.
-// Shared ([VR] SharedShadows): both eyes run the pass with the seat's position (the head-free
-// camera) instead of the eye's, so its inputs are the same; the second eye's pass runs as usual -
-// every global and matrix it writes is written - but its draws and clears are dropped, so the map
-// keeps the first eye's image, which then matches those matrices exactly. Every frame the second
-// eye's shadow matrices are compared with the first eye's; any difference turns sharing off.
+// Shared ([VR] SharedShadows): both eyes run the pass with the whole head-free seat camera in the
+// player's Camera (position, matrix, direction, target: whatever the pass reads), so its inputs
+// are the same; the second eye's pass runs as usual - every global and matrix it writes is
+// written - but its draws and clears are dropped, so the map keeps the first eye's image, which
+// then matches those matrices exactly. Every frame what the pass writes (view 15's view,
+// projection and viewProj, the shadow projection, the light) is then replaced by the first eye's
+// (see hkShadowPass), so both eyes always use one map and one set of matrices.
 constexpr uintptr_t kCallShadowPass = 0x6DEC72;
 constexpr uintptr_t kShadowPass = 0x6E54E0;        // cdecl (view, ctx)
 constexpr uintptr_t kShadowFov = 0x8FAEE0;         // float, degrees; read by sub_6D7950 only
 constexpr uintptr_t kShadowTexMatrix = 0x983E00;   // 16 floats
 constexpr uintptr_t kShadowLight = 0x988000;       // 3 floats
-constexpr int kShadowViews[] = {15, 16};
-constexpr int kPlatMatricesSize = 0x140;           // view, projection, viewProj and the alternates
+constexpr int kShadowView = 15;
+constexpr int kShadowPlatSize = 0xC0;              // view, projection (the texture matrix) and viewProj
+constexpr int kShadowPauseFrames = 72;             // a mismatch pauses sharing this long
+constexpr int kShadowMismatchesOff = 5;            // ... and this many within kShadowMismatchWindow frames end it
+constexpr int kShadowMismatchWindow = 3600;
+constexpr float kShadowDrift = 0.01f;             // relative difference taken as the sun's drift between the eyes
 constexpr uintptr_t kViews = 0x9195E0;           // eViews[NUM_EVIEWS], 0x70 bytes each
 // eDisplayFrame's own view loop runs eViews[0..23] (cmp esi, 0x17 at 0x6E73BE), so the PC table has
 // 24 slots; the console decompilation's 22 is a different build.
@@ -191,7 +204,8 @@ void PickViewsThisFrame() {
         for (int i = 0; i < faces; i++) s_viewSkipped[kFirstEnvFace + (nextFace + i) % kEnvFaces] = false;
         nextFace = (nextFace + faces) % kEnvFaces;
     }
-    if (g_cfg.rearViewEvery > 1 && frame % (unsigned)g_cfg.rearViewEvery != 0) s_viewSkipped[kRearView] = true;
+    unsigned every = (unsigned)std::max(1L, std::min(4L, lrintf(g_cfg.rearViewEvery)));
+    if (every > 1 && frame % every != 0) s_viewSkipped[kRearView] = true;
 }
 constexpr uintptr_t kPlayerAspectScale = 0x8AF994; // float 1.15 applied to player views' aspect
 constexpr uintptr_t kCallTotaledCam = 0x631257;  // EShowRaceOverMessage: call CameraAI::MaybeDoTotaledCam(IPlayer*)
@@ -593,37 +607,67 @@ void FixGameMirrors() {
 bool s_secondEye = false;
 
 struct ShadowState {
-    float plat[2][kPlatMatricesSize / 4];
+    float plat[kShadowPlatSize / 4];
     float tex[16], light[3];
 };
 ShadowState s_shadowFirstEye;
 bool s_shadowFirstEyeSet = false, s_shadowShareFailed = false;
-int s_shadowShared = 0;
+int s_shadowShared = 0, s_shadowPause = 0, s_shadowMismatchLogs = 0;
+int s_shadowTrace = 0;   // this frame, for the trace: 0 per eye, 1 shared, 2 sharing paused
+unsigned s_shadowFrame = 0, s_shadowMismatchAt[kShadowMismatchesOff] = {};
+int s_shadowMismatches = 0;
+// The head-free seat camera of this frame (the base the eyes are placed from).
+uint8_t s_seatCamera[kCameraParamsSize];
+bool s_seatCameraSet = false;
+bool s_shadowFirstEyeFinite = false;   // the first eye's shadow state holds only numbers
 
 void CaptureShadowState(ShadowState& s) {
     memset(&s, 0, sizeof(s));
-    for (int k = 0; k < 2; k++) {
-        const uint8_t* plat = At<const uint8_t*>((void*)(kViews + kShadowViews[k] * kViewStride), kViewPlatInfo);
-        if (plat) memcpy(s.plat[k], plat, kPlatMatricesSize);
-    }
+    const uint8_t* plat = At<const uint8_t*>((void*)(kViews + kShadowView * kViewStride), kViewPlatInfo);
+    if (plat) memcpy(s.plat, plat, kShadowPlatSize);
     memcpy(s.tex, (const void*)kShadowTexMatrix, sizeof(s.tex));
     memcpy(s.light, (const void*)kShadowLight, sizeof(s.light));
 }
 
-// Largest difference, relative to the value's size; NaNs count as different.
-float ShadowStateDiff(const ShadowState& a, const ShadowState& b) {
+// The first eye's shadow matrices and light, written over the second eye's: both eyes then draw
+// with the very map and matrices it was rendered with.
+void RestoreShadowState(const ShadowState& s) {
+    uint8_t* plat = At<uint8_t*>((void*)(kViews + kShadowView * kViewStride), kViewPlatInfo);
+    if (plat) memcpy(plat, s.plat, kShadowPlatSize);
+    memcpy((void*)kShadowTexMatrix, s.tex, sizeof(s.tex));
+    memcpy((void*)kShadowLight, s.light, sizeof(s.light));
+}
+
+// Largest difference, relative to the value's size; NaNs count as different. `at` gets the index
+// of the float that differs most (in ShadowState order).
+float ShadowStateDiff(const ShadowState& a, const ShadowState& b, int* at = nullptr) {
     const float* x = (const float*)&a;
     const float* y = (const float*)&b;
     float worst = 0;
+    int worstAt = -1;
     for (size_t i = 0; i < sizeof(ShadowState) / 4; i++) {
+        float d;
         if (x[i] != x[i] || y[i] != y[i]) {
-            if ((x[i] != x[i]) != (y[i] != y[i])) return 1e30f;
-            continue;
+            if ((x[i] != x[i]) == (y[i] != y[i])) continue;
+            d = 1e30f;
+        } else {
+            d = fabsf(x[i] - y[i]) / (fabsf(x[i]) + 1.0f);
         }
-        float d = fabsf(x[i] - y[i]) / (fabsf(x[i]) + 1.0f);
-        if (d > worst) worst = d;
+        if (d > worst) worst = d, worstAt = (int)i;
     }
+    if (at) *at = worstAt;
     return worst;
+}
+
+// "view 15 plat +0x48 (projection row 0 col 2)" etc., for the log.
+void DescribeShadowField(int i, char* out, size_t size) {
+    const int platFloats = kShadowPlatSize / 4;
+    if (i < 0) snprintf(out, size, "nothing");
+    else if (i < platFloats)
+        snprintf(out, size, "view %d %s [%d][%d]", kShadowView, i < 16 ? "view" : i < 32 ? "projection" : "viewProj",
+                 (i % 16) / 4, i % 4);
+    else if (i < platFloats + 16) snprintf(out, size, "shadow projection [%d][%d]", (i - platFloats) / 4, (i - platFloats) % 4);
+    else snprintf(out, size, "light [%d]", i - platFloats - 16);
 }
 
 // The shadow map's coverage: the game's FOV times [VR] ShadowArea.
@@ -640,36 +684,56 @@ void ApplyShadowArea() {
 
 void __cdecl hkShadowPass(void* view, void* ctx) {
     auto pass = (void(__cdecl*)(void*, void*))kShadowPass;
-    bool share = g_cfg.sharedShadows && !s_shadowShareFailed && s_envPosSet;
+    bool share = g_cfg.sharedShadows > 0.5f && s_envPosSet && s_seatCameraSet;
     void* cam = view ? At<void*>(view, kViewCamera) : nullptr;
     if (!share || !cam) {
+        if (s_secondEye) s_shadowTrace = 0;
         pass(view, ctx);
         return;
     }
-    float* pos = &At<float>(cam, kCamPosition);
-    float saved[3];
-    memcpy(saved, pos, sizeof(saved));
-    memcpy(pos, s_envPos, sizeof(saved));
-    bool drop = s_secondEye && s_shadowFirstEyeSet;
+    uint8_t saved[kCameraParamsSize];
+    memcpy(saved, cam, sizeof(saved));
+    memcpy(cam, s_seatCamera, sizeof(saved));
+    // One shadow for both eyes, every stereo frame: the second eye's pass runs (every global it sets
+    // is set) but draws nothing, so the map keeps the first eye's image, and then the second eye
+    // takes the first eye's matrices and light outright (RestoreShadowState): both eyes see one map
+    // through one set of matrices, identical by construction. (Comparing and falling back to a map
+    // per eye let the eyes differ: the second eye's own pass comes out 0.01-25% off the first's -
+    // the sun drifts between the passes, and more - and the fallback ended sharing within a minute.)
+    bool drop = s_secondEye && s_shadowFirstEyeSet && s_shadowFirstEyeFinite;
+    if (s_secondEye) s_shadowTrace = drop ? 1 : 0;
     if (drop) D3D_DropDraws(true);
     pass(view, ctx);
     if (drop) D3D_DropDraws(false);
-    memcpy(pos, saved, sizeof(saved));
+    memcpy(cam, saved, sizeof(saved));
     if (!s_secondEye) {
         CaptureShadowState(s_shadowFirstEye);
         s_shadowFirstEyeSet = true;
+        // Values that are not numbers can't be handed to the other eye; that frame (only) the second
+        // eye draws its own map.
+        const float* x = (const float*)&s_shadowFirstEye;
+        s_shadowFirstEyeFinite = true;
+        for (size_t i = 0; i < sizeof(ShadowState) / 4; i++)
+            if (!(fabsf(x[i]) < 1e30f)) s_shadowFirstEyeFinite = false;
         return;
     }
     if (!drop) return;
+    // For the log only: how far the second eye's own pass came out from the first's (not used).
     ShadowState now;
     CaptureShadowState(now);
-    float d = ShadowStateDiff(s_shadowFirstEye, now);
-    if (d > 1e-4f) {
-        s_shadowShareFailed = true;
-        Log("game: shared shadow map off - the second eye's shadow matrices differ from the first's by %g", d);
-        return;
+    int at;
+    float d = ShadowStateDiff(s_shadowFirstEye, now, &at);
+    RestoreShadowState(s_shadowFirstEye);
+    if (s_shadowShared++ == 0) Log("game: shadow map rendered once a frame, the second eye uses the first eye's shadow matrices");
+    if (d > kShadowDrift && s_shadowMismatchLogs < 10) {
+        s_shadowMismatchLogs++;
+        char what[64];
+        DescribeShadowField(at, what, sizeof(what));
+        const float* x = (const float*)&s_shadowFirstEye;
+        const float* y = (const float*)&now;
+        Log("game: the second eye's own shadow pass differed (%s: %g vs %g); the first eye's used for both",
+            what, at >= 0 ? x[at] : 0.0f, at >= 0 ? y[at] : 0.0f);
     }
-    if (s_shadowShared++ == 0) Log("game: shadow map rendered once a frame, both eyes' shadow matrices identical");
 }
 // The flare pool as ePreDisplay left it (before any view was culled) and, for the log, the pool
 // size after each eye collected its own flares.
@@ -878,6 +942,7 @@ void LogSharedViews(const int* index, int count) {
 }
 
 void __cdecl hkRenderScene() {
+    D3D_ProfUpdateDone();
     s_stereoFrame = false;
     ApplyShadowArea();
     FixGameMirrors();
@@ -966,7 +1031,11 @@ void __cdecl hkRenderScene() {
     LogViewTableOnChange();
     PickViewsThisFrame();
     s_shadowFirstEyeSet = false;
-    s_depthSplit = seated && g_cfg.depthSplit && g_cfg.nearZ > 0.0f && !s_depthSplitFailed;
+    s_shadowFrame++;
+    if (s_shadowPause > 0) s_shadowPause--;
+    memcpy(s_seatCamera, base, sizeof(s_seatCamera));
+    s_seatCameraSet = true;
+    s_depthSplit = seated && g_cfg.depthSplit > 0.5f && g_cfg.nearZ > 0.0f && !s_depthSplitFailed;
     s_carProjSet = false;
     int carHitsFrame = 0, carMatricesFrame = 0;
     D3D_BeginEyes();
@@ -1042,6 +1111,7 @@ void __cdecl hkRenderScene() {
         if (eye == 0) D3D_CaptureEye(0);
     }
     s_envPosSet = false;
+    s_seatCameraSet = false;
     Cockpit_SetGaze(gazePos, gazeDir);
     // The car's objects must be recognised when they are drawn, or the cockpit closer than
     // WorldNearZ is cut away: the car queued but none of its draws found for half a second turns
@@ -1246,6 +1316,9 @@ void __fastcall hkSunGlare(void* self, void* edx, void* view) {
         }
         uint32_t hash = ((uint32_t(__cdecl*)(const char*))kBStringHash)((const char*)kSunGlareSetName);
         ((void(__cdecl*)(uint32_t))kSetCurrentSun)(hash);
+        void* dev = *(void**)kGameDevice;
+        if (*(int*)kSunGlareState == 6 && dev)
+            ((long(__stdcall*)(void*, uint32_t, uint32_t))(*(void***)dev)[kVtblSetRenderState])(dev, 7 /* D3DRS_ZENABLE */, 1);
         return;
     }
     ((void(__fastcall*)(void*, void*, void*))kSunGlare)(self, edx, view);
@@ -1385,6 +1458,15 @@ bool Game_InstallHooks() {
 }
 
 bool Game_StereoThisFrame() { return s_stereoFrame; }
+
+void Game_TraceInfo(int* envFaces, int* rearView, int* shadow) {
+    int faces = 0;
+    for (int i = 0; i < kEnvFaces; i++)
+        if (!s_viewSkipped[kFirstEnvFace + i]) faces |= 1 << i;
+    *envFaces = faces;
+    *rearView = !s_viewSkipped[kRearView];
+    *shadow = s_shadowTrace;
+}
 
 void Game_RenderedFov(float* tanX, float* tanY) {
     *tanX = s_tanX;

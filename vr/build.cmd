@@ -20,9 +20,9 @@ exit /b 0
 :x86
 setlocal
 call "%VCDIR%\vcvars32.bat" >nul || exit /b 1
-cl %CFLAGS% /Z7 /Foobj\ src\common.cpp src\xr.cpp src\game.cpp src\d3d9proxy.cpp src\spectator.cpp src\cockpit.cpp src\crash.cpp src\crash_helper.cpp || exit /b 1
+cl %CFLAGS% /Z7 /Foobj\ src\common.cpp src\xr.cpp src\game.cpp src\d3d9proxy.cpp src\spectator.cpp src\cockpit.cpp src\crash.cpp src\crash_helper.cpp src\smaa.cpp src\frametrace.cpp || exit /b 1
 link /nologo /DLL /DEBUG /OPT:REF /OPT:ICF /PDB:bin\nfsmw_vr.pdb /OUT:bin\d3d9.dll /DEF:src\d3d9.def /MACHINE:X86 /SAFESEH:NO ^
-   obj\common.obj obj\xr.obj obj\game.obj obj\d3d9proxy.obj obj\spectator.obj obj\cockpit.obj obj\crash.obj ^
+   obj\common.obj obj\xr.obj obj\game.obj obj\d3d9proxy.obj obj\spectator.obj obj\cockpit.obj obj\crash.obj obj\smaa.obj obj\frametrace.obj ^
    d3d11.lib dxgi.lib user32.lib advapi32.lib || exit /b 1
 link /nologo /DEBUG /OPT:REF /OPT:ICF /PDB:bin\nfsmw_crashdump.pdb /OUT:bin\nfsmw_crashdump.exe /SUBSYSTEM:WINDOWS /MACHINE:X86 ^
    obj\common.obj obj\crash_helper.obj dbghelp.lib psapi.lib user32.lib || exit /b 1

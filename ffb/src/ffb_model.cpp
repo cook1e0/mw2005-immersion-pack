@@ -77,9 +77,24 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
     // --- damping and friction ---------------------------------------------------------------
     float parked = 1.0f - Smoothstep(0.5f, 5.0f, speed);
     f.damping = -p.damping * (0.5f + 0.5f * parked) * 0.25f * shareVel;
-    // Smooth through standstill: a wheel held still feels no force flipping back and forth.
+    // Stiction (position based, so nothing lags the wheel): a stiff spring to an anchor that the
+    // wheel drags along once it is turned past kStickDeflect; then the full friction holds against
+    // the way it was turned. Held still, the wheel sits in the spring and feels no force flipping;
+    // the velocity-sign friction it replaces pushed on after the wheel reversed (smoothed speed)
+    // and wobbled. A little damping inside the spring keeps it from ringing.
     float fric = p.friction * (0.4f + 0.6f * parked) + p.parkingFriction * parked * drive;
-    f.friction = -fric * tanhf(w.velSmooth / 0.12f);
+    const float kStickDeflect = 0.006f;     // of the wheel's rotation: ~2.7 deg on a 900 deg wheel
+    if (!anchorSet_) {
+        anchor_ = w.pos;
+        anchorSet_ = true;
+    }
+    float d = w.pos - anchor_;
+    if (d > kStickDeflect) anchor_ = w.pos - kStickDeflect;
+    else if (d < -kStickDeflect) anchor_ = w.pos + kStickDeflect;
+    d = w.pos - anchor_;
+    float stuck = 1.0f - Clampf(fabsf(d) / kStickDeflect - 0.8f, 0.0f, 0.2f) / 0.2f;   // 1 inside, 0 at the edge
+    const float kStickDamping = 0.6f;       // per (rotation / s), times the friction
+    f.friction = -fric * (d / kStickDeflect + kStickDamping * Clampf(w.vel, -4.0f, 4.0f) * stuck);
 
     // --- soft lock: the end stop where the game's steering is at full lock ---------------------
     if (lockShare < 0.98f && p.softLock > 0.0f) {

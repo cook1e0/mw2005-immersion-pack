@@ -30,6 +30,10 @@ struct Telemetry {
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
     bool  nos;             // nitrous engaged (IEngine::IsNOSEngaged)
+    // The driven wheels' slip: their surface speed (EngineRacer::GetDifferentialAngularVelocity
+    // times the wheel radius, learnt while cruising) over the car's speed, minus 1 (0 = gripping,
+    // 1 = the wheels turn twice as fast as the car moves). 0 when unknown.
+    float wheelSpin;
 
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
@@ -58,9 +62,17 @@ struct Telemetry {
     uint32_t carHitSeq;
     float    carHitSpeed;  // m/s, the car's speed at the hit
     float    carHitLat;    // -1..1: the hit pushes the car to the right (+) or left (-)
+    float    carHitImpulse;  // the game's impulse on the car, like hitImpulse
     double   scrapeTime;   // Now() of the latest sliding contact
     float    scrapeSpeed;  // m/s along the wall
     float    scrapeLat;    // -1..1: the wall pushes the car to the right (+) or left (-)
+    // The latest hit of either kind (hit or vehicle hit): when, and which way it pushed the car.
+    double   contactTime;
+    float    contactLat;
+    // Impacts that damaged the car, counted by the gameplay mod (Config::damageHits), and the
+    // latest one's strength: its speed change over the damage threshold (1 = just enough).
+    uint32_t damageSeq;
+    float    damageStrength;
 };
 
 bool Telemetry_Install();

@@ -44,6 +44,7 @@
 #include "flow.h"
 #include <math.h>
 #include <stdio.h>
+#include <psapi.h>
 
 namespace {
 
@@ -84,6 +85,7 @@ constexpr uintptr_t kMomentGetKind = 0x469B10;     // UCrc32 MGamePlayMoment::_G
 constexpr uintptr_t kMessageDeliver = 0x65FAF0;     // void Hermes::Message::Deliver()
 constexpr uintptr_t kStringHash32 = 0x5CC240;       // unsigned stringhash32(const char*)
 constexpr uintptr_t kRaceStatus = 0x91E000;         // GRaceStatus* GRaceStatus::fObj; +0x1960 mPlayMode (0 = roaming)
+constexpr int kRS_RaceParms = 0x1968;               // GRaceStatus: the race's parameters, null outside a race
 constexpr uintptr_t kCallRenderHud = 0x6E75A7;      // eDisplayFrame: call sub_6E6E40 (HUD / frontend), before EndScene
 constexpr uintptr_t kRenderHud = 0x6E6E40;          // void __cdecl(int)
 
@@ -189,6 +191,7 @@ struct {
     bool totaledBlocked = false;// ... in free roam, and we blocked its controls
     double totaledMsg = 0;      // when the free roam "totaled" message was last shown
     bool wearLogged = false;    // last logged WearApplies
+    int inputBlocked = -1;      // last logged state of the player's input block (-1 = none yet)
     uint32_t pops = 0;          // DebugPopTires presses seen
     bool popPending = false;    // the menu asked to pop the tires
 } s;
@@ -353,6 +356,7 @@ bool __fastcall Hook_DoShifting(void* ip, void*, int delta) {
         s.heat = 0.0f;
         s.heatStep = 0;
         s.menuBlocked = false;
+        s.inputBlocked = -1;
         s.blown = eng && IsBlown(eng);
         if (eng) Log("player engine at %p%s", eng, s.blown ? " (blown)" : "");
         if (eng) Physics_SetCar(VehicleName(eng));
@@ -496,13 +500,23 @@ void* PlayerDamageable(uint8_t* eng) {
     return damage && Vtbl(damage)[7] == (void*)kDestroy && Vtbl(damage)[4] == (void*)kResetDamageRacer ? damage : nullptr;
 }
 
+// The game's handling of a destroyed racer (a GRaceStatus method at 0x5FDE80) reads the race's
+// parameters (GRaceStatus +0x1968) without checking them: destroying the car while there are none
+// - free roam, or a race just over - crashed the game (reading 0x4 at 0x5FDEB5, 2026-10-20, an
+// engine blowing in a drag race). IDamageable::Destroy is only used in a race that has them.
+bool CanDestroyCar() {
+    uint8_t* race = *(uint8_t**)kRaceStatus;
+    return race && Field<int>(race, 0x1960) != 0 && Field<void*>(race, kRS_RaceParms) != nullptr;
+}
+
 // Totaled: the engine is marked blown without EEngineBlown, and the car is destroyed the way a
 // drag race crash does it (IDamageable::Destroy -> EVehicleDestroyed: the racer is totaled,
-// controls blocked, totaled camera and race-over message). Otherwise the game's own Blow.
+// controls blocked, totaled camera and race-over message). Otherwise (and outside a race, see
+// CanDestroyCar) the game's own Blow.
 void BlowEngine(uint8_t* eng) {
     s.heat = 1.0f;
     if (IsBlown(eng)) return;
-    void* damage = g_cfg.totaled ? PlayerDamageable(eng) : nullptr;
+    void* damage = g_cfg.totaled && CanDestroyCar() ? PlayerDamageable(eng) : nullptr;
     if (damage) {
         Field<bool>(eng, kER_Blown) = true;
         ((Void_t)kDestroy)(damage);
@@ -603,6 +617,15 @@ void PlayerEngineStep(uint8_t* eng) {
         BlowEngine(eng);
     }
     UpdateTotaled(eng);
+    // Every change of the player's input block, with what we know of it: the next car that stops
+    // answering the controls shows when and in what state it was blocked.
+    int blocked = PlayerInputBlocked(eng) ? 1 : 0;
+    if (blocked != s.inputBlocked) {
+        if (s.inputBlocked >= 0 || blocked)
+            Log("input: the player's controls %s (%s%s%s%s)", blocked ? "blocked" : "unblocked", InRace() ? "racing" : "roaming",
+                IsBlown(eng) ? ", engine blown" : "", s.totaledBlocked ? ", totaled" : "", s.menuBlocked ? ", menu open" : "");
+        s.inputBlocked = blocked;
+    }
     bool blown = IsBlown(eng);
     if (blown != s.blown) {
         s.blown = blown;
@@ -724,9 +747,40 @@ void AddDamage(uint8_t* eng, float add, float impact) {
         total = now;
         return;
     }
+    if (!CanDestroyCar()) {
+        // Health 0 without Destroy: in free roam UpdateTotaled makes the car undrivable.
+        total = 1.0f;
+        Log("damage: car TOTALED (no race to end, not destroyed)");
+        return;
+    }
     total = 0.999f;
     ((Void_t)kDestroy)(iface);
     Log("damage: car TOTALED");
+}
+
+// The force feedback mod's hard impact jerk: every impact that damages the car is counted in its
+// DamageHits (NfsmwFfb_Setting), after its strength (the speed change over the damage threshold).
+void SignalFfbDamage(float strength) {
+    static float* hits = nullptr;
+    static float* str = nullptr;
+    static double looked = -1e9;
+    if (!hits && Now() - looked > 5.0) {
+        looked = Now();
+        HMODULE mods[512];
+        DWORD bytes = 0;
+        if (EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &bytes))
+            for (DWORD k = 0; k < bytes / sizeof(HMODULE) && k < 512 && !hits; k++) {
+                FARPROC get = GetProcAddress(mods[k], "NfsmwFfb_Setting");
+                if (!get) continue;
+                auto setting = (float* (__cdecl*)(const char*))get;
+                hits = setting("DamageHits");
+                str = hits ? setting("DamageHitStrength") : nullptr;
+            }
+        if (hits) Log("damage: impacts reported to the force feedback mod (hard impact jerk)");
+    }
+    if (!hits || !str) return;
+    *str = strength;
+    *hits += 1.0f;
 }
 
 void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float* normal, float force, float speed,
@@ -744,7 +798,10 @@ void __fastcall Hook_OnImpact(uint8_t* dv, void*, const float* arm, const float*
     float dv_ms = force / mass;
     float add = (dv_ms - g_cfg.damageMinImpact) * 0.01f * g_cfg.damageStrength;
     if (g_cfg.logInputs) Log("damage: impact %.1f m/s (speed %.1f, mass %.0f)%s", dv_ms, speed, mass, add > 0 ? "" : " ignored");
-    if (add > 0.0f) AddDamage(s.engine, add, dv_ms);
+    if (add > 0.0f) {
+        AddDamage(s.engine, add, dv_ms);
+        SignalFfbDamage(dv_ms / (g_cfg.damageMinImpact > 0.5f ? g_cfg.damageMinImpact : 0.5f));
+    }
 }
 
 // --- popped tires ----------------------------------------------------------------------------
@@ -825,6 +882,7 @@ void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
 
 // The overlay is drawn after the game's HUD, so the VR mod puts it on its HUD panel.
 void __cdecl Hook_RenderHud(int arg) {
+    Hud_Frame();
     ((RenderHud_t)kRenderHud)(arg);
     Ui_Frame();
 }

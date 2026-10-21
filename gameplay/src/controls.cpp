@@ -17,6 +17,7 @@
 #include "controls.h"
 #include "common.h"
 #include "input.h"
+#include "physics.h"
 #include <math.h>
 
 // Steering type for SuspensionRacer::DoHumanSteering: -1 = the game's (gamepad on PC, as no
@@ -134,8 +135,26 @@ void Send(void* queue, int port, int id, float value) {
     ((ReceiveAction_t)kReceiveAction)(queue, &a);
 }
 
+// Sim pedals: InputPlayer::FetchInput clamps the gas and brake to a deadzone at each end (0x8F876C,
+// 0.05 in the exe and used only there, four times): fine for a gamepad's triggers, but it cut the
+// first and last 5% of a pedal's travel, so a light brake did nothing and 95% was already full.
+// With pedals bound here it is set to 0, and this mod's own [Controls] PedalDeadzone applies. The
+// game may set its own value at run time, so any small value is accepted (and logged).
+constexpr uintptr_t kPedalDeadzone = 0x8F876C;
+
 void Inject(void* ip) {
     InputSnapshot in = Input_Get();
+    static bool deadzoneDone;
+    if (!deadzoneDone && (in.pedalBound[0] || in.pedalBound[1])) {
+        deadzoneDone = true;
+        float was = *(float*)kPedalDeadzone;
+        if (was > 0.0f && was <= 0.3f) {
+            *(float*)kPedalDeadzone = 0.0f;   // .data: writable
+            Log("controls: the game's pedal deadzone (%.3f) removed: the whole pedal travel counts", was);
+        } else {
+            Log("controls: the game's pedal deadzone reads %.3f, left as it is", was);
+        }
+    }
     uint8_t* queue = (uint8_t*)ip + kIP_Queue;
     int port = *(int*)(queue + kAQ_Port);
     if (port < 0) return;
@@ -152,9 +171,11 @@ void Inject(void* ip) {
     struct { bool bound; float value; } want[7] = {
         {in.steerBound, std::max(-steer, 0.0f)},
         {in.steerBound, std::max(steer, 0.0f)},
-        {in.pedalBound[0], in.pedal[0]},
+        {in.pedalBound[0], in.pedal[0] * Physics_TcThrottle()},   // traction control trims it
         {in.pedalBound[1], in.pedal[1]},
-        {(in.buttonBound >> BTN_HANDBRAKE & 1) != 0, (in.buttonDown >> BTN_HANDBRAKE & 1) ? 1.0f : 0.0f},
+        // The game passes the handbrake action's value on as it is (InputPlayer::FetchInput,
+        // 0x6A8BE5: SetControlHandBrake(value)), so an axis binding gives an analogue handbrake.
+        {(in.buttonBound >> BTN_HANDBRAKE & 1) != 0, Clamp(in.handbrake, 0.0f, 1.0f)},
         {(in.buttonBound >> BTN_NITROUS & 1) != 0, (in.buttonDown >> BTN_NITROUS & 1) ? 1.0f : 0.0f},
         {(in.buttonBound >> BTN_LOOKBACK & 1) != 0, (in.buttonDown >> BTN_LOOKBACK & 1) ? 1.0f : 0.0f},
     };
@@ -190,8 +211,34 @@ void Inject(void* ip) {
     }
 }
 
+// [Controls] ClassicInput: the game's own steering, throttle and brake. Nothing is injected and the
+// steering type is the game's; what this mod last held down (a pedal, the wheel) is let go once.
+// The game's controller input is switched on for it too (ui.cpp hands GameController to the FFB mod).
+void ReleaseAll(void* ip) {
+    uint8_t* queue = (uint8_t*)ip + kIP_Queue;
+    int port = *(int*)(queue + kAQ_Port);
+    for (Analog& a : s.analog) {
+        if (a.bound && a.sent != 0.0f && port >= 0) Send(queue, port, a.id, 0.0f);
+        a.bound = false;
+        a.sent = 0.0f;
+    }
+    s.prevDown = 0;
+    s.player = nullptr;
+}
+
 void __cdecl Hook_DoFetchInput(void* ip) {
     if (!ip) return;
+    static bool classic = false;
+    if (g_cfg.classicInput != classic) {
+        classic = g_cfg.classicInput;
+        Log("controls: %s", classic ? "classic input: the game's own steering, throttle and brake" : "the mod's driving controls again");
+        if (classic) ReleaseAll(ip);
+    }
+    if (classic) {
+        g_steerType = -1;
+        ((void(__thiscall*)(void*))(*(void***)ip)[4])(ip);   // IInputPlayer::FetchInput
+        return;
+    }
     Inject(ip);
     ((void(__thiscall*)(void*))(*(void***)ip)[4])(ip);   // IInputPlayer::FetchInput
 }

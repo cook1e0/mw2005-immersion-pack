@@ -3,7 +3,10 @@
 #include "common.h"
 
 // Frame timing, logged every 5 s: where a VR frame's time goes (seconds, D3D_ProfNow's clock).
-enum ProfSlot { PROF_WAITFRAME, PROF_EYES, PROF_GPUWAIT, PROF_SUBMIT, PROF_SPECTATOR, PROF_PRESENT, PROF_COUNT };
+enum ProfSlot { PROF_WAITFRAME, PROF_EYES, PROF_GPUWAIT, PROF_SUBMIT, PROF_SPECTATOR, PROF_PRESENT, PROF_UPDATE, PROF_COUNT };
+// The game's update: from the end of Present to the next scene render (simulation, AI, streaming,
+// the other mods' per-frame work). Called as the scene render starts.
+void D3D_ProfUpdateDone();
 double D3D_ProfNow();
 void D3D_ProfAdd(int slot, double seconds);
 

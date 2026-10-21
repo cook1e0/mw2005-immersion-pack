@@ -12,8 +12,8 @@
 //              and the centre weight: a firm hold around straight ahead once moving, so the wheel
 //              doesn't just stay wherever it is left
 //   damping    weight against fast wheel movement (more when parked)
-//   friction   resistance to turning the wheel, tyre scrub when parked; smooth around standstill
-//              (a friction that flips with every tiny movement buzzes a direct drive wheel)
+//   friction   resistance to turning the wheel, tyre scrub when parked: a stiction spring to an
+//              anchor the wheel drags along (position based: no flipping, no lag, no wobble)
 //   softLock   the end stop at the game's steering lock
 #pragma once
 #include "telemetry.h"
@@ -63,6 +63,8 @@ public:
 private:
     float loadRef_ = 0;            // the front tyres' usual load, learned while driving
     float roadLock_ = 0;           // degrees of front wheel angle at the steering lock, measured
+    float anchor_ = 0;             // friction: where the stiction spring holds the wheel
+    bool anchorSet_ = false;
 };
 
 }  // namespace ffb
