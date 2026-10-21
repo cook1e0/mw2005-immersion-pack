@@ -1,10 +1,11 @@
 // The player car's state for force feedback, sampled from speed.exe v1.3 once per physics tick
 // (about 60 Hz) on the game thread and read by the FFB thread.
 //
-// Everything is in the car's own frame, + = right / forward / up. "Right" is the car's forward
-// direction (rear axle -> front axle) crossed with the world's up axis: NFSMW's world is
-// right-handed and Z-up (checked against live camera matrices for the VR mod), so no sign needs
-// calibrating against the wheel.
+// Everything is in the car's own frame, + = right / forward / up. Forward is rear axle -> front
+// axle, right is front left wheel (0) -> front right wheel (1), square to forward: taken from the
+// car itself, since the sim's world (where ISuspension reports wheels) is Y-up and left-handed,
+// unlike the renderer's Z-up (bConvertFromBond: render = (z, -x, y)). Wheel 1 is the right one:
+// in a right turn it is the inside wheel and steers more (Ackermann).
 #pragma once
 #include "common.h"
 
@@ -24,8 +25,17 @@ struct Telemetry {
     float frontLoad;       // N, both front tyres
     int   frontOnGround;   // front wheels touching the ground (0..2)
     int   wheelsOnGround;  // 0..4
-    float maxSteerDeg;     // the game's current front wheel lock, degrees (0 = unknown)
     float steerDeg;        // the front wheels' angle now, degrees (either sign convention)
+    // Degrees of front wheel angle at full steering input right now: the front wheels' angle over
+    // the input the game steered them with this tick (speed-sensitive, widened in a slide, whatever
+    // the steering type). Held while the input is near centre; 0 = not known yet.
+    float lockDeg;
+    // The front tyres' slip angle as the game's tyre model has it (SuspensionRacer::Tire +0x118),
+    // degrees, + = the tyre travels right of where it points; the mean of the front tyres on the
+    // ground. The front axle travels at steerDeg + frontSlipDeg from the car's nose: yaw, a slide
+    // and all. Only when frontSlipKnown.
+    float frontSlipDeg;
+    bool  frontSlipKnown;
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline

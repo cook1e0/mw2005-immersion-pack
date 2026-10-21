@@ -74,9 +74,6 @@ public:
         p.driftAlign = c.driftAlign;
         p.loadSensitivity = c.loadSensitivity;
         p.centering = c.centering;
-        p.centeringParked = c.centeringParked;
-        p.centeringSpeed = c.centeringSpeed;
-        p.centreWeight = c.centreWeight;
         p.damping = c.damping;
         p.friction = c.friction;
         p.parkingFriction = c.parkingFriction;
@@ -228,11 +225,11 @@ DWORD WINAPI FfbThread(LPVOID) {
             logTime = now;
             float hitPriority;
             ffb::PrioritizedEffectSum(s.effects, &hitPriority);
-            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) "
+            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) travel=%.2f "
                 "rpm=%.0f bump=%.2f/%.2f surf=%.2f@%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
                 "spin=%.2f fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f hard=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
-                engine.RoadLock(), t.maxSteerDeg, t.steerDeg, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
+                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
                 t.wheelSpin, s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable,
                 s.effects.carHit, s.effects.hardJerk, hitPriority, s.guard, s.raw, s.out);

@@ -1,5 +1,32 @@
 ### Unreleased
 
+- **FFB: the steering weight comes from the car:** the FFB mod built the car's sideways
+  direction assuming the game's physics world is Z-up, like its renderer. It is Y-up (and
+  left-handed: `bConvertFromBond` maps render = (z, -x, y)), so "sideways" was vertical: the front
+  axle's sideways speed read about 0 even with the rear sliding at 6 degrees, and every collision
+  came from "side 0.00". The self-aligning torque only ever saw where the wheel was turned, a
+  centring spring that got stiffer with speed. The car's frame now comes from the wheels
+  themselves (front left to front right), and the front tyres' slip angle is the game's own (its
+  tyre model's, yaw and slide included). The wheel now goes heavy as the front bites, light as it
+  washes out, and pulls into the countersteer while the car is still rotating. Crash, scrape,
+  vehicle hit, breakable and landing jolts now push the wheel the way the hit came from (they were
+  sideways-less), and kerb kicks go to the wheel that hit the kerb (the side was picked by which
+  front wheel sat higher).
+- **FFB: the steering lock is the game's own:** the lock the FFB uses for where the front wheels
+  point comes from the game's front wheel angle over the steering input of that physics step. The
+  game's reported lock (`GetMaxSteering`) is only written on the gamepad and AI paths, so with a
+  wheel it stayed at 45 degrees whatever the speed-sensitive steering did.
+- **FFB: tuning that stood in for the missing tyre force is gone:** the speed boost on the aligning
+  torque (stiffer with speed), the speed-sensitive centring spring (`CenteringParked`,
+  `CenteringSpeed`) and the centre weight (`CentreWeight`, also in F4). `Centering` is now a spring
+  toward straight ahead while parked or slow that fades out by 20 km/h, as the tyres take over
+  (F4: "Slow-speed centring"). Old keys left in `nfsmw_ffb.ini` are ignored.
+- **F4: three FFB rows that had no setting behind them are gone:** "Front grip loss", "Rear grip
+  loss" and "Tyre scrub" pointed at FFB settings that did not exist (the gameplay mod did not
+  build); the real aligning torque gives that feedback now.
+- **FFB: `LogTelemetry=2` adds a steering trace:** every physics step, the steering input, front
+  wheel angle, where the front axle travels, the lock, speed, yaw, sideways speeds, each tyre's
+  slip angle and the game's drift state, in `nfsmw_ffb.log`.
 - **VR: SMAA removed:** the headset's SMAA anti-aliasing (`[VR] Smaa`, `SmaaEdges` and their F4
   entries) is gone, with the SMAA shaders it shipped. Anisotropic filtering stays. The widescreen
   fix's own SMAA (flat screen only) is unaffected.

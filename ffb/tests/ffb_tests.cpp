@@ -141,12 +141,16 @@ static void TestFilters() {
 }
 
 // --- model ---------------------------------------------------------------------------------------
-static Telemetry Car(float speed, float vLatFront = 0) {
+// `travelDeg`: where the front axle travels, degrees right of the nose (the wheels straight, so
+// that is the front tyres' slip angle too).
+static Telemetry Car(float speed, float travelDeg = 0) {
     Telemetry t = {};
     t.driving = t.valid = true;
     t.speed = speed;
     t.vLong = speed;
-    t.vLatFront = vLatFront;
+    t.vLatFront = speed * tanf(travelDeg * 3.14159265f / 180.0f);
+    t.frontSlipDeg = travelDeg;
+    t.frontSlipKnown = true;
     t.frontLoad = 8000;
     t.frontOnGround = 2;
     t.wheelsOnGround = 4;
@@ -164,16 +168,25 @@ static WheelState Wheel(float pos, float vel = 0) {
 static void TestModel() {
     ModelParams p;
     Model m;
-    // Driving straight at 30 m/s with the wheel turned right: the tyres pull it back left.
+    // Driving straight at 30 m/s with the wheel turned right: the tyres pull it back left, and
+    // only they do (no centring spring at speed).
     ForceParts f = m.Compute(Car(30), Wheel(0.1f), p, 1.0f, 0.0025f);
-    assert(f.aligning < -0.1f && f.centering < 0);
+    assert(f.aligning < -0.1f && NearZero(f.centering));
     // Turned left: pulled back right.
     f = m.Compute(Car(30), Wheel(-0.1f), p, 1.0f, 0.0025f);
-    assert(f.aligning > 0.1f && f.centering > 0);
+    assert(f.aligning > 0.1f && NearZero(f.centering));
     // Wheel straight, front axle sliding left (a slide, the car's nose pointing right of its path):
     // the wheel is pulled left into the countersteer.
-    f = m.Compute(Car(25, -6), Wheel(0), p, 1.0f, 0.0025f);
+    f = m.Compute(Car(25, -13.5f), Wheel(0), p, 1.0f, 0.0025f);
     assert(f.aligning < -0.1f);
+    // The same wheel angle off the travel direction weighs the same at 40 and 160 km/h: the
+    // slip angle carries the speed, nothing else does.
+    {
+        Model a, b;
+        float slow = a.Compute(Car(11), Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        float fast = b.Compute(Car(44), Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        assert(fabsf(slow - fast) < 1e-4f);
+    }
     // Past the grip limit the steering goes light: far less than at the peak.
     float peakDeg = p.gripPeakDeg;
     float atPeak = fabsf(m.Compute(Car(30), Wheel(peakDeg / 45.0f), p, 1.0f, 0.0025f).aligning);
@@ -223,36 +236,56 @@ static void TestModel() {
         assert(slipping > 0.15f);
     }
 
-    // Centre weight: once moving, a few degrees off centre already pull back clearly, more than
-    // the friction holds the wheel; none parked.
+    // Slow-speed centring: parked, the wheel turned right is pulled back; gone once the tyres'
+    // own aligning torque has come in.
     {
         ModelParams q;
         q.aligning = 0;
-        q.centering = 0;
         Model cm;
-        float small = cm.Compute(Car(30), Wheel(0.01f), q, 1.0f, 0.0025f).centering;
-        assert(small < -0.05f && -small > q.friction * 0.4f);
-        assert(cm.Compute(Car(30), Wheel(-0.01f), q, 1.0f, 0.0025f).centering > 0.05f);
-        assert(NearZero(cm.Compute(Car(0), Wheel(0.01f), q, 1.0f, 0.0025f).centering));
+        assert(cm.Compute(Car(0), Wheel(0.2f), q, 1.0f, 0.0025f).centering < -0.05f);
+        assert(NearZero(cm.Compute(Car(10), Wheel(0.2f), q, 1.0f, 0.0025f).centering));
     }
 
-    // The game's actual steering lock is used for the tyres' slip angle: with a 7 degree lock at
-    // speed, half the wheel's lock is 3.5 degrees at the road, short of the grip peak.
+    // The steering lock is the one the game steered with this tick (with speed-sensitive steering
+    // a few degrees at speed), followed quickly; 45 degrees until the game has steered.
     {
         Model lm;
         Telemetry fast = Car(40);
-        fast.maxSteerDeg = 7.0f;
-        for (int i = 0; i < 2000; i++) lm.Compute(fast, Wheel(0.5f), p, 1.0f, 0.0025f);
+        assert(fabsf(lm.RoadLock() - 0.0f) < 1e-6f);
+        lm.Compute(fast, Wheel(0.0f), p, 1.0f, 0.0025f);
+        assert(fabsf(lm.RoadLock() - 45.0f) < 1e-3f);
+        fast.lockDeg = 7.0f;
+        for (int i = 0; i < 400; i++) lm.Compute(fast, Wheel(0.5f), p, 1.0f, 0.0025f);
         assert(fabsf(lm.RoadLock() - 7.0f) < 0.1f);
+        // Half the wheel's lock is 3.5 degrees at the road, short of the grip peak.
         float half = fabsf(lm.Compute(fast, Wheel(0.5f), p, 1.0f, 0.0025f).aligning);
         float full = fabsf(lm.Compute(fast, Wheel(1.0f), p, 1.0f, 0.0025f).aligning);
         assert(full > half);                                   // still building, not falling off
-        // Measured from the front wheels' angle when the game reports no lock.
-        Model mm;
-        Telemetry slow = Car(10);
-        slow.steerDeg = -11.0f;                                // half the lock on the wheel: 22 degrees
-        for (int i = 0; i < 2000; i++) mm.Compute(slow, Wheel(0.5f), p, 1.0f, 0.0025f);
-        assert(fabsf(mm.RoadLock() - 22.0f) < 0.2f);
+    }
+
+    // The game's front tyre slip angle, when known, gives the travel direction (it sees the yaw).
+    // From a drive: wheels 9 degrees right, tyres at -8.9 degrees of slip, the axle still going
+    // straight: the wheel is pulled left, back toward straight. The wheels straightened while the
+    // car still turns left (front axle travelling 3 degrees right of the nose): pulled right, into
+    // the countersteer.
+    {
+        Model gm;
+        Telemetry turnIn = Car(44);
+        turnIn.lockDeg = 40.0f;
+        turnIn.steerDeg = 9.0f;
+        turnIn.frontSlipDeg = -8.9f;
+        turnIn.frontSlipKnown = true;
+        assert(fabsf(FrontTravel(turnIn) * 180.0f / 3.14159265f - 0.1f) < 0.01f);
+        ForceParts g = {};
+        for (int i = 0; i < 400; i++) g = gm.Compute(turnIn, Wheel(9.0f / 40.0f), p, 1.0f, 0.0025f);
+        assert(g.aligning < -0.1f);
+        Telemetry still = Car(44, 0.0f);
+        still.lockDeg = 40.0f;
+        still.steerDeg = 0.0f;
+        still.frontSlipDeg = 3.0f;
+        still.frontSlipKnown = true;
+        for (int i = 0; i < 400; i++) g = gm.Compute(still, Wheel(0.0f), p, 1.0f, 0.0025f);
+        assert(g.aligning > 0.05f);
     }
 }
 
@@ -499,7 +532,7 @@ static void TestEngine() {
     }
     assert(lastOut < -0.5f * g_cfg.maxForce);           // pushing the wheel back left, hard
     // Invalid numbers from the game never reach the wheel.
-    t.vLatFront = NAN;
+    t.frontSlipDeg = NAN;
     for (int i = 0; i < 20; i++) {
         now += 0.0025;
         t.time = now;

@@ -34,14 +34,15 @@ const uintptr_t SmackableVtables[] = {0x8AA6D0, 0x8AA638, 0x8AA618, 0x8AA5FC, 0x
 enum {
     kGetNumWheels = 0x08, kGetWheelPos = 0x0C, kGetWheelLoad = 0x18, kIsWheelOnGround = 0x24,
     kGetCompression = 0x28, kGetWheelVelocity = 0x48, kGetNumWheelsOnGround = 0x4C, kGetWheelSteer = 0x58,
-    kGetMaxSteering = 0x6C,
 };
 // IEngine vtable slots
 enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10, kIsNOSEngaged = 0x20 };   // EngineRacer: vtable 0x8AB6E0
-// SuspensionRacer: its front Tire objects; the Tire's road surface, an Attrib::Instance of class
+// SuspensionRacer (offsets from its ISuspension, which sits at +0x4C): its steering input this tick
+// (+0x130, stored by DoHumanSteering after the gamepad remap); its drift state and amount (+0x104,
+// +0x108, DoDrifting: 0 out, 1 entering, 2 in, 3 exiting); its Tire objects (slip angle in revolutions); the Tire's road surface, an Attrib::Instance of class
 // simsurface (layout pointer at +8) with the game's own per-surface rumble.
 enum {
-    kRacerTires = 0x168, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC, kSurfEffectFrequency = 0xF8,
+    kRacerDriftState = 0xB8, kRacerDriftValue = 0xBC, kRacerTires = 0x168, kRacerSteerInput = 0xE4, kTireSlipAngle = 0x118, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC, kSurfEffectFrequency = 0xF8,
     kSurfEffectIntensity = 0xFA,
 };
 // Sim::Collision::Info
@@ -226,6 +227,11 @@ void THISCALL Hook_OnCollision(void* self, const uint8_t* info) {
 // Wheels 0 and 1 are the front axle, 2 and 3 the rear (the game's order).
 void Sample(void* player) {
     Telemetry t;
+    struct {
+        bool have;
+        float input, driftValue, slip[4];
+        int driftState;
+    } trace = {};
     memset(&t, 0, sizeof(t));
     t.seq = ++s_seq;
     t.time = Now();
@@ -284,15 +290,15 @@ void Sample(void* player) {
         }
     }
     t.wheelsOnGround = VCall0<int>(susp, kGetNumWheelsOnGround);
-    float maxSteer = VCall0<float>(susp, kGetMaxSteering) * 360.0f;   // revolutions -> degrees
-    t.maxSteerDeg = maxSteer > 0.5f && maxSteer < 90.0f ? maxSteer : 0.0f;
     float steer = 0.5f * (VCallI<float>(susp, kGetWheelSteer, 0) + VCallI<float>(susp, kGetWheelSteer, 1)) * 360.0f;
     t.steerDeg = steer > -90.0f && steer < 90.0f ? steer : 0.0f;
 
-    // The car's frame: forward from the rear axle to the front one, right = forward x world up.
+    // The car's frame: forward from the rear axle to the front one, right from the front left
+    // wheel to the front right one, square to forward (see telemetry.h).
     Vec3 front = (pos[0] + pos[1]) * 0.5f, rear = (pos[2] + pos[3]) * 0.5f;
     Vec3 fwd = Norm(front - rear);
-    Vec3 right = Norm(Cross(fwd, Vec3{0, 0, 1}));
+    Vec3 axle = pos[1] - pos[0];
+    Vec3 right = Norm(axle - fwd * Dot(axle, fwd));
     Vec3 vFront = (vel[0] + vel[1]) * 0.5f, vRear = (vel[2] + vel[3]) * 0.5f;
     Vec3 v = (vFront + vRear) * 0.5f;
     t.speed = Len(v);
@@ -306,7 +312,6 @@ void Sample(void* player) {
     s_car.fwd = fwd;
     s_car.right = right;
     s_car.halfBase = t.wheelbase * 0.5f;
-    int rightWheel = Dot(pos[1] - pos[0], right) >= 0.0f ? 1 : 0;   // which front wheel is on the right
 
     if (engine) {
         float rpm = VCall0<float>(engine, kGetRPM);
@@ -363,6 +368,45 @@ void Sample(void* player) {
     };
     // The road surface lives on the concrete SuspensionRacer's tyres: only read it for that class.
     if (*(uintptr_t*)susp == addr::VT_SuspensionRacer_ISuspension) {
+        // The steering lock now: the front wheels' angle over the input that steered them. The
+        // game's own max steering (GetMaxSteering, +0x128) is only written on the gamepad and AI
+        // paths, so with a wheel it is stale (45 degrees at any speed with speed-sensitive steering).
+        static float lock;
+        static void* lockCar;
+        if (simable != lockCar) {
+            lockCar = simable;
+            lock = 0.0f;
+        }
+        float input = *(const float*)((char*)susp + kRacerSteerInput);
+        if (fabsf(input) > 0.03f && fabsf(input) <= 1.0f && fabsf(t.steerDeg) > 0.1f) {
+            float l = fabsf(t.steerDeg / input);
+            if (l > 0.5f && l < 90.0f) lock = l;
+        }
+        t.lockDeg = lock;
+        // Steering trace ([FFB] LogTelemetry=2): what the car does with the steering, every tick.
+        if (g_cfg.logTelemetry >= 2) {
+            trace.have = true;
+            trace.input = input;
+            trace.driftState = *(const int*)((char*)susp + kRacerDriftState);
+            trace.driftValue = *(const float*)((char*)susp + kRacerDriftValue);
+            for (int i = 0; i < 4; ++i) {
+                uintptr_t tire = *(uintptr_t*)((char*)susp + kRacerTires + i * 4);
+                trace.slip[i] = Plausible(tire) ? *(const float*)(tire + kTireSlipAngle) * 360.0f : 0.0f;
+            }
+        }
+        // The front tyres' slip angle (a tyre in the air has none: UpdateFree zeroes it).
+        float slipSum = 0.0f;
+        int slipN = 0;
+        for (int i = 0; i < 2; ++i) {
+            uintptr_t tire = *(uintptr_t*)((char*)susp + kRacerTires + i * 4);
+            if (!onGround[i] || !Plausible(tire)) continue;
+            float s = *(const float*)(tire + kTireSlipAngle) * 360.0f;
+            if (!(s > -90.0f && s < 90.0f)) continue;
+            slipSum += s;
+            slipN++;
+        }
+        t.frontSlipKnown = slipN > 0;
+        t.frontSlipDeg = slipN > 0 ? slipSum / slipN : 0.0f;
         for (int i = 0; i < 2; ++i) {
             uintptr_t tire = *(uintptr_t*)((char*)susp + kRacerTires + i * 4);
             if (!onGround[i] || !Plausible(tire)) continue;
@@ -371,11 +415,11 @@ void Sample(void* player) {
             // The surface's name (simsurface CollectionName): asphalt, grass, grass_shoulder, dirt...
             const char* name = *(const char**)(layout + kSurfName);
             if (Plausible((uintptr_t)name) && !IsBadStringPtrA(name, 32)) {
-                t.offroad[i == rightWheel ? 1 : 0] = offroadName(name);
+                t.offroad[i] = offroadName(name);
                 static char lastName[2][32];
                 if (g_cfg.logTelemetry && strncmp(lastName[i], name, sizeof(lastName[i]) - 1) != 0) {
                     strncpy(lastName[i], name, sizeof(lastName[i]) - 1);
-                    Log("surface: front %s wheel on %s", i == rightWheel ? "right" : "left", lastName[i]);
+                    Log("surface: front %s wheel on %s", i ? "right" : "left", lastName[i]);
                 }
             }
             float rumbleNow = *(uint8_t*)(layout + kSurfEffectIntensity) / 255.0f;
@@ -396,13 +440,16 @@ void Sample(void* player) {
         float k = continuous ? Clamp((float)dt / 0.15f, 0.0f, 1.0f) : 1.0f;
         s_prev.compVelSlow[i] += (cv - s_prev.compVelSlow[i]) * k;
         s_prev.compVel[i] = cv;
-        int side = i == rightWheel ? 1 : 0;
-        t.bump[side] = onGround[i] && continuous ? cv - s_prev.compVelSlow[i] : 0.0f;
+        t.bump[i] = onGround[i] && continuous ? cv - s_prev.compVelSlow[i] : 0.0f;
         s_prev.comp[i] = comp[i];
     }
 
     if (continuous)
         t.yawRate = Dot(fwd - s_prev.fwd, right) / (float)dt;
+    if (trace.have)
+        Log("steer: in=%.3f wheels=%.2f travel=%.2f lock=%.1f v=%.1f yaw=%.3f vlatF=%.2f vlatR=%.2f slip=%.1f/%.1f/%.1f/%.1f drift=%d/%.2f",
+            trace.input, t.steerDeg, t.steerDeg + t.frontSlipDeg, t.lockDeg, t.speed, t.yawRate, t.vLatFront, t.vLatRear, trace.slip[0], trace.slip[1],
+            trace.slip[2], trace.slip[3], trace.driftState, trace.driftValue);
     s_prev.have = true;
     s_prev.time = t.time;
     s_prev.fwd = fwd;

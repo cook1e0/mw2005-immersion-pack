@@ -34,15 +34,12 @@ struct Config {
     float gripPeakDeg = 7.0f;       // front slip angle where the wheel is heaviest
     float driftAlign = 0.3f;        // pull toward the direction of travel past the grip limit
     float loadSensitivity = 0.5f;   // how much front tyre load changes the aligning torque
-    float centering = 0.3f;         // spring toward centre at CenteringSpeed and above
-    float centeringParked = 0.25f;  // share of it at standstill
-    float centeringSpeed = 120.0f;  // km/h
+    float centering = 0.3f;         // spring toward centre while parked or slow
     float damping = 0.3f;           // weight against fast wheel movement
     float friction = 0.05f;
     float parkingFriction = 0.3f;   // stationary friction: extra friction near standstill (tyre scrub)
     float softLock = 0.8f;          // end stop at the game's steering lock
     float menuCentering = 0.2f;     // spring in menus, pause and cutscenes
-    float centreWeight = 0.3f;      // firm hold around straight ahead while moving
 
     // Effects
     float engineRumble = 0.05f;     // engine vibration (mostly standing still)
@@ -80,7 +77,7 @@ struct Config {
     float softLockAt = 1.0f;        // wheel position (share of rotation) of the steering lock, 1 = off
 
     int   keyReset = VK_F10;        // restart the wheel's force without restarting the game; 0 = off
-    bool  logTelemetry = false;
+    int   logTelemetry = 0;        // 1: the FFB state 10 times a second; 2: also the steering trace every tick
 };
 extern Config g_cfg;
 void LoadConfig();

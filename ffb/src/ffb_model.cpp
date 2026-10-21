@@ -12,14 +12,19 @@ float Smoothstep(float a, float b, float x) {
 }
 }
 
+float FrontTravel(const Telemetry& t) {
+    // The game's own front tyres: where they point plus their slip angle. It sees the car's yaw
+    // and slide as the tyre model does, every physics step.
+    return t.frontSlipKnown ? (t.steerDeg + t.frontSlipDeg) * kPi / 180.0f : 0.0f;
+}
+
 float FrontSlipAngle(const Telemetry& t, const WheelState& w, const ModelParams& p, float roadLock) {
     // Where the front wheels point: the wheel's share of the steering lock times the game's lock
-    // (with speed-sensitive steering only a few degrees at speed).
+    // (with speed-sensitive steering only a few degrees at speed). From the wheel itself, so the
+    // force answers the wheel at once, not a physics step later.
     float share = Clampf(w.pos / Clampf(p.lockShare, 0.05f, 1.0f), -1.5f, 1.5f);
     float steer = share * (roadLock > 0.5f ? roadLock : p.maxRoadAngleDeg) * kPi / 180.0f;
-    // Where the front axle travels, relative to the car's nose.
-    float travel = atan2f(t.vLatFront, fmaxf(fabsf(t.vLong), 1.0f));
-    return steer - travel;
+    return steer - FrontTravel(t);
 }
 
 ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelParams& p, float drivingWeight, float dt) {
@@ -28,18 +33,11 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
     float speed = t.valid ? t.speed : 0.0f;
     float drive = Clampf(drivingWeight, 0.0f, 1.0f);
 
-    // The game's front wheel angle at the steering lock: the game's own lock when it reports one,
-    // else measured from where the front wheels point for where the wheel is, while it is held
-    // still enough for the game (60 Hz) to have caught up.
+    // The game's front wheel angle at the steering lock: the lock it steered with this tick (it
+    // follows speed-sensitive steering quickly); maxRoadAngleDeg until the first steering input.
     if (roadLock_ <= 0) roadLock_ = p.maxRoadAngleDeg;
-    if (t.valid && w.known) {
-        float target = 0;
-        float shareNow = w.pos / lockShare;
-        if (t.maxSteerDeg > 0.5f) target = t.maxSteerDeg;
-        else if (fabsf(shareNow) > 0.06f && fabsf(w.vel) < 0.3f && fabsf(t.steerDeg) > 0.2f)
-            target = Clampf(fabsf(t.steerDeg) / fabsf(shareNow), 2.0f, 60.0f);
-        if (target > 0) roadLock_ += (target - roadLock_) * Clampf(dt / 0.5f, 0.0f, 1.0f);
-    }
+    if (t.valid && t.lockDeg > 0.5f)
+        roadLock_ += (Clampf(t.lockDeg, 2.0f, 60.0f) - roadLock_) * Clampf(dt / 0.1f, 0.0f, 1.0f);
 
     // --- self-aligning torque -------------------------------------------------------------
     if (t.valid && t.frontOnGround > 0 && w.known) {
@@ -54,8 +52,8 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
         // as the front lets go); a smaller pull toward the travel direction stays in a slide.
         float x = FrontSlipAngle(t, w, p, roadLock_) / (Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f);
         float shape = x * expf(0.5f * (1.0f - x * x)) + p.driftAlign * tanhf(0.5f * x);
-        // None when parked, building with speed; weaker in reverse.
-        float speedGain = Smoothstep(0.5f, 6.0f, speed) * (0.55f + 0.45f * Clampf(speed / 45.0f, 0.0f, 1.0f));
+        // None when parked (no slip angle to speak of), in by 20 km/h; weaker in reverse.
+        float speedGain = Smoothstep(0.5f, 6.0f, speed);
         if (t.vLong < -0.5f) speedGain *= 0.3f;
         f.aligning = -p.aligning * shape * load * speedGain * drive;
     }
@@ -64,15 +62,10 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
     float share = w.pos / lockShare;          // -1..1 at the steering lock
     float shareVel = Clampf(w.vel / lockShare, -4.0f, 4.0f);
 
-    // --- centring spring: weak when parked, full from CenteringSpeed up; menu spring otherwise ---
-    float speedShare = Clampf(speed * 3.6f / Clampf(p.centeringSpeed, 10.0f, 400.0f), 0.0f, 1.0f);
-    float k = p.centering * (p.centeringParked + (1.0f - p.centeringParked) * speedShare);
-    k = k * drive + p.menuCentering * (1.0f - drive);
+    // --- centring spring toward straight ahead: parked and slow, fading out as the tyres' own
+    // aligning torque comes in; the menu spring otherwise ---
+    float k = p.centering * (1.0f - Smoothstep(0.5f, 6.0f, speed)) * drive + p.menuCentering * (1.0f - drive);
     f.centering = -k * Clampf(share * 1.5f, -1.0f, 1.0f);
-    // Centre weight: rises within the first ~15% of the steering lock, then holds, so even a
-    // small angle off straight ahead pulls back noticeably (more than the friction holds it).
-    float moving = Smoothstep(1.0f, 12.0f, speed) * drive;
-    f.centering += -p.centreWeight * moving * tanhf(share / 0.05f);
 
     // --- damping and friction ---------------------------------------------------------------
     float parked = 1.0f - Smoothstep(0.5f, 5.0f, speed);
