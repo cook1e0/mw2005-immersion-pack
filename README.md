@@ -23,7 +23,7 @@ damage and more). Install any of them, or all three.
    |---|---|---|
    | VR | `nfsmw_vr.asi`, `nfsmw_vr.ini` | `nfsmw_vr_host.exe`, `nfsmw_crashdump.exe` |
    | Force feedback | `nfsmw_ffb.asi`, `nfsmw_ffb.ini` | `ffbtool.exe` (optional: lists and tests wheels) |
-   | Gameplay | `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini` | |
+   | Gameplay | `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini`, `nfsmw_physics_presets.ini` | |
 
 4. Gameplay: press F4 while driving. Bind your wheel and pedals under *Controls* (set *Wheel
    rotation* to your wheel driver's setting and *Steering lock* to taste, then turn *Game's own

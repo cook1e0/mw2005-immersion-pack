@@ -23,9 +23,11 @@ if [ "$1" = "install" ]; then
     if [ -f "$GAME/scripts/nfsmw_gameplay.asi" ]; then
         cp build/dsound.dll "$GAME/scripts/nfsmw_gameplay.asi"
         [ -f "$GAME/scripts/nfsmw_gameplay.ini" ] || [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/scripts/"
+        [ -f "$GAME/scripts/nfsmw_physics_presets.ini" ] || [ -f "$GAME/nfsmw_physics_presets.ini" ] || cp nfsmw_physics_presets.ini "$GAME/scripts/"
     else
         cp build/dsound.dll "$GAME/"
         [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/"
+        [ -f "$GAME/nfsmw_physics_presets.ini" ] || cp nfsmw_physics_presets.ini "$GAME/"
     fi
     echo "installed to $GAME"
 fi

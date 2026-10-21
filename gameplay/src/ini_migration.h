@@ -43,7 +43,7 @@ inline uint64_t IniFingerprint(const char* path) {
 }
 
 // Update with nfsmw_gameplay.ini; the gameplay regression tests check for drift.
-constexpr uint64_t kGameplayDefaultIniFingerprint = UINT64_C(0x81c46d4a27c9558e);
+constexpr uint64_t kGameplayDefaultIniFingerprint = UINT64_C(0x6d6b1efc5dfab670);
 
 inline bool MigrateLegacyIni(const char* legacy, const char* current) {
     if (GetFileAttributesA(legacy) == INVALID_FILE_ATTRIBUTES) return false;

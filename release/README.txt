@@ -19,7 +19,7 @@ Or pick and choose:
                    OpenXR runtime in SteamVR's settings and run Room Setup once)
   Force feedback   scripts\nfsmw_ffb.asi + scripts\nfsmw_ffb.ini
                    (ffbtool.exe, next to speed.exe, lists / tests wheels)
-  Gameplay         scripts\nfsmw_gameplay.asi + scripts\nfsmw_gameplay.ini
+  Gameplay         scripts\nfsmw_gameplay.asi + scripts\nfsmw_gameplay.ini + scripts\nfsmw_physics_presets.ini
                    F4 while driving: bind wheel and pedals under Controls, an H-shifter
                    under Gear bindings
 

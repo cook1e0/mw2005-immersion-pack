@@ -56,7 +56,7 @@ H-shifter mod (`nfsmw_hshifter.ini`, which is renamed to `nfsmw_gameplay.ini` on
 
 ## Install
 
-Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `nfsmw_gameplay.asi` and `nfsmw_gameplay.ini`
+Download the zip from the [latest release](https://github.com/cook1e0/nfsmw05-mod/releases/latest) and copy `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini` and `nfsmw_physics_presets.ini`
 into the `scripts` folder next to `speed.exe` (with the zip's `dinput8.dll`, Ultimate ASI Loader, next
 to `speed.exe`). Without a loader, rename `nfsmw_gameplay.asi` to `dsound.dll` and put it and the
 `.ini` next to `speed.exe`. Then, with your pedals and shifter connected, start a drive, press F4 and bind
@@ -88,6 +88,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
 | `[Physics] Grip / Gravity` | tire grip, gravity in g |
 | `[Car.<name>]` | a car's own physics values and its preset (`Preset=`), set by *Load into this car* in the menu; the preset's values are applied every time the car is driven |
+| `nfsmw_physics_presets.ini` | named physics slider sets used by each car's `Preset=` value and the F4 preset picker |
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
