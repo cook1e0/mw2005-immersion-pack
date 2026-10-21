@@ -303,7 +303,7 @@
   *Settings for this car only* is gone; a car without a preset uses the shared values.
 - **Physics: spin limit (fixes the pinball):** a car spinning fast (launched by props, landing while
   rotating) could get caught in a collision loop and be thrown across the map. Your car never spins
-  faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 8 rad/s), with the torque limited too.
+  faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 15 rad/s), with the torque limited too.
 - **Physics: new grip sliders,** all per car with "Settings for this car only":
   - Rear grip (oversteer): the rear tyres' grip relative to the front.
   - Offroad grip: grip on grass, dirt, mud, gravel and sand (75%).
@@ -365,7 +365,8 @@
   tyre model's, yaw and slide included). The wheel now goes heavy as the front bites, light as it
   washes out, and pulls into the countersteer while the car is still rotating. Crash, scrape,
   vehicle hit, breakable and landing jolts now push the wheel the way the hit came from (they were
-  sideways-less), and kerb kicks go to the wheel that hit the kerb (the side was picked by which
+  sideways-less; a nose-to-tail vehicle hit, which has no clear side and always kicked right, now
+  only shakes), and kerb kicks go to the wheel that hit the kerb (the side was picked by which
   front wheel sat higher).
 - **The steering lock is the game's own:** the lock the FFB uses for where the front wheels
   point comes from the game's front wheel angle over the steering input of that physics step. The

@@ -445,6 +445,26 @@ static void TestEffects() {
         assert(first > 0.3f && peak > 0.4f);
         assert(fabsf(fx.Step(t, 1.0f, at + 1.0, dt, p).carHit) < 1e-6f);
     }
+    // A hit with no clear side (nose to tail) shakes the same whichever way the sign leans.
+    {
+        float out[2][10];
+        for (int k = 0; k < 2; k++) {
+            Effects fx;
+            Telemetry t = Car(20);
+            double at = now;
+            fx.Step(t, 1.0f, at += dt, dt, p);
+            t.carHitSeq = 1;
+            t.carHitSpeed = 45.0f;
+            t.carHitLat = k ? 0.1f : -0.1f;
+            for (int i = 0; i < 10; i++) out[k][i] = fx.Step(t, 1.0f, at += dt, dt, p).carHit;
+        }
+        float peak = 0;
+        for (int i = 0; i < 10; i++) {
+            assert(fabsf(out[0][i] - out[1][i]) < 1e-6f);
+            peak = std::max(peak, fabsf(out[0][i]));
+        }
+        assert(peak > 0.05f);
+    }
     // Scrapes: while the contact is fresh, a grind and a pull toward the wall; gone after it.
     {
         Effects fx;

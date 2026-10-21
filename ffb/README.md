@@ -38,7 +38,7 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Off-road | the surface's own name under each front tyre (grass, dirt, mud, gravel, sand...): an uneven rumble with random bumps, half with one wheel off, growing with speed (`OffroadVibration`) |
 | Nitrous | the steering goes lighter while the nitrous is on, eased in and out (`NosLighter`) |
 | Landing | a hard kick and a short shake when the car lands after a jump, stronger the longer it flew (`Landing`) |
-| Vehicle hits | the landing's kick and shake when you hit another car (traffic, cops, racers, told apart by the game's own object type), toward the side you were pushed; while it plays the other short effects are ducked so it comes through (`CarHits`) |
+| Vehicle hits | the landing's kick and shake when you hit another car (traffic, cops, racers, told apart by the game's own object type), toward the side you were pushed (a nose-to-tail hit only shakes); while it plays the other short effects are ducked so it comes through (`CarHits`) |
 | Tyre scrub | a fine vibration once any tyre is past its grip limit (`TyreScrub`) |
 | Breakable objects | the game's own breakable props (Smackables: benches, sign posts, fences, bins), recognised by their class in the collision report or when one is knocked loose where the car is: a sharp knock toward that side (`Breakables`) |
 

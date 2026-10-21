@@ -1896,7 +1896,7 @@ const struct {
     {&g_cfg.offroadGrip, "Tyre grip on grass, dirt, mud, gravel and sand (each tyre by the surface under it). 100% = as on the road."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
-    {&g_cfg.maxSpin, "The fastest your car may rotate (8 rad/s is over one turn a second). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
+    {&g_cfg.maxSpin, "The fastest your car may rotate (15 rad/s is over two turns a second, more than a car turns on its wheels). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
     {&g_cfg.noHeavySupport, "No heavy support: the SUVs a pursuit sends to ram you head-on out of oncoming traffic don't come. SUV patrols and SUVs in roadblocks still do."},
     {&g_cfg.normalDragHud, "Drag races show the normal race HUD (tachometer, speedometer, minimap, damage meter) instead of the drag HUD. Applies from the next race."},
     {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},

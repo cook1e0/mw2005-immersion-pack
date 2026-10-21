@@ -140,10 +140,12 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     }
     e.landing = land_.Step(now, kLandJolt) * drive;
 
-    // --- another vehicle hit: the landing's kick and shake, toward the side the car was pushed ---
+    // --- another vehicle hit: the landing's kick and shake, toward the side the car was pushed;
+    // nose to tail (no clear side) the shake alone ---
     if (t.carHitSeq != lastCarHitSeq_) {
         lastCarHitSeq_ = t.carHitSeq;
-        if (p.carHits > 0.0f) carHit_.Start(now, p.carHits * SpeedShare(t.carHitSpeed), t.carHitLat >= 0.0f ? 1.0f : -1.0f);
+        float dir = fabsf(t.carHitLat) > 0.2f ? (t.carHitLat > 0 ? 1.0f : -1.0f) : 0.0f;
+        if (p.carHits > 0.0f) carHit_.Start(now, p.carHits * SpeedShare(t.carHitSpeed), dir);
     }
     float carLevel = 0.0f;
     e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
