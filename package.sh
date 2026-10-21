@@ -5,6 +5,7 @@
 # NFSMW_SETTINGS=<folder with nfsmw_*.ini> packages those settings (F4 menu, bindings, seats,
 # physics presets)
 # instead of the defaults, e.g. a game's scripts folder, so unpacking keeps that setup.
+# NFSMW_NO_SETTINGS=1 leaves every .ini out: an update that keeps the settings already installed.
 set -e
 cd "$(dirname "$0")"
 LOADER="$1"
@@ -26,8 +27,12 @@ cp vr/bin/d3d9.dll "$OUT/scripts/nfsmw_vr.asi"
 cp ffb/build/dinput8.dll "$OUT/scripts/nfsmw_ffb.asi"
 cp gameplay/build/dsound.dll "$OUT/scripts/nfsmw_gameplay.asi"
 cp vr/bin/nfsmw_vr_host.exe vr/bin/nfsmw_crashdump.exe ffb/build/ffbtool.exe "$OUT/"
-cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini gameplay/nfsmw_physics_presets.ini "$OUT/scripts/"
-if [ -n "$NFSMW_SETTINGS" ]; then
+if [ -n "$NFSMW_NO_SETTINGS" ]; then
+    echo "settings: none (an update: the installed .ini files stay)"
+else
+    cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini gameplay/nfsmw_physics_presets.ini "$OUT/scripts/"
+fi
+if [ -n "$NFSMW_SETTINGS" ] && [ -z "$NFSMW_NO_SETTINGS" ]; then
     for ini in nfsmw_vr.ini nfsmw_ffb.ini nfsmw_gameplay.ini nfsmw_physics_presets.ini; do
         if [ -f "$NFSMW_SETTINGS/$ini" ]; then
             cp "$NFSMW_SETTINGS/$ini" "$OUT/scripts/$ini"
