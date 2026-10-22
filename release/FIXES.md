@@ -12,6 +12,10 @@
 
 **VR**
 
+- **VR starts with RivaTuner running:** RivaTuner's `RTSSHooks.dll` can hook the game's Direct3D
+  import before the VR mod loads; the VR mod then took the game for another version and switched
+  itself off (no cockpit camera, "VR inactive" in the log). It now recognises the game's own import
+  and creates the device from Windows' `d3d9.dll` past that hook.
 - **The Clio's steering wheel is found:** its low-poly, thick rim spread over the wheel search's
   2 cm slices, so no wheel was found (no turning wheel, no in-car dashboard, which is placed from
   the wheel). A wheel the usual search misses is looked for again with 4 cm slices; every other car
@@ -162,6 +166,13 @@
 
 **Gameplay**
 
+- **Wheel buttons in the game's menus with `GameController=0`:** turning the game's own controller
+  input off (so a wheel's pedals don't also move the camera) used to hide the wheel in the menus
+  too. Now it only applies while driving; in the menus `MenuController` and `MenuAxes` decide.
+- **"Reset page to mod defaults" gives the shipped settings:** the mod's built-in defaults
+  differed from the shipped `nfsmw_gameplay.ini` in 21 settings (GameController and MenuController
+  off, steering lock 900, engine heating 0.11, ABS off, ...), so a page reset changed them. They
+  now match.
 - **F4 menu: fewer, clearer settings.** Settings that only doubled another or that you set once
   are merged, removed or kept in the ini only:
   - Grip balance replaces Front grip and Rear grip (below).

@@ -1790,7 +1790,7 @@ const struct {
     {&g_cfg.steerSensitivity, "How much the car steers for a given wheel angle. Higher: quicker steering (full lock sooner)."},
     {&g_cfg.steerSpeedSensitivity, "Less front wheel lock the faster you go, smoothly, still in proportion to your wheel: how much is taken away at speed. 85% is close to the game's own (19 deg of lock at 64 km/h, 12 at 130, 9 at 250); lower is quicker steering at speed. Off: full lock (45 deg) at the steering lock at any speed."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
-    {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
+    {&g_cfg.gameController, "Off: the game ignores controllers while driving; bind them here instead. In the game's menus, Controller input in game menus decides."},
     {&g_cfg.gameTuning, "On: the pause menu's Performance Tuning (steering, handling, brakes, ride height, aero, nitrous, turbo) acts on your car, as in the game. Off: your car drives with stock values whatever that menu holds (it still opens)."},
     {&g_cfg.classicInput, "On: the game's own steering, throttle and brake, as without this mod: none of the bindings, curves or wheel steering above, and the game reads the controllers itself (set them up in its own controller options). Shifting, the clutch and everything else stay."},
     {&g_cfg.hudAidRight, "Moves the ABS and TC icons left (-) or right (+) from their place above the engine warning icon."},

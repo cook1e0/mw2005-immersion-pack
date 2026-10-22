@@ -59,6 +59,10 @@ static bool GameInMenus() {
     return *(void**)0x91CAE0 && ((bool(__cdecl*)(bool))0x525B20)(true);
 }
 
+// With GameController=0 the game gets no controller input while driving (this mod's bindings drive
+// the car); in its menus MenuController and MenuAxes decide, as with GameController=1.
+static bool HiddenNow(bool menus) { return GameInputHidden() && !(menus && g_cfg.menuController >= 0.5f); }
+
 void DeviceWrap::RefreshMenuRanges() {
     for (auto& o : menuObjects) {
         if (!o.Axis()) continue;
@@ -155,12 +159,13 @@ HRESULT DeviceWrap::GetDeviceState(DWORD a, LPVOID b) {
     HRESULT hr = real->GetDeviceState(a, b);
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
     if (FAILED(hr) || !b) return hr;
-    if (GameInputHidden()) {
+    bool menus = GameInMenus();
+    if (HiddenNow(menus)) {
         // The game sets joystick axes to -10000..10000 (v1.3, 0x6D8270);
         // their centre is zero input, regardless of what was held on the first read.
         memset(b, 0, a);
         NeutralizeMenuState(b, a, menuObjects, true);
-    } else if (GameInMenus()) {
+    } else if (menus) {
         bool all = g_cfg.menuController < 0.5f;
         if (all || g_cfg.menuAxes < 0.5f) NeutralizeMenuState(b, a, menuObjects, all);
     }
@@ -173,10 +178,11 @@ HRESULT DeviceWrap::GetDeviceData(DWORD a, LPDIDEVICEOBJECTDATA b, LPDWORD c, DW
     if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) acquired = false;
     if (SUCCEEDED(hr) && c) {
         int mode = 0;
-        if (GameInputHidden()) {
+        bool menus = GameInMenus();
+        if (HiddenNow(menus)) {
             mode = 2;
             NeutralizeMenuEvents(a, b, *c, menuObjects, true);
-        } else if (GameInMenus()) {
+        } else if (menus) {
             bool all = g_cfg.menuController < 0.5f;
             mode = all ? 2 : g_cfg.menuAxes < 0.5f ? 1 : 0;
             if (mode) NeutralizeMenuEvents(a, b, *c, menuObjects, all);

@@ -95,7 +95,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
 | `[Controls] SeatForward / SeatBack / SeatLeft / SeatRight / SeatUp / SeatDown / SeatReset` | VR seat (cockpit camera) while held, like the VR mod's numpad keys |
 | `[Controls] SpeedSensitivity` | 0 (default): a bound wheel steers directly, full lock (45 deg) at `SteeringLock` at any speed; above 0: that share of the lock taken away at speed (0.85 is close to the game's own). Without a bound wheel the game steers as with a gamepad (a few degrees of lock at speed, slow ramp) |
-| `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
+| `[Controls] GameController` | 0 = the game ignores the controllers while driving; bind them here instead. In its menus `MenuController` / `MenuAxes` decide |
 | `[Controls] MenuController / MenuAxes` | game menus only: buttons/d-pad on by default; analog axes off to prevent pedal scrolling (needs FFB mod) |
 | `[Controls] RecenterVr` | recenters the VR view (the VR mod's F8), from any key or button |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
