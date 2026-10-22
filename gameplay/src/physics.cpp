@@ -226,7 +226,7 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.slideGrip == 1.0f && c.speedGripLoss == 0.0f;
+           c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f);
 }
 
 // Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
@@ -258,7 +258,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    if (g_cfg.speedGripLoss > 0.0f) {
+    if (!g_cfg.useAero && g_cfg.speedGripLoss > 0.0f) {
         float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
         for (int i = 0; i < 4; i++) {
             s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
@@ -330,7 +330,7 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
             game / (mass * 9.81f) * 100.0f, Field<float>(layout, kChL_AeroCoef), Field<float>(layout, kChL_AeroCg), tuning,
             mass, g_cfg.aero, g_cfg.aero * 100.0f);
     }
-    if (g_cfg.aero == 0.0f || aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
+    if (!g_cfg.useAero || g_cfg.aero == 0.0f || aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
     float ground = *(const float*)(state + kSt_Ground);
     if (ground == 0.0f) return;   // in the air: no lift or downforce to speak of
     // As the game's own: less when tilted with fewer than two wheels down, none going backwards.
@@ -978,7 +978,7 @@ void Physics_Install() {
         Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
         if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
             WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
-            Log("physics: speed grip loss ready (%.2f)", g_cfg.speedGripLoss);
+            Log("physics: speed grip loss ready (%.2f, %s)", g_cfg.speedGripLoss, g_cfg.useAero ? "off: Aero in use" : "in use");
         }
     } else {
         Log("physics: slide grip unavailable");

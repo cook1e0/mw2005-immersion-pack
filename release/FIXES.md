@@ -202,9 +202,10 @@
   downforce at 300 km/h as a share of its weight.
 - **Grip loss at speed is back for now** (`[Physics] SpeedGripLoss`, F4 > Physics > Grip loss
   at speed (old)), to compare with Aero: Aero -X is about SpeedGripLoss X, through the tyres' load
-  instead of a cut in side grip. spinesplitter's presets now use Aero with his grip loss values as
-  lift (AWD -0.45, RWD MUSCLE -0.333, FWD -0.285, RWD TUNER -0.225, RWD SUPER -0.125) and
-  SpeedGripLoss 0.
+  instead of a cut in side grip. F4 > Physics > Aero at speed (`[Physics] UseAero`, on by default)
+  picks which one applies, for every car. spinesplitter's presets hold both: his grip loss values
+  and the same as lift (AWD 0.45 / -0.45, RWD MUSCLE 0.333, FWD 0.285, RWD TUNER 0.225, RWD SUPER
+  0.125).
 - **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
   to the rear tyres' slip angle while sliding, so the same turn of the wheel steered the front
   wheels further mid-slide. The lock now follows the speed only.
