@@ -30,10 +30,10 @@ cp vr/bin/nfsmw_vr_host.exe vr/bin/nfsmw_crashdump.exe ffb/build/ffbtool.exe "$O
 if [ -n "$NFSMW_NO_SETTINGS" ]; then
     echo "settings: none (an update: the installed .ini files stay)"
 else
-    cp vr/nfsmw_vr.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini gameplay/nfsmw_physics_presets.ini "$OUT/scripts/"
+    cp vr/nfsmw_vr.ini vr/nfsmw_vr_edits.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini gameplay/nfsmw_physics_presets.ini "$OUT/scripts/"
 fi
 if [ -n "$NFSMW_SETTINGS" ] && [ -z "$NFSMW_NO_SETTINGS" ]; then
-    for ini in nfsmw_vr.ini nfsmw_ffb.ini nfsmw_gameplay.ini nfsmw_physics_presets.ini; do
+    for ini in nfsmw_vr.ini nfsmw_vr_edits.ini nfsmw_ffb.ini nfsmw_gameplay.ini nfsmw_physics_presets.ini; do
         if [ -f "$NFSMW_SETTINGS/$ini" ]; then
             cp "$NFSMW_SETTINGS/$ini" "$OUT/scripts/$ini"
             echo "settings: $ini from $NFSMW_SETTINGS"

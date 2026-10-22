@@ -12,6 +12,10 @@
 
 **VR**
 
+- **Per-car cockpit placement and triangle picks (by spinesplitter):** seat offsets, HUD and
+  in-car dashboard placement, dashboard layouts, steering wheel turning centres and the rear view
+  mirror offset for the cars he set up, and his triangle editor picks (`nfsmw_vr_edits.ini`, now in
+  the zip: which triangles are the steering wheel, hidden or drawn black, 53 car models).
 - **VR starts with RivaTuner running:** RivaTuner's `RTSSHooks.dll` can hook the game's Direct3D
   import before the VR mod loads; the VR mod then took the game for another version and switched
   itself off (no cockpit camera, "VR inactive" in the log). It now recognises the game's own import
@@ -166,6 +170,11 @@
 
 **Gameplay**
 
+- **New physics presets (by spinesplitter):** AWD, RWD MUSCLE, RWD TUNER, RWD SUPER and FWD
+  replace the earlier six, and 21 of the 27 cars with their own section load one (in his files the
+  GTI and Punto pointed at a missing "FWD SHORT", so they keep their own values). His values are in
+  the current format: Grip and Grip balance in place of Front / Rear grip, no Slide oversteer, the
+  15 rad/s spin limit.
 - **Wheel buttons in the game's menus with `GameController=0`:** turning the game's own controller
   input off (so a wheel's pedals don't also move the camera) used to hide the wheel in the menus
   too. Now it only applies while driving; in the menus `MenuController` and `MenuAxes` decide.
