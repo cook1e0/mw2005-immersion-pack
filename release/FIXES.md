@@ -1,3 +1,10 @@
+### v0.22.1: side mirrors show the rear view again
+
+- **VR: the side mirrors show the rear view by default** (`[VR] GameMirrors=1`, was 0: the game's
+  plain side mirrors), and the picture fills more of the glass (`[VR] MirrorScale=0.88`, was 0.82),
+  as in spinesplitter's own setup. An `nfsmw_vr.ini` you already have keeps its values: set these
+  two there for the same.
+
 ### v0.22.0: force feedback from the tyres, ABS and traction control, physics presets, downforce and power oversteer, car mirrors and in-car dashboard in VR, grip sliders, spin limit, new force feedback jolts
 
 - **The pack is now called Most Wanted 2005 Immersion Pack Mod:** the README and the release zip

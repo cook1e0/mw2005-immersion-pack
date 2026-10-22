@@ -34,6 +34,9 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.22.0: replace scripts\nfsmw_vr.asi. For side mirrors that show the rear view,
+set GameMirrors=1 and MirrorScale=0.88 under [VR] in scripts\nfsmw_vr.ini (the new defaults).
+
 Upgrading from v0.21.0 or v0.13.0: replace the three scripts\nfsmw_*.asi plugins,
 nfsmw_vr_host.exe and nfsmw_crashdump.exe, and add scripts\nfsmw_vr_edits.ini. Your
 scripts\nfsmw_*.ini files keep working (Front / Rear grip are read as Grip and Grip balance;
