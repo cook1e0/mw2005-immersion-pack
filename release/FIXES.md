@@ -171,8 +171,7 @@
 **Gameplay**
 
 - **New physics presets (by spinesplitter):** AWD, RWD MUSCLE, RWD TUNER, RWD SUPER and FWD
-  replace the earlier six, and 21 of the 27 cars with their own section load one (in his files the
-  GTI and Punto pointed at a missing "FWD SHORT", so they keep their own values). His values are in
+  replace the earlier six, and every drivable car (41) loads one of them. His values are in
   the current format: Grip and Grip balance in place of Front / Rear grip, no Slide oversteer, the
   15 rad/s spin limit.
 - **Wheel buttons in the game's menus with `GameController=0`:** turning the game's own controller
