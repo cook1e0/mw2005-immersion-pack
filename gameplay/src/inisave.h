@@ -7,7 +7,15 @@
 
 struct IniWrite {
     std::string file, section, key, value;   // an empty key deletes the whole section
+    bool erase = false;                      // removes the key (a setting that is gone or renamed)
 };
+
+// A write that removes `key` from [section].
+inline IniWrite IniErase(const std::string& file, const std::string& section, const std::string& key) {
+    IniWrite w{file, section, key, ""};
+    w.erase = true;
+    return w;
+}
 
 // Queues the values and returns at once; a worker thread writes them in order, one batch after
 // another, so a later save always lands after an earlier one. Game thread only.

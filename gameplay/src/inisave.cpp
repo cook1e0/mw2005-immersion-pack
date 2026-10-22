@@ -65,7 +65,7 @@ bool ReadLines(const std::string& path, std::vector<std::string>* lines, std::st
 }
 
 // Sets key=value in [section] (adding the key at the end of the section, or the section at the end
-// of the file); an empty key removes the whole section.
+// of the file); an empty key removes the whole section, an erase only that key.
 void Apply(std::vector<std::string>& lines, const IniWrite& w) {
     int start = -1, end = (int)lines.size();   // the section's header line, and the next section's
     for (int i = 0; i < (int)lines.size(); i++) {
@@ -79,6 +79,11 @@ void Apply(std::vector<std::string>& lines, const IniWrite& w) {
     }
     if (w.key.empty()) {
         if (start >= 0) lines.erase(lines.begin() + start, lines.begin() + end);
+        return;
+    }
+    if (w.erase) {
+        for (int i = end - 1; start >= 0 && i > start; i--)
+            if (_stricmp(KeyOf(lines[i]).c_str(), w.key.c_str()) == 0) lines.erase(lines.begin() + i);
         return;
     }
     std::string line = w.key + "=" + w.value;
@@ -136,8 +141,8 @@ void WriteBatch(const std::deque<IniWrite>& batch) {
         Log("ui: %s could not be written in one go, %d settings written one by one", file.c_str(), n);
         for (const IniWrite& w : batch)
             if (_stricmp(w.file.c_str(), file.c_str()) == 0)
-                WritePrivateProfileStringA(w.section.c_str(), w.key.empty() ? nullptr : w.key.c_str(), w.value.c_str(),
-                                           w.file.c_str());
+                WritePrivateProfileStringA(w.section.c_str(), w.key.empty() ? nullptr : w.key.c_str(),
+                                           w.erase ? nullptr : w.value.c_str(), w.file.c_str());
     }
 }
 

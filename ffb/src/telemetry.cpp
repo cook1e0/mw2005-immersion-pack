@@ -33,18 +33,17 @@ const uintptr_t SmackableVtables[] = {0x8AA6D0, 0x8AA638, 0x8AA618, 0x8AA5FC, 0x
 // ISuspension vtable slots (byte offsets)
 enum {
     kGetWheelTraction = 0x04, kGetNumWheels = 0x08, kGetWheelPos = 0x0C, kGetWheelLoad = 0x18,
-    kIsWheelOnGround = 0x24, kGetCompression = 0x28, kGetWheelVelocity = 0x48, kGetNumWheelsOnGround = 0x4C,
+    kIsWheelOnGround = 0x24, kGetWheelVelocity = 0x48, kGetNumWheelsOnGround = 0x4C,
     kGetWheelSteer = 0x58,
 };
 // IEngine vtable slots
-enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10, kIsNOSEngaged = 0x20 };   // EngineRacer: vtable 0x8AB6E0
+enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10 };   // EngineRacer: vtable 0x8AB6E0
 // SuspensionRacer (offsets from its ISuspension, which sits at +0x4C): its steering input this tick
 // (+0x130, stored by DoHumanSteering after the gamepad remap); its drift state and amount (+0x104,
 // +0x108, DoDrifting: 0 out, 1 entering, 2 in, 3 exiting); its Tire objects (slip angle in revolutions); the Tire's road surface, an Attrib::Instance of class
-// simsurface (layout pointer at +8) with the game's own per-surface rumble.
+// simsurface (layout pointer at +8) with its name.
 enum {
-    kRacerDriftState = 0xB8, kRacerDriftValue = 0xBC, kRacerTires = 0x168, kRacerSteerInput = 0xE4, kTireSlipAngle = 0x118, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC, kSurfEffectFrequency = 0xF8,
-    kSurfEffectIntensity = 0xFA,
+    kRacerDriftState = 0xB8, kRacerDriftValue = 0xBC, kRacerTires = 0x168, kRacerSteerInput = 0xE4, kTireSlipAngle = 0x118, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC,
 };
 // Sim::Collision::Info
 enum {
@@ -90,7 +89,6 @@ struct {
     bool have;
     double time;
     Vec3 fwd, front;
-    float comp[2], compVel[2], compVelSlow[2];
 } s_prev;
 struct {
     void* simable;          // the player car's ISimable, from the latest sample
@@ -330,42 +328,9 @@ void Sample(void* player) {
         float rpm = VCall0<float>(engine, kGetRPM);
         float red = VCall0<float>(engine, kGetRedline);
         float idle = VCall0<float>(engine, kGetMinRPM);
-        // EngineRacer::IsNOSEngaged (0x6A0410): the nitrous level at full (>= 1).
-        t.nos = (VCall0<uint32_t>(engine, kIsNOSEngaged) & 0xFF) != 0;
-        static bool lastNos = false;
-        if (t.nos != lastNos) {
-            lastNos = t.nos;
-            static int logged = 0;
-            if (g_cfg.logTelemetry || logged < 4) {
-                logged++;
-                Log("nitrous %s", t.nos ? "on" : "off");
-            }
-        }
         if (rpm >= 0.0f && rpm < 30000.0f) {
             t.rpm = rpm;
             t.rpmNorm = red > idle + 1.0f ? Clamp((rpm - idle) / (red - idle), 0.0f, 1.0f) : 0.0f;
-        }
-        // Driven wheel slip. The IEngine interface sits at +0x54 in EngineRacer (its vtable
-        // 0x8AB6E0 checked first); EngineRacer::GetDifferentialAngularVelocity (0x692140, thiscall,
-        // locked = false) is the driven wheels' angular speed, rad/s, + forward. The wheel radius is
-        // learnt while all four wheels are down at a steady speed (no wheelspin to speak of then).
-        if (*(uintptr_t*)engine == 0x8AB6E0) {
-            uint8_t* racer = (uint8_t*)engine - 0x54;
-            float w = ((float(__thiscall*)(void*, bool))0x692140)(racer, false);
-            static float radius = 0.33f, lastSpeed = 0.0f;
-            static double lastTime = 0.0;
-            float dts = (float)(t.time - lastTime);
-            float accel = dts > 0.001f && dts < 0.5f ? (t.speed - lastSpeed) / dts : 99.0f;
-            lastSpeed = t.speed;
-            lastTime = t.time;
-            if (w == w && fabsf(w) < 2000.0f) {
-                if (t.speed > 8.0f && fabsf(w) > 5.0f && fabsf(accel) < 0.8f && t.wheelsOnGround == 4) {
-                    float r = t.speed / fabsf(w);
-                    if (r > 0.2f && r < 0.6f) radius += (r - radius) * 0.02f;
-                }
-                float surface = fabsf(w) * radius;
-                t.wheelSpin = t.wheelsOnGround >= 2 ? Clamp((surface - t.speed) / std::max(t.speed, 3.0f), 0.0f, 3.0f) : 0.0f;
-            }
         }
     }
 
@@ -435,28 +400,11 @@ void Sample(void* player) {
                     Log("surface: front %s wheel on %s", i ? "right" : "left", lastName[i]);
                 }
             }
-            float rumbleNow = *(uint8_t*)(layout + kSurfEffectIntensity) / 255.0f;
-            if (rumbleNow > t.surfaceRumble) {
-                t.surfaceRumble = rumbleNow;
-                t.surfaceHz = *(uint16_t*)(layout + kSurfEffectFrequency);
-            }
         }
     }
 
     double dt = s_prev.have ? t.time - s_prev.time : 0.0;
     bool continuous = dt > 0.0005 && dt < 0.1 && Len(front - s_prev.front) < 10.0f;
-    float comp[2] = {VCallI<float>(susp, kGetCompression, 0), VCallI<float>(susp, kGetCompression, 1)};
-    for (int i = 0; i < 2; ++i) {
-        if (!(comp[i] > -10.0f && comp[i] < 10.0f)) comp[i] = s_prev.comp[i];
-        float cv = continuous ? Clamp((comp[i] - s_prev.comp[i]) / (float)dt, -20.0f, 20.0f) : 0.0f;
-        // The slow part (roll, pitch, hills) out: what stays is the quick hit of a kerb or a bump.
-        float k = continuous ? Clamp((float)dt / 0.15f, 0.0f, 1.0f) : 1.0f;
-        s_prev.compVelSlow[i] += (cv - s_prev.compVelSlow[i]) * k;
-        s_prev.compVel[i] = cv;
-        t.bump[i] = onGround[i] && continuous ? cv - s_prev.compVelSlow[i] : 0.0f;
-        s_prev.comp[i] = comp[i];
-    }
-
     if (continuous)
         t.yawRate = Dot(fwd - s_prev.fwd, right) / (float)dt;
     if (trace.have)

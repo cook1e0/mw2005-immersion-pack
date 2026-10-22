@@ -736,7 +736,7 @@ void AddDamage(uint8_t* eng, float add, float impact) {
     Log("damage: car TOTALED");
 }
 
-// The force feedback mod's hard impact jerk: every impact that damages the car is counted in its
+// The force feedback mod's crash jolts: every impact that damages the car is counted in its
 // DamageHits (NfsmwFfb_Setting), after its strength (the speed change over the damage threshold).
 void SignalFfbDamage(float strength) {
     static float* hits = nullptr;
@@ -754,7 +754,7 @@ void SignalFfbDamage(float strength) {
                 hits = setting("DamageHits");
                 str = hits ? setting("DamageHitStrength") : nullptr;
             }
-        if (hits) Log("damage: impacts reported to the force feedback mod (hard impact jerk)");
+        if (hits) Log("damage: impacts reported to the force feedback mod (damaging crashes)");
     }
     if (!hits || !str) return;
     *str = strength;

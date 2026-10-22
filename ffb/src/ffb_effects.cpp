@@ -12,7 +12,6 @@ float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0
 const JoltShape kCrashJolt = {0.08f, 0.6f, 0.12f, 20.0f, 0.45f};
 const JoltShape kBreakJolt = {0.05f, 0.5f, 0.06f, 28.0f, 0.25f};   // short and sharp, a quick rattle
 const JoltShape kLandJolt = {0.07f, 0.7f, 0.10f, 18.0f, 0.35f};    // landings and vehicle hits
-const JoltShape kHardJolt = {0.06f, 0.8f, 0.10f, 18.0f, 0.40f};    // impacts that damage the car
 }
 
 float Jolt::Step(double now, const JoltShape& s, float* level) {
@@ -32,7 +31,6 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     EffectParts e;
     drive = Clampf(drive, 0.0f, 1.0f);
     float speed = t.valid ? t.speed : 0.0f;
-    shakePhase_ = Advance(shakePhase_, 30.0f, dt);
 
     // --- engine: firing frequency of a four-stroke (two per revolution), kept where a wheel can
     // render it; strongest standing still, under the road at speed ---
@@ -41,14 +39,6 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         enginePhase_ = Advance(enginePhase_, hz, dt);
         float amp = p.engine * (0.5f + 0.5f * t.rpmNorm) * (1.0f - 0.6f * Smoothstep(3.0f, 25.0f, speed));
         e.engine = amp * (float)sin(enginePhase_) * drive;
-    }
-
-    // --- surface rumble at the game's own frequency for the surface ---
-    if (t.valid && t.frontOnGround > 0 && t.surfaceRumble > 0.0f && p.surface > 0.0f) {
-        float hz = Clampf(t.surfaceHz > 0.0f ? t.surfaceHz : 25.0f, 8.0f, 60.0f);
-        surfacePhase_ = Advance(surfacePhase_, hz, dt);
-        float amp = p.surface * 0.5f * Clampf(t.surfaceRumble * 1.5f, 0.0f, 1.0f) * Smoothstep(1.0f, 8.0f, speed);
-        e.surface = amp * (float)sin(surfacePhase_) * drive;
     }
 
     // --- tyre scrub: a fine vibration once any tyre is past its grip limit ---
@@ -64,23 +54,6 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
             e.scrub = level * (float)sin(scrubPhase_) * drive;
         }
     }
-
-    // --- kerbs and bumps: one new reading per physics tick ---
-    if (t.seq != lastSeq_) {
-        lastSeq_ = t.seq;
-        if (t.valid && p.kerbs > 0.0f) {
-            const float ref = 0.5f;   // m/s of quick suspension compression that is a solid hit
-            float gate = Smoothstep(1.0f, 5.0f, speed);
-            float kick = p.kerbs * 0.6f * tanhf((t.bump[1] - t.bump[0]) / ref) * gate;
-            if (fabsf(kick) > fabsf(kerbKick_)) kerbKick_ = kick;
-            float hit = fmaxf(fabsf(t.bump[0]), fabsf(t.bump[1]));
-            float shake = p.kerbs * 0.4f * tanhf(fmaxf(hit - 0.15f, 0.0f) / ref) * gate;
-            if (shake > kerbShake_) kerbShake_ = shake;
-        }
-    }
-    kerbKick_ *= expf(-dt / 0.05f);
-    kerbShake_ *= expf(-dt / 0.08f);
-    e.kerb = (kerbKick_ + kerbShake_ * (float)sin(shakePhase_)) * drive;
 
     // --- crashes ---
     if (!haveHitSeq_) {
@@ -103,9 +76,11 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         // Closing speed says how hard the hit was; the game's impulse says how heavy the thing was.
         // Light props (benches, posts) still give a clear knock from the closing speed alone.
         float amp = p.crashes * Clampf(0.45f * tanhf(t.hitSpeed / 8.0f) + 0.55f * tanhf(t.hitImpulse / 20.0f), 0.0f, 1.0f);
-        if (amp > 0.02f) crash_.Start(now, amp, Clampf(t.hitLat, -1.0f, 1.0f));
+        if (amp > 0.02f) {
+            if (!crash_.Fresh(now)) crashDamaged_ = false;
+            crash_.Raise(now, amp, Clampf(t.hitLat, -1.0f, 1.0f));
+        }
     }
-    e.crash = crash_.Step(now, kCrashJolt) * drive;
 
     // --- off-road: an uneven rumble while front wheels are on grass, dirt, mud, gravel: two rough
     // tones and random bumps, half with one wheel off, growing with speed, eased in and out ---
@@ -147,25 +122,31 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         float dir = fabsf(t.carHitLat) > 0.2f ? (t.carHitLat > 0 ? 1.0f : -1.0f) : 0.0f;
         if (p.carHits > 0.0f) carHit_.Start(now, p.carHits * SpeedShare(t.carHitSpeed), dir);
     }
-    float carLevel = 0.0f;
-    e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
-    e.carHitLevel = carLevel * drive;
 
-    // --- hard impact jerk: an impact that damaged the car (the gameplay mod counts them), away
-    // from the side of the latest contact if it was just now ---
+    // --- an impact that damaged the car (the gameplay mod counts them): the crash or vehicle-hit
+    // jolt it came with is raised to the damage's strength (a third of full at the threshold, all
+    // of it at twice it), else a crash jolt starts away from the side of the latest contact (the
+    // push on the car), or the shake alone. It ducks the other effects while it plays ---
     if (t.damageSeq != lastDamageSeq_) {
         lastDamageSeq_ = t.damageSeq;
         bool recent = t.contactTime > 0 && fabs(t.time - t.contactTime) < 0.3;
         float lat = recent ? t.contactLat : 0.0f;
-        // Harder hits jerk harder: a third of the strength at the threshold, all of it at twice
-        // it; away from the side that was hit (the push on the car), else the shake alone.
-        if (p.hardJerk > 0.0f)
-            hard_.Start(now, p.hardJerk * Clampf(0.35f + 0.65f * (t.damageStrength - 1.0f), 0.35f, 1.25f),
-                        fabsf(lat) > 0.05f ? (lat > 0.0f ? 1.0f : -1.0f) : 0.0f);
+        float amp = p.crashes * Clampf(0.35f + 0.65f * (t.damageStrength - 1.0f), 0.35f, 1.25f);
+        float dir = fabsf(lat) > 0.05f ? (lat > 0.0f ? 1.0f : -1.0f) : 0.0f;
+        if (amp > 0.0f) {
+            if (carHit_.Fresh(now)) {
+                carHit_.Raise(now, amp, dir);
+            } else {
+                crash_.Raise(now, amp, dir);
+                crashDamaged_ = true;
+            }
+        }
     }
-    float hardLevel = 0.0f;
-    e.hardJerk = hard_.Step(now, kHardJolt, &hardLevel) * drive;
-    e.hardJerkLevel = hardLevel * drive;
+    float crashLevel = 0.0f, carLevel = 0.0f;
+    e.crash = crash_.Step(now, kCrashJolt, &crashLevel) * drive;
+    e.crashLevel = crashDamaged_ ? crashLevel * drive : 0.0f;
+    e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
+    e.carHitLevel = carLevel * drive;
 
     // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
     float since = (float)(now - t.scrapeTime);

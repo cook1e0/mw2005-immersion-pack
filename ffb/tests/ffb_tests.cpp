@@ -314,30 +314,6 @@ static void TestEffects() {
         assert(NearZero(fx.Step(t, 1.0f, now, dt, p).engine));
         p = EffectParams();
     }
-    // Kerbs: the right front wheel hit from below kicks the wheel right, then it dies away.
-    {
-        Effects fx;
-        Telemetry t = Car(20);
-        t.seq = 1;
-        fx.Step(t, 1.0f, now, dt, p);
-        t.seq = 2;
-        t.bump[1] = 1.0f;
-        // (A shake rides on the kick: averaged over one of its cycles.)
-        auto kick = [&](Effects& e, Telemetry& tt) {
-            float sum = 0;
-            for (int i = 0; i < 13; i++) sum += e.Step(tt, 1.0f, now + i * dt, dt, p).kerb;
-            return sum / 13;
-        };
-        float first = kick(fx, t);
-        assert(first > 0.05f);
-        float later = 0;
-        for (int i = 0; i < 200; i++) later = fx.Step(t, 1.0f, now + i * dt, dt, p).kerb;   // same tick: no new hit
-        assert(fabsf(later) < 0.02f);
-        t.seq = 3;
-        t.bump[1] = 0;
-        t.bump[0] = 1.0f;
-        assert(kick(fx, t) < -0.05f);                          // left wheel: kicked left
-    }
     // Crashes: a hit pushing the car's nose left jolts the wheel left first; a light prop (no
     // impulse) still gives a clear knock; nothing in menus.
     {
@@ -482,12 +458,12 @@ static void TestEffects() {
         assert(sum > 0 && hi - lo > 0.1f);                     // pulls right, toward the wall, and grinds
         assert(NearZero(fx.Step(t, 1.0f, now + 0.5, dt, p).scrape));
     }
-    // Hard impact jerk: only when the gameplay mod counts a damaging impact, away from the hit
-    // (the latest contact's push), harder for a harder hit, gone after it; none at strength 0.
+    // An impact that damages the car (the gameplay mod counts it): a crash jolt away from the hit
+    // (the latest contact's push), harder for a harder hit, gone after it; none with Crashes at 0.
     {
-        auto jerk = [&](float lat, float strength, float slider, bool recent) {
+        auto jolt = [&](float lat, float strength, float slider, bool recent, float* level = nullptr) {
             EffectParams q = p;
-            q.hardJerk = slider;
+            q.crashes = slider;
             Effects fx;
             Telemetry t = Car(20);
             t.time = now;
@@ -498,23 +474,51 @@ static void TestEffects() {
             t.damageStrength = strength;
             float peak = 0;
             for (int i = 0; i < 12; i++) {
-                float e = fx.Step(t, 1.0f, now + 0.004 + i * 0.004, dt, q).hardJerk;
-                if (fabsf(e) > fabsf(peak)) peak = e;
+                EffectParts e = fx.Step(t, 1.0f, now + 0.004 + i * 0.004, dt, q);
+                if (fabsf(e.crash) > fabsf(peak)) peak = e.crash;
+                if (level) *level = std::max(*level, e.crashLevel);
             }
-            assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, q).hardJerk));
+            assert(NearZero(fx.Step(t, 1.0f, now + 1.0, dt, q).crash));
             return peak;
         };
         Effects quiet;
         Telemetry t = Car(20);
         t.contactTime = now;
         t.contactLat = 1;
-        assert(NearZero(quiet.Step(t, 1.0f, now, dt, p).hardJerk));   // contact without damage: none
-        float right = jerk(0.8f, 1.5f, 0.8f, true), left = jerk(-0.8f, 1.5f, 0.8f, true);
+        assert(NearZero(quiet.Step(t, 1.0f, now, dt, p).crash));   // contact without damage: none
+        float level = 0;
+        float right = jolt(0.8f, 1.5f, 0.8f, true, &level), left = jolt(-0.8f, 1.5f, 0.8f, true);
         assert(right > 0.2f && left < -0.2f);                  // away from the side that was hit
-        assert(fabsf(jerk(0.8f, 3.0f, 0.8f, true)) > fabsf(jerk(0.8f, 1.0f, 0.8f, true)));
-        assert(NearZero(jerk(0.8f, 1.5f, 0.0f, true)));         // slider at 0: none
-        float unknown = jerk(0.8f, 1.5f, 0.8f, false);          // no recent contact: the shake alone
+        assert(level > 0.1f);                                  // a damaging crash ducks the other effects
+        assert(fabsf(jolt(0.8f, 3.0f, 0.8f, true)) > fabsf(jolt(0.8f, 1.0f, 0.8f, true)));
+        assert(NearZero(jolt(0.8f, 1.5f, 0.0f, true)));         // Crashes at 0: none
+        float unknown = jolt(0.8f, 1.5f, 0.8f, false);          // no recent contact: the shake alone
         assert(fabsf(unknown) < fabsf(right));
+    }
+    // The collision and the damage count of one impact make one jolt, as strong as the stronger;
+    // a crash that did no damage doesn't duck the other effects.
+    {
+        Effects fx, plain;
+        Telemetry t = Car(25);
+        fx.Step(t, 1.0f, now, dt, p);
+        plain.Step(t, 1.0f, now, dt, p);
+        t.hitSeq = 1;
+        t.hitSpeed = 6;
+        t.hitImpulse = 0;
+        t.hitLat = 1;
+        double at = now + dt;
+        EffectParts a = fx.Step(t, 1.0f, at, dt, p), b = plain.Step(t, 1.0f, at, dt, p);
+        assert(NearZero(a.crashLevel) && fabsf(a.crash - b.crash) < 1e-6f);
+        Telemetry undamaged = t;
+        t.damageSeq = 1;                                       // the damage count, two steps later
+        t.damageStrength = 3.0f;
+        float raised = 0, alone = 0;
+        for (int i = 1; i < 12; i++) {
+            at += dt;
+            raised = std::max(raised, fabsf(fx.Step(t, 1.0f, at, dt, p).crash));
+            alone = std::max(alone, fabsf(plain.Step(undamaged, 1.0f, at, dt, p).crash));
+        }
+        assert(raised > alone * 1.2f);
     }
     // Tyre scrub: a fine vibration only while a tyre is past its grip limit.
     {
@@ -593,34 +597,6 @@ static void TestEngine() {
         t.time = now;
         Step s = e.Update(t, true, 0.6f, now, 0.0025f, 0.0);
         assert(isfinite(s.out));
-    }
-    // Nitrous makes the steering lighter, by NosLighter, and it comes back after.
-    {
-        g_cfg = Config();
-        g_cfg.nosLighter = 0.5f;
-        g_cfg.oscillationGuard = false;
-        Engine a, b;
-        Telemetry n = Car(30, 1.0f);
-        Telemetry plain = n;
-        n.nos = true;
-        float withNos = 0, without = 0;
-        double at = now;
-        for (int i = 0; i < 800; i++) {
-            at += 0.0025;
-            n.time = plain.time = at;
-            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
-            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
-        }
-        assert(fabsf(without) > 0.05f && fabsf(withNos - without * 0.5f) < 0.02f * fabsf(without) + 1e-4f);
-        n.nos = false;
-        for (int i = 0; i < 800; i++) {
-            at += 0.0025;
-            n.time = plain.time = at;
-            withNos = a.Update(n, true, 0.2f, at, 0.0025f, 0.0).raw;
-            without = b.Update(plain, true, 0.2f, at, 0.0025f, 0.0).raw;
-        }
-        assert(fabsf(withNos - without) < 0.02f * fabsf(without) + 1e-4f);
-        g_cfg = Config();
     }
     // The force fades in after the effect (re)starts.
     g_cfg = Config();

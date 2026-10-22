@@ -156,7 +156,7 @@ void Inject(void* ip) {
     s.player = ip;
 
     float steer = in.steerBound ? in.steer : 0.0f;
-    int type = in.steerBound ? (g_cfg.steerSpeedSensitive ? 1 : 2) : -1;
+    int type = in.steerBound ? (g_cfg.steerSpeedSensitivity > 0.0f ? 1 : 2) : -1;
     if (type != g_steerType) {
         g_steerType = type;
         Log("controls: steering %s", type < 0 ? "as the game's (gamepad)" : type == 1 ? "as a speed-sensitive wheel" : "direct (wheel)");

@@ -69,9 +69,8 @@ struct Config {
     float steerDeadzone = 0.0f;     // ignored travel around the centre, fraction of full steering
     float steerLinearity = 0.95f;    // steering response curve exponent: 1 = linear, >1 = finer near the centre
     float steerSensitivity = 1.0f;  // multiplies the steering: 2 = full lock at half the SteeringLock
-    bool  steerSpeedSensitive = true; // bound wheel: less front wheel lock the faster you go, instead
-                                    // of direct steering (full lock at any speed, no steering ramp)
-    float steerSpeedSensitivity = 0.6f; // how much less: the share of the lock taken away at high speed
+    float steerSpeedSensitivity = 0.0f; // bound wheel: the share of the front wheel lock taken away at high
+                                    // speed; 0 = direct steering (full lock at any speed, no steering ramp)
     float pedalDeadzone = 0.03f;    // ignored travel at each end of the pedals
     bool  gameController = false;    // the game's own controller input (driving and menus); keyboard always works
     bool  classicInput = false;     // the game's own steering, throttle and brake, untouched (no bindings, curves or wheel steering)
@@ -160,17 +159,14 @@ struct Config {
     float tractionControl = 0.0f;  // traction control strength
     float stability = 0.0f;        // yaw control and drift stabiliser strength
     float driftAssist = 0.0f;       // how much rear grip is lowered in a slide
-    float grip = 0.75f;              // overall tire grip
-    float rearGrip = 0.85f;          // rear tyres' grip relative to the front (below 1: oversteer)
-    float frontGrip = 1.25f;         // front tyres' grip (below 1: understeer)
+    float grip = 0.7875f;           // overall tire grip
+    float gripBalance = 0.19f;      // front tyres' grip 1 + this, rear 1 - this (above 0: oversteer)
     bool  abs = false;               // ABS: a locking wheel's brake is eased off and reapplied
     bool  tc = false;               // traction control: 100% the game's own, plus throttle trimmed to the
                                     // driven wheels' slip, with launch control from a standstill
     float offroadGrip = 0.95f;      // tyre grip on grass, dirt, mud, gravel, sand
     float slideGrip = 1.0f;        // a sliding tyre's friction compared with its peak grip
-    float slideOversteer = 0.9f;    // the rear tyres' side grip, as on grass (drive grip unchanged)
     float rainGrip = 0.9f;          // tyre grip in the rain
-    float smokeBack = 0.0f;          // the engine smoke moved this far back (m; a rear-engined car), per car
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 15.0f;          // the player's car never spins faster (rad/s); 0 = the game's 30
@@ -198,3 +194,6 @@ extern const char* const kButtonKeys[6];
 extern const char* const kSeatKeys[7];
 void LoadConfig();
 const char* IniPath();
+// Grip and GripBalance from an older file's FrontGrip and RearGrip in [section] (each was times
+// Grip): the same front and rear grip. False when the section has GripBalance or neither key.
+bool LegacyGripBalance(const char* section, const char* path, float* grip, float* balance);

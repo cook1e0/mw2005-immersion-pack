@@ -240,9 +240,9 @@ constexpr struct {
     const char* key;
     float def;                  // the mod's default
 } kExt[] = {
-    {MOD_FFB, "Gain", 0.6f}, {MOD_FFB, "MaxForce", 0.85f}, {MOD_FFB, "Aligning", 1.0f},
+    {MOD_FFB, "Gain", 0.6f}, {MOD_FFB, "Aligning", 1.0f},
     {MOD_FFB, "Centering", 0.2f}, {MOD_FFB, "Damping", 0.15f}, {MOD_FFB, "Friction", 0.05f},
-    {MOD_FFB, "SoftLock", 1.0f}, {MOD_FFB, "SlewRate", 20.0f}, {MOD_FFB, "SmoothingHz", 25.0f},
+    {MOD_FFB, "SoftLock", 1.0f},
     {MOD_FFB, "Reverse", 0.0f}, {MOD_FFB, "Device", 0.0f}, {MOD_FFB, "SoftLockAt", 1.0f},
     {MOD_FFB, "GameController", 1.0f}, {MOD_FFB, "MenuController", 1.0f}, {MOD_FFB, "MenuAxes", 0.0f},
     {MOD_VR, "HudWidth", 1.4f}, {MOD_VR, "HudDistance", 1.2f}, {MOD_VR, "HudHeight", -0.05f},
@@ -251,8 +251,8 @@ constexpr struct {
     {MOD_VR, "SeatRight", 0.0f}, {MOD_VR, "SeatUp", 0.0f}, {MOD_VR, "SeatForward", 0.0f},
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
     {MOD_VR, "HideArms", 1.0f},
-    {MOD_FFB, "EngineRumble", 0.05f}, {MOD_FFB, "Kerbs", 0.0f},
-    {MOD_FFB, "SurfaceRumble", 0.0f}, {MOD_FFB, "Crashes", 0.5f}, {MOD_FFB, "Scrapes", 0.3f},
+    {MOD_FFB, "EngineRumble", 0.05f},
+    {MOD_FFB, "Crashes", 0.5f}, {MOD_FFB, "Scrapes", 0.3f},
     {MOD_FFB, "Breakables", 0.4f},
     {MOD_VR, "MirrorBrightness", 1.4f}, {MOD_VR, "MirrorContrast", 1.0f},
     {MOD_VR, "WheelOverHud", 0.0f},
@@ -260,10 +260,8 @@ constexpr struct {
     {MOD_FFB, "OffroadVibration", 0.4f},
     {MOD_VR, "HudPerCar", 1.0f},
     {MOD_VR, "HudRight", 0.0f},
-    {MOD_FFB, "NosLighter", 0.3f},
     {MOD_FFB, "Landing", 0.6f},
     {MOD_FFB, "CarHits", 0.6f},
-    {MOD_FFB, "HardImpactJerk", 0.6f},
     {MOD_VR, "Dash", 1.0f}, {MOD_VR, "DashRight", 0.0f}, {MOD_VR, "DashUp", 0.0f}, {MOD_VR, "DashZoom", 1.0f},
     {MOD_VR, "DashMapX", 0.0f}, {MOD_VR, "DashMapY", 0.0f}, {MOD_VR, "DashMapSize", 1.0f},
     {MOD_VR, "DashRadarX", 0.0f}, {MOD_VR, "DashRadarY", 0.0f}, {MOD_VR, "DashRadarSize", 1.0f},
@@ -290,16 +288,16 @@ constexpr struct {
     {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
     {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f},
     {MOD_VR, "RearViewEvery", 1.0f}, {MOD_VR, "DepthSplit", 1.0f}, {MOD_VR, "SharedShadows", 1.0f},
-    {MOD_FFB, "ParkingFriction", 0.2f}, {MOD_FFB, "SpinLighter", 0.5f},
+    {MOD_FFB, "ParkingFriction", 0.2f},
     {MOD_FFB, "TyreScrub", 0.15f},
 };
 enum {
-    FFB_GAIN, FFB_MAXFORCE, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK, FFB_SLEW,
-    FFB_SMOOTHING, FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
+    FFB_GAIN, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK,
+    FFB_INVERT, FFB_DEVICE, FFB_SOFTLOCKAT, FFB_GAMECONTROLLER, FFB_MENUCONTROLLER, FFB_MENUAXES,
     VR_HUDWIDTH, VR_HUDDISTANCE, VR_HUDHEIGHT, VR_NEARZ, VR_WHEELANGLE,
     VR_SEATRIGHT, VR_SEATUP, VR_SEATFORWARD, VR_SEATRESET, VR_HIDEARMS,
-    FFB_ENGINE, FFB_KERBS, FFB_SURFACE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
-    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_NOS, FFB_LANDING, FFB_CARHITS, FFB_HARDJERK,
+    FFB_ENGINE, FFB_CRASHES, FFB_SCRAPES, FFB_BREAKABLES, VR_MIRRORBRIGHTNESS, VR_MIRRORCONTRAST,
+    VR_WHEELOVERHUD, VR_MENUOPEN, FFB_OFFROAD, VR_HUDPERCAR, VR_HUDRIGHT, FFB_LANDING, FFB_CARHITS,
     VR_DASH, VR_DASHRIGHT, VR_DASHUP, VR_DASHZOOM,
     VR_DASHEL,                  // 15: per element (minimap, cop radar, speedometer, pursuit info, leaderboard) X, Y, Size
     VR_DASHADJUST = VR_DASHEL + 15, VR_DASHHIGHLIGHT, VR_EDITORON, VR_EDITCOMMAND,
@@ -314,7 +312,7 @@ enum {
     VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
     VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
     VR_ANISOTROPIC = VR_DASHANGLE + 2, VR_SHADOWRES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
-    FFB_PARKINGFRICTION, FFB_SPINLIGHTER,
+    FFB_PARKINGFRICTION,
     FFB_TYRESCRUB,
     EXT_COUNT
 };
@@ -323,7 +321,10 @@ static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enu
 // made every dashboard setting move another element).
 constexpr bool KeyIs(const char* a, const char* b) { return *a == *b && (!*a || KeyIs(a + 1, b + 1)); }
 static_assert(KeyIs(kExt[VR_DASH].key, "Dash"), "kExt out of order at VR_DASH");
-static_assert(KeyIs(kExt[FFB_SPINLIGHTER].key, "SpinLighter"), "kExt out of order at FFB_SPINLIGHTER");
+static_assert(KeyIs(kExt[FFB_INVERT].key, "Reverse"), "kExt out of order at FFB_INVERT");
+static_assert(KeyIs(kExt[FFB_CRASHES].key, "Crashes"), "kExt out of order at FFB_CRASHES");
+static_assert(KeyIs(kExt[FFB_CARHITS].key, "CarHits"), "kExt out of order at FFB_CARHITS");
+static_assert(KeyIs(kExt[FFB_PARKINGFRICTION].key, "ParkingFriction"), "kExt out of order at FFB_PARKINGFRICTION");
 static_assert(KeyIs(kExt[FFB_TYRESCRUB].key, "TyreScrub"), "kExt out of order at FFB_TYRESCRUB");
 static_assert(KeyIs(kExt[VR_ANISOTROPIC].key, "Anisotropic"), "kExt out of order at VR_ANISOTROPIC");
 static_assert(KeyIs(kExt[VR_SHADOWRES].key, "ShadowRes"), "kExt out of order at VR_SHADOWRES");
@@ -349,6 +350,9 @@ static_assert(KeyIs(kExt[VR_DASHGLASSDEPTH].key, "DashGlassDepth"), "kExt out of
 static_assert(KeyIs(kExt[VR_DASHREFLECT].key, "DashReflect"), "kExt out of order at VR_DASHREFLECT");
 static_assert(KeyIs(kExt[VR_DASHANGLE + 1].key, "DashPitch"), "kExt out of order at VR_DASHANGLE + 1");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
+// The traction control row: 0 off, 1 the game's own (TractionControl), 2 that plus the throttle
+// trim and launch control (TC). Follows g_cfg every frame; the row sets both.
+float s_tcMode;
 
 // A mod is a proxy DLL or an .asi of any name: find it by its export. With two copies loaded
 // (proxy and .asi), only the running one answers for its first key.
@@ -565,8 +569,7 @@ const Item kItems[] = {
     {NUMBER, "Steering deadzone", "Controls", "SteeringDeadzone", &g_cfg.steerDeadzone, 0.0f, 0.2f, 0.01f, 100, "%.0f%%", 0},
     {NUMBER, "Steering linearity", "Controls", "SteeringLinearity", &g_cfg.steerLinearity, 0.5f, 3.0f, 0.05f, 1, "%.2f", 0},
     {NUMBER, "Steering sensitivity", "Controls", "SteeringSensitivity", &g_cfg.steerSensitivity, 0.25f, 4.0f, 0.05f, 1, "%.2fx", 0},
-    {TOGGLE, "Speed-sensitive steering", "Controls", "SpeedSensitiveSteering", &g_cfg.steerSpeedSensitive, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Speed sensitivity", "Controls", "SpeedSensitivity", &g_cfg.steerSpeedSensitivity, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Speed-sensitive steering", "Controls", "SpeedSensitivity", &g_cfg.steerSpeedSensitivity, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Pedal deadzone", "Controls", "PedalDeadzone", &g_cfg.pedalDeadzone, 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     {TOGGLE, "Game's own controller input", "Controls", "GameController", &g_cfg.gameController, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Controller input in game menus", "Controls", "MenuController", &g_cfg.menuController, 0, 0, 0, 0, nullptr, 0},
@@ -617,11 +620,7 @@ const Item kItems[] = {
     {ACTION, "Test force (pushes right)", nullptr, "TestFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
-    HEADER_("STRENGTH AND SAFETY"),
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Maximum force", "FFB", "MaxForce", &s_ext[FFB_MAXFORCE], 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Smoothing", "FFB", "SmoothingHz", &s_ext[FFB_SMOOTHING], 5.0f, 60.0f, 1.0f, 1, "%.0f Hz", 0},
-    {NUMBER, "Force change limit", "FFB", "SlewRate", &s_ext[FFB_SLEW], 5.0f, 60.0f, 1.0f, 1, "%.0f /s", 0},
     HEADER_("STEERING FEEL"),
     {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Slow-speed centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
@@ -631,18 +630,13 @@ const Item kItems[] = {
     {NUMBER, "Soft lock at the steering lock", "FFB", "SoftLock", &s_ext[FFB_SOFTLOCK], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     HEADER_("EFFECTS"),
     {NUMBER, "Engine rumble", "FFB", "EngineRumble", &s_ext[FFB_ENGINE], 0.0f, 0.5f, 0.01f, 100, "%.0f%%", 0},
-    {NUMBER, "Kerbs and bumps", "FFB", "Kerbs", &s_ext[FFB_KERBS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Road surface rumble", "FFB", "SurfaceRumble", &s_ext[FFB_SURFACE], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Crash jolts", "FFB", "Crashes", &s_ext[FFB_CRASHES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Wall scrapes", "FFB", "Scrapes", &s_ext[FFB_SCRAPES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Breakable objects", "FFB", "Breakables", &s_ext[FFB_BREAKABLES], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Landing", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Hard impact jerk", "FFB", "HardImpactJerk", &s_ext[FFB_HARDJERK], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Tyre scrub", "FFB", "TyreScrub", &s_ext[FFB_TYRESCRUB], 0.0f, 0.5f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Lighter steering with nitrous", "FFB", "NosLighter", &s_ext[FFB_NOS], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
-    {NUMBER, "Lighter steering in wheelspin", "FFB", "SpinLighter", &s_ext[FFB_SPINLIGHTER], 0.0f, 0.9f, 0.05f, 100, "%.0f%% lighter", 0},
     RESET_,
 
     PAGE_("SHIFTER AND CLUTCH"),
@@ -669,11 +663,8 @@ const Item kItems[] = {
     {TOGGLE, "Engine wear", "Engine", "EngineWear", &g_cfg.engineWear, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Rev limiter", "Engine", "RevLimiter", &g_cfg.revLimiter, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Heating at redline", "Engine", "HeatUp", &g_cfg.heatUp, 0.01f, 2.0f, 0.01f, 1, "%.2f /s", 0},
-    {NUMBER, "Heating at max rpm", "Engine", "HeatUpMaxRPM", &g_cfg.heatUpMax, 0.01f, 5.0f, 0.01f, 1, "%.2f /s", 0},
-    {NUMBER, "Cooling", "Engine", "CoolDown", &g_cfg.coolDown, 0.005f, 1.0f, 0.005f, 1, "%.3f /s", 0},
     {NUMBER, "Power loss from", "Engine", "PowerLossStart", &g_cfg.powerLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% heat", 0},
     {NUMBER, "Power lost at full heat", "Engine", "PowerLoss", &g_cfg.powerLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Engine smoke from", "Engine", "SmokeFrom", &g_cfg.heatSmokeFrom, 0.1f, 1.0f, 0.05f, 100, "%.0f%% heat", 0},
     RESET_,
     RESET_GAME_,
 
@@ -681,13 +672,10 @@ const Item kItems[] = {
     BACK_,
     HEADER_("CAR DAMAGE"),
     {TOGGLE, "Car damage", "Damage", "Damage", &g_cfg.damage, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Harmless impacts up to", "Damage", "MinImpact", &g_cfg.damageMinImpact, 0.0f, 30.0f, 0.5f, 1, "%.1f m/s", 0},
     {NUMBER, "Damage strength", "Damage", "Strength", &g_cfg.damageStrength, 0.1f, 5.0f, 0.1f, 1, "%.1fx", 0},
     {NUMBER, "Power loss from", "Damage", "PowerLossStart", &g_cfg.damageLossStart, 0.0f, 0.95f, 0.05f, 100, "%.0f%% damage", 0},
     {NUMBER, "Power lost at full damage", "Damage", "PowerLoss", &g_cfg.damageLoss, 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {TOGGLE, "Engine smoke when damaged", "Damage", "Smoke", &g_cfg.damageSmoke, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Engine smoke from", "Damage", "SmokeFrom", &g_cfg.smokeFrom, 0.5f, 1.0f, 0.05f, 100, "%.0f%% damage", 0},
-    {NUMBER, "Engine smoke trail", "Damage", "SmokeTrail", &g_cfg.smokeTrail, 0.0f, 1.0f, 0.05f, 100, "%.0f%% of car speed", 0},
     HEADER_("POPPED TIRES"),
     {TOGGLE, "Drivable popped tires", "Tires", "PoppedTires", &g_cfg.poppedTires, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Popped tire handicap", "Tires", "Handicap", &g_cfg.tireHandicap, 0.0f, 3.0f, 0.05f, 1, "%.2fx", 0},
@@ -705,23 +693,18 @@ const Item kItems[] = {
     {ACTION, "Overwrite this preset", nullptr, "PresetSave", nullptr, 0, 0, 0, 0, nullptr, 0},
     {ACTION, "Delete this preset", nullptr, "PresetDelete", nullptr, 0, 0, 0, 0, nullptr, 0},
     HEADER_("1 = THE GAME'S OWN"),
-    {NUMBER, "Traction control", "Physics", "TractionControl", &g_cfg.tractionControl, 0.0f, 1.0f, 0.001f, 100, "%.1f%%", 0},
+    {NUMBER, "Traction control", "Physics", "TcMode", &s_tcMode, 0.0f, 2.0f, 1.0f, 1, "%.0f", 0},
     {TOGGLE, "ABS", "Physics", "ABS", &g_cfg.abs, 0, 0, 0, 0, nullptr, 0},
-    {TOGGLE, "TC (with launch control)", "Physics", "TC", &g_cfg.tc, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Stability control", "Physics", "Stability", &g_cfg.stability, 0.0f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Drift assist", "Physics", "DriftAssist", &g_cfg.driftAssist, 0.0f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Grip", "Physics", "Grip", &g_cfg.grip, 0.3f, 2.0f, 0.001f, 1, "%.3fx", 0},
-    {NUMBER, "Rear grip (oversteer)", "Physics", "RearGrip", &g_cfg.rearGrip, 0.5f, 1.5f, 0.001f, 100, "%.1f%%", 0},
-    {NUMBER, "Front grip", "Physics", "FrontGrip", &g_cfg.frontGrip, 0.5f, 1.5f, 0.001f, 100, "%.1f%%", 0},
+    {NUMBER, "Grip balance (+ oversteer)", "Physics", "GripBalance", &g_cfg.gripBalance, -0.5f, 0.5f, 0.001f, 100, "%+.1f%%", 0},
     {NUMBER, "Offroad grip", "Physics", "OffroadGrip", &g_cfg.offroadGrip, 0.2f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Slide grip", "Physics", "SlideGrip", &g_cfg.slideGrip, 0.4f, 1.0f, 0.001f, 100, "%.1f%%", 0},
-    {NUMBER, "Slide oversteer", "Physics", "SlideOversteer", &g_cfg.slideOversteer, 0.4f, 1.0f, 0.001f, 100, "%.1f%%", 0},
     {NUMBER, "Rain grip", "Physics", "RainGrip", &g_cfg.rainGrip, 0.5f, 1.0f, 0.001f, 100, "%.1f%%", 0},
-    {NUMBER, "Engine smoke in the back", "Physics", "SmokeBack", &g_cfg.smokeBack, 0.0f, 5.0f, 0.1f, 1, "%.1f m back", 0},
     {NUMBER, "Gravity", "Physics", "Gravity", &g_cfg.gravity, 0.1f, 3.0f, 0.05f, 1, "%.2f g", 0},
     {TOGGLE, "Gravity for all cars", "Physics", "GravityAllCars", &g_cfg.gravityAll, 0, 0, 0, 0, nullptr, 0},
     {TOGGLE, "Game's performance tuning (pause menu)", "Physics", "GameTuning", &g_cfg.gameTuning, 0, 0, 0, 0, nullptr, 0},
-    {NUMBER, "Spin limit", "Physics", "MaxSpin", &g_cfg.maxSpin, 0.0f, 30.0f, 0.5f, 1, "%.1f rad/s", 0},
     RESET_,
     RESET_GAME_,
 
@@ -1091,6 +1074,14 @@ std::string ValueText(const Item& it, int index) {
     if (ext >= 0 && !ExtSetting(ext)) return kExtMods[kExt[ext].mod].missing;
     float v = *(float*)it.value;
     if (it.value == &g_cfg.revMatchRpm && v <= 0.0f) return "Off";
+    if (it.value == &g_cfg.steerSpeedSensitivity && v <= 0.0f) return "Off";
+    if (it.value == &s_tcMode) {
+        if (v > 1.5f) return "Game's + launch control";
+        if (v < 0.5f) return "Off";
+        if (g_cfg.tractionControl >= 0.999f) return "Game's";
+        snprintf(buf, sizeof(buf), "Game's at %.0f%%", g_cfg.tractionControl * 100.0f);
+        return buf;
+    }
     for (int el = 0; el < 5; el++)
         if (it.value == &s_ext[VR_DASHEL + el * 3 + 2] && v <= 0.001f) return "Hidden";
     if (it.value == &s_ext[VR_DASHMSG + 2] && v <= 0.001f) return "Hidden";
@@ -1201,6 +1192,10 @@ bool DefaultOf(const Item& it, float* f, bool* b, uint32_t* u) {
             *f = kExt[ext].def;
             return true;
         }
+        if (it.value == &s_tcMode) {
+            *f = def.tc ? 2.0f : def.tractionControl > 0.0f ? 1.0f : 0.0f;
+            return true;
+        }
     }
     if (!p || p < base || p >= base + sizeof(Config)) return false;
     const char* d = (const char*)&def + (p - base);
@@ -1220,10 +1215,9 @@ const struct {
     {&g_cfg.menuController, 1}, {&g_cfg.menuAxes, 1},
     {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
-    {&g_cfg.physics, 0}, {&g_cfg.tractionControl, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
-    {&g_cfg.grip, 1}, {&g_cfg.rearGrip, 1}, {&g_cfg.frontGrip, 1}, {&g_cfg.abs, 0}, {&g_cfg.tc, 0}, {&g_cfg.offroadGrip, 1},
-    {&g_cfg.slideGrip, 1}, {&g_cfg.slideOversteer, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
-    {&g_cfg.maxSpin, 0},
+    {&g_cfg.physics, 0}, {&s_tcMode, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
+    {&g_cfg.grip, 1}, {&g_cfg.gripBalance, 0}, {&g_cfg.abs, 0}, {&g_cfg.offroadGrip, 1},
+    {&g_cfg.slideGrip, 1}, {&g_cfg.rainGrip, 1}, {&g_cfg.gravity, 1}, {&g_cfg.gravityAll, 0},
     {&g_cfg.noHeavySupport, 0}, {&g_cfg.normalDragRaces, 0}, {&g_cfg.normalDragHud, 0},
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
@@ -1301,6 +1295,12 @@ void AfterNumberChange(const Item& it) {
     }
     int ext = ExtIndex(it.value);
     if (ext >= 0 && ExtSetting(ext)) *ExtSetting(ext) = *(float*)it.value;
+    if (it.value == &s_tcMode) {
+        int mode = (int)lrintf(s_tcMode);
+        g_cfg.tc = mode == 2;
+        if (mode == 0) g_cfg.tractionControl = 0.0f;
+        else if (g_cfg.tractionControl <= 0.0f) g_cfg.tractionControl = 1.0f;
+    }
     // The steering lock is part of the wheel's rotation.
     if (g_cfg.steeringLock > g_cfg.wheelRotation) {
         if (it.value == &g_cfg.steeringLock) g_cfg.steeringLock = g_cfg.wheelRotation;
@@ -1544,9 +1544,19 @@ void Save() {
             if (ExtSetting(ext)) writes.push_back({ExtIniPath(ext), it.section, it.key, text});
             continue;
         }
+        if (it.value == &s_tcMode) {
+            // Two settings: the game's own strength (per car) and the throttle trim (every car).
+            snprintf(buf, sizeof(buf), "%g", g_cfg.tractionControl);
+            writes.push_back({IniPath(), Physics_Section(), "TractionControl", buf});
+            writes.push_back({IniPath(), "Physics", "TC", g_cfg.tc ? "1" : "0"});
+            continue;
+        }
         std::string section = Physics_IsPerCar(it.value) ? Physics_Section() : it.section;
         writes.push_back({IniPath(), section, it.key, text});
     }
+    // Settings that are gone or became part of another.
+    writes.push_back(IniErase(IniPath(), "Controls", "SpeedSensitiveSteering"));
+    Physics_EraseOldKeys(&writes);
     if (s_menu.clutchCal) {
         writes.push_back({IniPath(), "Clutch", "Released", std::to_string(g_cfg.clutchReleased)});
         writes.push_back({IniPath(), "Clutch", "Pressed", std::to_string(g_cfg.clutchPressed)});
@@ -1778,11 +1788,9 @@ const struct {
     {&g_cfg.steerDeadzone, "Ignored wheel travel around the centre."},
     {&g_cfg.steerLinearity, "1 = linear. Higher: finer steering around the centre, quicker towards full lock."},
     {&g_cfg.steerSensitivity, "How much the car steers for a given wheel angle. Higher: quicker steering (full lock sooner)."},
-    {&g_cfg.steerSpeedSensitive, "Off: the front wheels follow your wheel directly, full lock (45 deg) at the steering lock, at any speed. On: less lock the faster you go, smoothly, still in proportion to your wheel; in a slide the lock widens with it so you can catch it."},
-    {&g_cfg.steerSpeedSensitivity, "With speed-sensitive steering: how much lock is taken away at speed. 85% is close to the game's own (19 deg of front wheel lock at 64 km/h, 12 at 130, 9 at 250). Lower: quicker steering at speed."},
+    {&g_cfg.steerSpeedSensitivity, "Less front wheel lock the faster you go, smoothly, still in proportion to your wheel: how much is taken away at speed. 85% is close to the game's own (19 deg of lock at 64 km/h, 12 at 130, 9 at 250); lower is quicker steering at speed. Off: full lock (45 deg) at the steering lock at any speed."},
     {&g_cfg.pedalDeadzone, "Ignored pedal travel at each end."},
     {&g_cfg.gameController, "Off: the game ignores controllers (also in its menus); bind them here instead."},
-    {&g_cfg.smokeBack, "For a car with its engine in the back: moves the engine smoke this far back from where the game puts it (about 3 m for a rear engine). Per car, through its preset."},
     {&g_cfg.gameTuning, "On: the pause menu's Performance Tuning (steering, handling, brakes, ride height, aero, nitrous, turbo) acts on your car, as in the game. Off: your car drives with stock values whatever that menu holds (it still opens)."},
     {&g_cfg.classicInput, "On: the game's own steering, throttle and brake, as without this mod: none of the bindings, curves or wheel steering above, and the game reads the controllers itself (set them up in its own controller options). Shifting, the clutch and everything else stay."},
     {&g_cfg.hudAidRight, "Moves the ABS and TC icons left (-) or right (+) from their place above the engine warning icon."},
@@ -1790,15 +1798,10 @@ const struct {
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
     {&g_cfg.menuAxes, "Off: pedals and steering cannot scroll the game's menus; buttons and the d-pad still work. Driving is unaffected. Needs the updated force feedback mod."},
     {&s_ext[FFB_GAIN], "Overall force feedback strength."},
-    {&s_ext[FFB_MAXFORCE], "Ceiling of the force sent to the wheel. Peaks are compressed below it, never cut flat. Lower it on a strong direct drive base."},
-    {&s_ext[FFB_SMOOTHING], "Smooths the game's physics steps (about 60 a second). Lower: smoother but slower; higher: sharper."},
-    {&s_ext[FFB_SLEW], "How fast the force may change, full scale per second. Lower is gentler on the hands."},
     {&s_ext[FFB_ALIGNING], "Weight from the front tyres: heavy while they grip, light past the limit, pulling into the countersteer in a slide."},
     {&s_ext[FFB_CENTERING], "Spring back to centre while parked or slow. It fades out by 20 km/h, where the tyres' own weight takes over."},
     {&s_ext[FFB_ENGINE], "Engine vibration, at the engine's revs. Mostly felt standing still."},
-    {&s_ext[FFB_KERBS], "A kick toward the side of a front wheel that hits a kerb, bump or pothole, and a short shake."},
-    {&s_ext[FFB_SURFACE], "The game's own rumble for the surface under the front tyres: grass, gravel, dirt, rumble strips."},
-    {&s_ext[FFB_CRASHES], "A jolt when you hit something: cars, walls, and props such as benches, sign posts and fences."},
+    {&s_ext[FFB_CRASHES], "A jolt when you hit a wall or a prop such as a bench, sign post or fence. A hit that damages the car (with car damage on) jolts harder, the harder the hit, and quiets the other effects while it plays."},
     {&s_ext[FFB_SCRAPES], "Grinding while the car slides along a wall, and a pull toward it."},
     {&s_ext[FFB_BREAKABLES], "A sharp knock when you smash a breakable object (bench, sign post, fence, bin): the game's own breakable props, recognised as such, not any light contact."},
     {&s_ext[FFB_DAMPING], "Weight against fast wheel movement. Keeps a direct drive wheel calm."},
@@ -1816,9 +1819,7 @@ const struct {
     {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_PARKINGFRICTION], "Stationary friction: the tyres scrubbing on the road when the car stands still, so the wheel is heavy to turn when parked. Full at a standstill, gone by 18 km/h."},
-    {&s_ext[FFB_SPINLIGHTER], "How much lighter the steering gets while the driven wheels spin (launches, burnouts): measured from the wheels' speed against the car's, from 10% slip, full at 50% (0 = no change)."},
     {&s_ext[FFB_TYRESCRUB], "A fine vibration once any tyre is past its grip limit, rising with how far past it is and with speed (0 = off)."},
-    {&s_ext[FFB_NOS], "How much lighter the steering gets while the nitrous is on (0 = no change)."},
     {&s_ext[VR_HUDPERCAR], "On: each car model remembers its own floating HUD size, distance, height and left / right position, like the seat. A model you haven't set yet starts from the mod's built-in defaults, not from the last car you used. The in-car dashboard display's size and position are always per car model, whatever this says; the element layout and the HUD crops are the same for every car."},
     {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
     {&s_ext[VR_DASHZOOM], "Size of the whole in-car dashboard: the display and everything on it. Each car model remembers its own."},
@@ -1864,39 +1865,29 @@ const struct {
     {&g_cfg.engineWear, "Over-revving heats the engine; it loses power and blows at full heat."},
     {&g_cfg.revLimiter, "Keep the rev limiter. Sitting on it still heats the engine."},
     {&g_cfg.heatUp, "Heat per second at the redline. Full heat blows the engine."},
-    {&g_cfg.heatUpMax, "Heat per second at max rpm."},
-    {&g_cfg.coolDown, "Heat lost per second below the redline."},
     {&g_cfg.powerLossStart, "Heat where the engine starts losing power."},
     {&g_cfg.powerLoss, "Torque lost at full heat."},
-    {&g_cfg.heatSmokeFrom, "The engine smokes from this much heat."},
     {&g_cfg.damage, "Crashes damage the car; at 100% it is totaled."},
-    {&g_cfg.damageMinImpact, "Impacts below this speed change do no damage."},
     {&g_cfg.damageStrength, "Damage per hit."},
     {&g_cfg.damageLossStart, "Damage where the engine starts losing power."},
     {&g_cfg.damageLoss, "Torque lost at 100% damage."},
     {&g_cfg.damageSmoke, "A damaged engine smokes."},
-    {&g_cfg.smokeFrom, "The engine smokes from this much damage."},
-    {&g_cfg.smokeTrail, "How much of the car's speed the smoke keeps, so it trails behind."},
     {&g_cfg.poppedTires, "Spike strips leave the car drivable, as in NFS Carbon."},
     {&g_cfg.tireHandicap, "Grip loss and drag of a popped tire."},
     {&g_cfg.physics, "Off: the game's own physics everywhere."},
-    {&g_cfg.tractionControl, "Cuts power to a spinning wheel. 100% = the game's own."},
+    {&s_tcMode, "Off. Game's: the game's own traction control, which cuts power to a spinning wheel. Game's + launch control: that, plus the throttle trimmed while the driven wheels spin, and a tighter limit from a standstill so launches hook up without wheelspin; icon above the map, and on a button (Controls > TC on / off)."},
     {&g_cfg.stability, "Rear grip added while the car rotates, and the drift stabiliser."},
     {&g_cfg.driftAssist, "Rear grip taken away once a slide starts."},
-    {&g_cfg.grip, "Tire grip multiplier."},
-    {&g_cfg.frontGrip, "Front tyre grip. Below 100% the front lets go first: the car understeers (pushes wide); above, it turns in harder."},
+    {&g_cfg.grip, "Tyre grip, all four tyres."},
     {&g_cfg.abs, "ABS: a wheel that locks under braking has its brake eased off and reapplied, so full braking stops the car straight instead of spinning it. Icon above the map (flashes while it works). Also on a button: Controls > ABS on / off."},
-    {&g_cfg.tc, "Traction control: the game's own at 100%, plus the throttle trimmed while the driven wheels spin. Launch control: from a standstill the limit is tighter, so launches hook up without wheelspin. Icon above the map. Also on a button: Controls > TC on / off."},
     {&g_cfg.toggleAbs, "Switches ABS on or off while driving (saved)."},
     {&g_cfg.toggleTc, "Switches traction control (and launch control) on or off while driving (saved)."},
-    {&g_cfg.rearGrip, "Rear tyre grip compared with the front. Below 100% the rear lets go first: the car oversteers: with the throttle in rear and all-wheel drive cars, lifting off or braking into a corner in front drive cars. Above 100% it understeers."},
-    {&g_cfg.slideGrip, "Grip of a tyre that has broken loose, compared with its peak. Below 100% a tyre that lets go slides on with less grip, so the car slides and you catch it, instead of snapping into the turn. Use it with Rear grip for oversteer."},
-    {&g_cfg.slideOversteer, "Side grip of the rear tyres under full throttle, the way grass takes it: they keep driving but hold less sideways, so the rear slides out under power. It follows the throttle (lifting off in front drive cars) and the grip comes back as the slide gets past 20-45 degrees, so lifting or countersteering catches it. 100% = off."},
+    {&g_cfg.gripBalance, "Grip moved between the axles: + takes it from the rear tyres and gives it to the front, so the rear lets go first and the car oversteers (with the throttle in rear and all-wheel drive cars, lifting off or braking into a corner in front drive cars); - the front lets go first, understeer. 0 = as the game."},
+    {&g_cfg.slideGrip, "Grip of a tyre that has broken loose, compared with its peak. Below 100% a tyre that lets go slides on with less grip, so the car slides and you catch it, instead of snapping into the turn. Use it with Grip balance for oversteer."},
     {&g_cfg.rainGrip, "Tyre grip in the rain (90% = 10% less), from a light rain on."},
     {&g_cfg.offroadGrip, "Tyre grip on grass, dirt, mud, gravel and sand (each tyre by the surface under it). 100% = as on the road."},
     {&g_cfg.gravity, "Gravity in g. Grip scales with it."},
     {&g_cfg.gravityAll, "Gravity applies to AI and traffic too."},
-    {&g_cfg.maxSpin, "The fastest your car may rotate (15 rad/s is over two turns a second, more than a car turns on its wheels). The game allows 30, and a car spinning that fast gets caught in a collision loop and is thrown around the map. 0 = the game's."},
     {&g_cfg.noHeavySupport, "No heavy support: the SUVs a pursuit sends to ram you head-on out of oncoming traffic don't come. SUV patrols and SUVs in roadblocks still do."},
     {&g_cfg.normalDragHud, "Drag races show the normal race HUD (tachometer, speedometer, minimap, damage meter) instead of the drag HUD. Applies from the next race."},
     {&g_cfg.normalDragRaces, "Drag races without the drag mechanics for your car: you steer (no automatic lane changes), the normal engine, shifting and damage, so the wheel, shifter, engine wear and damage mods work. Opponents and the race itself are unchanged. Applies from the next race."},
@@ -2633,6 +2624,8 @@ void Ui_Frame() {
     IDirect3DDevice9* dev = *(IDirect3DDevice9**)kDevice;
     if (!dev) return;
     Physics_Frame();
+    // The traction control row follows the settings (the TC binding, a car's own values).
+    s_tcMode = g_cfg.tc ? 2.0f : g_cfg.tractionControl > 0.0f ? 1.0f : 0.0f;
     // The FFB mod's soft lock sits at the steering lock.
     if (float* at = ExtSetting(FFB_SOFTLOCKAT))
         *at = g_cfg.steer.empty() ? 1.0f : Clamp(g_cfg.steeringLock / (g_cfg.wheelRotation * g_cfg.steerSensitivity), 0.05f, 1.0f);

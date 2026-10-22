@@ -1,6 +1,9 @@
 // Physics sliders for the player's car: driving aids, grip, torque split, gravity.
 #pragma once
 #include <string>
+#include <vector>
+
+struct IniWrite;
 
 // Hooks the player's suspension and rigid body simulation. Called from Game_Install.
 void Physics_Install();
@@ -26,6 +29,12 @@ bool Physics_OwnSettings();                 // the current car has its own secti
 void Physics_SetOwnSettings(bool on);       // off deletes the car's section
 std::string Physics_Section();              // where the per-car sliders are saved
 bool Physics_IsPerCar(const void* value);   // a g_cfg field that is kept per car
+// Removals of the per-car keys that are gone (FrontGrip, RearGrip: now GripBalance) from where the
+// sliders are saved, for the menu's save.
+void Physics_EraseOldKeys(std::vector<IniWrite>* writes);
+// How far behind where the game puts it the current car's engine smoke comes out (m): the
+// rear- and mid-engined cars have their engine behind the driver. 0 for the others.
+float Physics_EngineSmokeBack();
 
 // Presets (game thread): the per-car values saved under a name, in nfsmw_physics_presets.ini.
 int Physics_PresetCount();

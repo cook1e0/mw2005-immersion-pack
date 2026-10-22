@@ -34,8 +34,9 @@
 //
 // Grip balance and off-road grip: SuspensionRacer::TuneWheelParams sets each tyre's traction boost
 // for the step (Tire::BeginFrame resets it every step) and ends with DoDrifting; that call is
-// wrapped, and for the player's car the front tyres' boost is scaled by [Physics] FrontGrip, the rear ones' by [Physics] RearGrip (below 1:
-// the rear lets go first, oversteer) and any tyre on an off-road surface (its simsurface name:
+// wrapped, and for the player's car the front tyres' boost is scaled by 1 + [Physics] GripBalance,
+// the rear ones' by 1 - GripBalance (above 0 the rear lets go first, oversteer; the overall grip is
+// Grip's), and any tyre on an off-road surface (its simsurface name:
 // grass, dirt, mud, gravel, sand...) by [Physics] OffroadGrip, and every tyre in the rain by
 // [Physics] RainGrip (with the player view's rain intensity: eViews[1].Precipitation, a Rain, at
 // 0x9196B8, intensity at +0x4C). UpdateLoaded applies the boost to both the tyre's sliding friction
@@ -44,17 +45,6 @@
 // DYNAMIC_GRIP * traction boost * pilot factor at 0x69DD22), its grip limit is the static one. For
 // the player's car that multiply also takes [Physics] SlideGrip: below 1 a sliding tyre has less
 // grip than at its peak, so a rear that lets go slides the car instead of tightening the turn.
-// Slide oversteer: after the grip limit, UpdateLoaded multiplies the tyre's side force by its
-// surface's LATERAL_GRIP and its drive force by DRIVE_GRIP (0x69E098); grass takes more side grip
-// than drive grip, which is why a car on grass keeps driving and slides sideways. For the player's
-// rear tyres that side grip also takes [Physics] SlideOversteer, so the rear slides under power
-// on the road too, while the front steers and the drive grip is untouched. To stay drivable it is
-// power oversteer, not a loose rear: the side grip goes with the throttle (lifting off in a front
-// drive car), and comes back as the rear's slip angle (Tire +0x118, in turns) grows from 20 to 45
-// degrees, so lifting or countersteering catches the slide instead of the car spinning. The
-// throttle is the game's own for the step (Chassis::State gas_input, +0x4C, as DoDrifting reads
-// it), whatever drives it (this mod's pedals, the game's controls), so it is worked out in the
-// DoDrifting hook, before the tyres update.
 //
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
@@ -121,7 +111,6 @@ constexpr int kTire_Traction = 0xEC;                // ... traction scale for th
 constexpr int kTire_Surface = 0x9C;                 // ... road surface: Attrib::Instance (layout at +8)
 constexpr int kSurf_Name = 0xDC;                    // simsurface layout: CollectionName (char*)
 constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
-constexpr int kTire_SlipAngle = 0x118;
 constexpr int kTire_Radius = 0xC4, kTire_AngVel = 0xD0, kTire_SlipSpeed = 0xE8;
 // Tire: the ground's speed under the wheel along it at the last step (m/s), stored by
 // Tire::UpdateLoaded (0x69F065) from its argument whatever the wheel does; the slip speed at +0xE8
@@ -131,9 +120,7 @@ constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call Sus
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
-constexpr int kState_Gas = 0x4C;                    // Chassis::State: gas_input 0..1
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
-constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -144,11 +131,6 @@ Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
 extern "C" float s_slideGrip;
 float s_slideGrip = 1.0f;   // the sliding friction factor for the suspension simulating now
-// The player's tyres while its suspension simulates (else null) and their side grip factors.
-extern "C" uint8_t* s_latTires[4];
-extern "C" float s_latMul[4];
-uint8_t* s_latTires[4];
-float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -216,7 +198,7 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.slideGrip == 1.0f && c.slideOversteer == 1.0f;
+           c.slideGrip == 1.0f;
 }
 
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
@@ -241,15 +223,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    if (g_cfg.slideOversteer != 1.0f) {
-        // The rear tyres' side grip factor is set in the DoDrifting hook (it needs the throttle).
-        for (int i = 0; i < 4; i++) {
-            s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
-            s_latMul[i] = 1.0f;
-        }
-    }
     s_origSusp(susp, dT);
-    for (uint8_t*& t : s_latTires) t = nullptr;
     s_slideGrip = 1.0f;
     Restore(sv);
     s_playerSusp = false;
@@ -264,26 +238,6 @@ __asm__(
     "    fmuls _s_slideGrip\n"
     "    ret\n");
 extern "C" void SlideFrictionStub();
-
-// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times s_latMul for a tyre in
-// s_latTires. eax is kept; the flags are free here (the next test sets them again).
-__asm__(
-    ".text\n"
-    "_LateralGripStub:\n"
-    "    flds 0xF0(%ecx)\n"
-    "    pushl %eax\n"
-    "    xorl %eax, %eax\n"
-    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
-    "    je 2f\n"
-    "    incl %eax\n"
-    "    cmpl $4, %eax\n"
-    "    jb 1b\n"
-    "    popl %eax\n"
-    "    ret\n"
-    "2:  fmuls _s_latMul(,%eax,4)\n"
-    "    popl %eax\n"
-    "    ret\n");
-extern "C" void LateralGripStub();
 
 // Called from TuneWheelParams for each blown tire, in place of the game's code.
 void __cdecl Hook_BlownTire(uint8_t* tire) {
@@ -510,28 +464,12 @@ void AidToggles() {
 
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
-// Slide oversteer's rear side grip factor for this step: with the game's throttle (rear or all-wheel
-// drive) or lifting off (front drive), less as the rear's slip angle grows past 20 degrees, none
-// from 45.
-void SlideOversteer(uint8_t* susp, const uint8_t* state) {
-    if (!s_latTires[2] || !s_latTires[3]) return;
-    float gas = Clamp(*(const float*)(state + kState_Gas), 0.0f, 1.0f);
-    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
-    bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
-    float power = frontDrive ? 1.0f - gas : gas;
-    float angle = 0.0f;
-    for (int i = 2; i < 4; i++) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
-    float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
-    s_latMul[2] = s_latMul[3] = 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
-}
-
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp) return;
-    if (state) SlideOversteer(susp, (const uint8_t*)state);
     if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
     if (!g_cfg.physics) return;
-    float front = g_cfg.frontGrip, rear = g_cfg.rearGrip, off = g_cfg.offroadGrip;
+    float front = 1.0f + g_cfg.gripBalance, rear = 1.0f - g_cfg.gripBalance, off = g_cfg.offroadGrip;
     // Full RainGrip from a light rain on (intensity 0.3).
     float wet = 1.0f - (1.0f - g_cfg.rainGrip) * std::min(RainIntensity() / 0.3f, 1.0f);
     if (front == 1.0f && rear == 1.0f && off == 1.0f && wet == 1.0f) return;
@@ -611,16 +549,22 @@ const PerCar kPerCar[] = {
     {&Config::driftAssist, "DriftAssist", 0.0f, 1.0f},
     {&Config::grip, "Grip", 0.3f, 2.0f},
     {&Config::gravity, "Gravity", 0.1f, 3.0f},
-    {&Config::rearGrip, "RearGrip", 0.5f, 1.5f},
-    {&Config::frontGrip, "FrontGrip", 0.5f, 1.5f},
+    {&Config::gripBalance, "GripBalance", -0.5f, 0.5f},
     {&Config::offroadGrip, "OffroadGrip", 0.2f, 1.0f},
     {&Config::slideGrip, "SlideGrip", 0.4f, 1.0f},
-    {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
-    {&Config::smokeBack, "SmokeBack", 0.0f, 5.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
+// Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
+// out of a section when it is written.
+const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SlideOversteer", "SmokeBack"};
+
+int PerCarIndex(float Config::*field) {
+    for (int i = 0; i < kNumPerCar; i++)
+        if (kPerCar[i].field == field) return i;
+    return -1;
+}
 // The driving aids' switches (ABS, TC) are the same for every car: always [Physics], never a car's
 // own section or a preset (ABS / TC keys left in [Car.<name>] or a preset are ignored).
 
@@ -670,6 +614,7 @@ void ReadPresets() {
             if (GetPrivateProfileStringA(s, kPerCar[i].key, "", buf, sizeof(buf), PresetPath()) > 0) v = (float)atof(buf);
             p.value[i] = Clamp(v, kPerCar[i].lo, kPerCar[i].hi);
         }
+        LegacyGripBalance(s, PresetPath(), &p.value[PerCarIndex(&Config::grip)], &p.value[PerCarIndex(&Config::gripBalance)]);
         s_presets.push_back(p);
     }
     Log("physics: %u presets in %s", (unsigned)s_presets.size(), PresetPath());
@@ -682,6 +627,7 @@ void WritePreset(const Preset& p) {
         snprintf(buf, sizeof(buf), "%g", p.value[i]);
         w.push_back({PresetPath(), p.name, kPerCar[i].key, buf});
     }
+    for (const char* key : kOldPerCarKeys) w.push_back(IniErase(PresetPath(), p.name, key));
     IniSave_Queue(w);
 }
 
@@ -706,6 +652,22 @@ std::string Physics_Section() { return pc.own ? "Car." + pc.car : "Physics"; }
 const char* Physics_Car() { return pc.car.c_str(); }
 const char* Physics_CarPreset() { return pc.own ? pc.preset.c_str() : ""; }
 bool Physics_OwnSettings() { return pc.own; }
+
+void Physics_EraseOldKeys(std::vector<IniWrite>* writes) {
+    for (const char* key : kOldPerCarKeys) writes->push_back(IniErase(IniPath(), Physics_Section(), key));
+}
+
+float Physics_EngineSmokeBack() {
+    // The game's car names (its CARS folders). The 911s and the Clio V6 have it at the back, the
+    // others in the middle, behind the seats.
+    static const struct { const char* car; float back; } kBehind[] = {
+        {"911gt2", 3.0f}, {"911turbo", 3.0f}, {"997s", 3.0f}, {"carreragt", 2.5f}, {"caymans", 2.5f},
+        {"clio", 2.5f}, {"elise", 2.5f}, {"fordgt", 2.5f}, {"gallardo", 2.5f}, {"murcielago", 2.5f},
+    };
+    for (const auto& b : kBehind)
+        if (_stricmp(pc.car.c_str(), b.car) == 0) return b.back;
+    return 0.0f;
+}
 
 bool Physics_IsPerCar(const void* value) {
     for (const PerCar& p : kPerCar)
@@ -813,6 +775,7 @@ void Physics_SetCar(const char* name) {
         for (const PerCar& p : kPerCar)
             if (GetPrivateProfileStringA(section.c_str(), p.key, "", buf, sizeof(buf), IniPath()) > 0)
                 g_cfg.*p.field = Clamp((float)atof(buf), p.lo, p.hi);
+        LegacyGripBalance(section.c_str(), IniPath(), &g_cfg.grip, &g_cfg.gripBalance);
     }
     pc.preset.clear();
     if (pc.own && GetPrivateProfileStringA(section.c_str(), "Preset", "", buf, sizeof(buf), IniPath()) > 0) {
@@ -895,10 +858,6 @@ void Physics_Install() {
     if (Expect(kSlideFriction, {0xD8, 0x8E, 0xEC, 0x00, 0x00, 0x00})) {
         WriteCallNops(kSlideFriction, 6, (void*)&SlideFrictionStub);
         Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
-        if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
-            WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
-            Log("physics: slide oversteer ready (%.2f)", g_cfg.slideOversteer);
-        }
     } else {
         Log("physics: slide grip unavailable");
     }
@@ -909,8 +868,7 @@ void Physics_Install() {
         Log("physics: unexpected vehicle code, the perfect launch stays");
     }
     if (RetargetCall(kCallDoDrifting, kDoDrifting, (void*)&Hook_DoDrifting)) {
-        Log("physics: grip balance ready (front grip %.2f, rear grip %.2f, off-road grip %.2f)", g_cfg.frontGrip, g_cfg.rearGrip,
-            g_cfg.offroadGrip);
+        Log("physics: grip balance ready (balance %+.2f, off-road grip %.2f)", g_cfg.gripBalance, g_cfg.offroadGrip);
     } else {
         Log("physics: grip balance unavailable");
     }

@@ -31,12 +31,9 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Soft lock | the wheel past the gameplay mod's `[Controls] SteeringLock` |
 | Menus, pause, cutscenes | a light centring spring (`MenuCentering`) |
 | Engine | a vibration at the engine's firing frequency, strongest standing still (`EngineRumble`) |
-| Kerbs and bumps | a front wheel's suspension compressing suddenly: a kick toward that side and a short shake (`Kerbs`) |
-| Road surface | the game's own rumble for the surface under the front tyres (`SurfaceRumble`) |
-| Crashes | the game's collision reports for the player car: cars, walls and props (benches, sign posts); a jolt sideways from the side hit, then a short shake (`Crashes`) |
+| Crashes | the game's collision reports for the player car: walls and props (benches, sign posts); a jolt sideways from the side hit, then a short shake. An impact that damages the car (the gameplay mod counts them) makes the jolt harder for a harder hit and ducks the other short effects (`Crashes`) |
 | Wall scrapes | contact sliding along a wall: grinding and a pull toward it (`Scrapes`) |
 | Off-road | the surface's own name under each front tyre (grass, dirt, mud, gravel, sand...): an uneven rumble with random bumps, half with one wheel off, growing with speed (`OffroadVibration`) |
-| Nitrous | the steering goes lighter while the nitrous is on, eased in and out (`NosLighter`) |
 | Landing | a hard kick and a short shake when the car lands after a jump, stronger the longer it flew (`Landing`) |
 | Vehicle hits | the landing's kick and shake when you hit another car (traffic, cops, racers, told apart by the game's own object type), toward the side you were pushed (a nose-to-tail hit only shakes); while it plays the other short effects are ducked so it comes through (`CarHits`) |
 | Tyre scrub | a fine vibration once any tyre is past its grip limit (`TyreScrub`) |

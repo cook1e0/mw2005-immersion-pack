@@ -81,20 +81,20 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Shifter] Latching` | gear stays selected after its button is released (keyboard, button boxes) |
 | `[Shifter] Sequential / ShiftUp / ShiftDown` | sequential shifting instead of the H-pattern, and its up/down bindings (Left Shift / Left Ctrl) |
 | `[Engine] EngineWear / RevLimiter` | engine heat and blow-ups on/off; keep the rev limiter |
-| `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it |
+| `[Engine] HeatUp / HeatUpMaxRPM / CoolDown` | heat per second at the redline / at max rpm, and cooling below it (the last two in the ini only) |
 | `[Engine] PowerLossStart / PowerLoss` | heat where power starts dropping, and how much is lost at full heat |
 | `[Engine] Totaled` | 0 = a blown engine shows "Blown Engine" instead of totaling the car |
-| `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size, damage per hit |
+| `[Damage] Damage / MinImpact / Strength` | car damage on/off, harmless impact size (in the ini only), damage per hit |
 | `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
-| `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own |
-| `[Physics] Grip / Gravity` | tire grip, gravity in g |
+| `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own (F4's Traction control row sets `TractionControl` and `TC` together) |
+| `[Physics] Grip / GripBalance / Gravity` | tire grip; grip moved to the front (+, oversteer) or rear (-, understeer); gravity in g |
 | `[Car.<name>]` | a car's own physics values and its preset (`Preset=`), set by *Load into this car* in the menu; the preset's values are applied every time the car is driven |
 | `nfsmw_physics_presets.ini` | named physics slider sets used by each car's `Preset=` value and the F4 preset picker |
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
 | `[Controls] WheelRotation / SteeringLock` | the wheel's rotation set in its driver, and the part of it that gives full lock in game |
 | `[Controls] SteeringLinearity` | steering response curve: 1 = linear, higher = finer around the centre |
 | `[Controls] SeatForward / SeatBack / SeatLeft / SeatRight / SeatUp / SeatDown / SeatReset` | VR seat (cockpit camera) while held, like the VR mod's numpad keys |
-| `[Controls] SpeedSensitiveSteering` | 0 (default): a bound wheel steers directly, full lock (45 deg) at `SteeringLock` at any speed; 1: the game's speed-sensitive wheel steering. Without a bound wheel the game steers as with a gamepad (a few degrees of lock at speed, slow ramp) |
+| `[Controls] SpeedSensitivity` | 0 (default): a bound wheel steers directly, full lock (45 deg) at `SteeringLock` at any speed; above 0: that share of the lock taken away at speed (0.85 is close to the game's own). Without a bound wheel the game steers as with a gamepad (a few degrees of lock at speed, slow ramp) |
 | `[Controls] GameController` | 0 = the game ignores the controllers (driving and menus); bind them here instead |
 | `[Controls] MenuController / MenuAxes` | game menus only: buttons/d-pad on by default; analog axes off to prevent pedal scrolling (needs FFB mod) |
 | `[Controls] RecenterVr` | recenters the VR view (the VR mod's F8), from any key or button |

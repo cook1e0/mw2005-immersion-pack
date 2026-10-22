@@ -105,6 +105,21 @@ static std::string ReadStr(const char* sec, const char* key, const char* def) {
     return s.substr(i);
 }
 
+bool LegacyGripBalance(const char* section, const char* path, float* grip, float* balance) {
+    char buf[64];
+    if (GetPrivateProfileStringA(section, "GripBalance", "", buf, sizeof(buf), path) > 0) return false;
+    float f = 1.0f, r = 1.0f;
+    bool any = false;
+    if (GetPrivateProfileStringA(section, "FrontGrip", "", buf, sizeof(buf), path) > 0)
+        f = Clamp((float)atof(buf), 0.5f, 1.5f), any = true;
+    if (GetPrivateProfileStringA(section, "RearGrip", "", buf, sizeof(buf), path) > 0)
+        r = Clamp((float)atof(buf), 0.5f, 1.5f), any = true;
+    if (!any) return false;
+    *balance = Clamp((f - r) / (f + r), -0.5f, 0.5f);
+    *grip = Clamp(*grip * (f + r) * 0.5f, 0.3f, 2.0f);
+    return true;
+}
+
 static float ReadFloat(const char* sec, const char* key, float def) {
     std::string s = ReadStr(sec, key, "");
     return s.empty() ? def : (float)atof(s.c_str());
@@ -153,8 +168,8 @@ void LoadConfig() {
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
     c.steerDeadzone = Clamp(ReadFloat("Controls", "SteeringDeadzone", c.steerDeadzone), 0.0f, 0.5f);
     c.steerLinearity = Clamp(ReadFloat("Controls", "SteeringLinearity", c.steerLinearity), 0.5f, 3.0f);
-    c.steerSpeedSensitive = ReadInt("Controls", "SpeedSensitiveSteering", 1) != 0;
     c.steerSpeedSensitivity = Clamp(ReadFloat("Controls", "SpeedSensitivity", c.steerSpeedSensitivity), 0.0f, 0.95f);
+    if (ReadInt("Controls", "SpeedSensitiveSteering", 1) == 0) c.steerSpeedSensitivity = 0.0f;   // an older file's switch
     c.steerSensitivity = Clamp(ReadFloat("Controls", "SteeringSensitivity", c.steerSensitivity), 0.25f, 4.0f);
     c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
     c.gameController = ReadInt("Controls", "GameController", 0) != 0;
@@ -239,15 +254,13 @@ void LoadConfig() {
     c.stability = Clamp(ReadFloat("Physics", "Stability", c.stability), 0.0f, 1.0f);
     c.driftAssist = Clamp(ReadFloat("Physics", "DriftAssist", c.driftAssist), 0.0f, 1.0f);
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
-    c.rearGrip = Clamp(ReadFloat("Physics", "RearGrip", c.rearGrip), 0.5f, 1.5f);
-    c.frontGrip = Clamp(ReadFloat("Physics", "FrontGrip", c.frontGrip), 0.5f, 1.5f);
+    c.gripBalance = Clamp(ReadFloat("Physics", "GripBalance", c.gripBalance), -0.5f, 0.5f);
+    LegacyGripBalance("Physics", IniPath(), &c.grip, &c.gripBalance);
     c.abs = ReadInt("Physics", "ABS", 0) != 0;
     c.tc = ReadInt("Physics", "TC", 0) != 0;
     c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
     c.slideGrip = Clamp(ReadFloat("Physics", "SlideGrip", c.slideGrip), 0.4f, 1.0f);
-    c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
     c.rainGrip = Clamp(ReadFloat("Physics", "RainGrip", c.rainGrip), 0.5f, 1.0f);
-    c.smokeBack = Clamp(ReadFloat("Physics", "SmokeBack", c.smokeBack), 0.0f, 5.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
     c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);

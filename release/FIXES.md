@@ -162,6 +162,18 @@
 
 **Gameplay**
 
+- **F4 menu: fewer, clearer settings.** Settings that only doubled another or that you set once
+  are merged, removed or kept in the ini only:
+  - Grip balance replaces Front grip and Rear grip (below).
+  - Traction control is one row: Off / Game's / Game's + launch control (below).
+  - Speed-sensitive steering is one slider, 0 = off (`[Controls] SpeedSensitivity`; an older
+    ini's `SpeedSensitiveSteering=0` reads as 0).
+  - Slide oversteer is gone: it was a fourth setting on the rear's grip in a slide, next to Drift
+    assist, Stability and Slide grip. Cars and presets that used it hold the rear a little better
+    under power.
+  - Engine smoke in the back is automatic (below).
+  - In the ini only: `[Physics] MaxSpin`, `[Engine] HeatUpMaxRPM` / `CoolDown` / `SmokeFrom`,
+    `[Damage] MinImpact` / `SmokeFrom` / `SmokeTrail`.
 - **Grip loss at speed removed** (`[Physics] SpeedGripLoss`, also from the presets and the
   per-car sections): cornering grip falling with the square of the speed isn't how tyres behave.
 - **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
@@ -213,8 +225,12 @@
 - **Analogue handbrake:** bind Handbrake to an axis (pedal or lever) and its value goes to
   the game as it is; the game passes the handbrake action's value on to the car (FetchInput
   0x6A8BE5). A button or key still gives 0 / 1.
-- **Front grip slider** (`[Physics] FrontGrip`, per car): the front tyres' grip, next to
-  Rear grip (below 100% understeer).
+- **Grip balance** (`[Physics] GripBalance`, per car, F4 > Physics): grip moved between the
+  axles, front tyres times 1 + the balance, rear times 1 - it; above 0 the rear lets go first
+  (oversteer), below 0 the front (understeer). With Grip it replaces the earlier Front grip and Rear
+  grip, which were three sliders for two things; `FrontGrip` / `RearGrip` in an older ini or
+  preset are read as the same front and rear grip (Grip scaled, GripBalance set) and taken out when
+  that section is saved.
 - **ABS** (`[Physics] ABS=1`, on by default; F4 > Physics; `[Controls] ToggleAbs`): from each
   tyre's own wheel speed (UpdateLoaded keeps the radius +0xC4, angular speed +0xD0 and slip speed
   +0xE8, set at 0x69F209), a wheel turning more than 12% slower than the road under braking has its
@@ -224,6 +240,8 @@
   `[Controls] ToggleTc`): the game's own traction control at 100%, plus the throttle this mod sends
   trimmed while the driven wheels (by the torque split) slip past 12%; from a standstill the limit is
   6%, so launches hook up without wheelspin. Both toggles are saved to the ini when pressed.
+  F4 > Physics > Traction control sets it together with the game's own (`TractionControl`): Off,
+  Game's, or Game's + launch control.
 - **HUD: ABS and TC icons** (`[HUD] AbsIcon` / `TcIcon`): ABS directly above the engine
   warning icon, TC to its right, copies of the car icon in its object list (shown with it). Like a
   dash light: invisible while that aid is off, gray while on but idle, blinking in the HUD's beige
@@ -275,9 +293,9 @@
   PVehicle::GetTunings. With `[Physics] GameTuning=0` (F4 > Physics) that returns stock values (all
   0) for the player's car, whatever the menu holds; the default (1) is the game's behaviour. AI cars
   are unchanged.
-- **Engine smoke for rear-engined cars:** F4 > Physics > *Engine smoke in the back*
-  (`[Physics] SmokeBack`, 0-5 m) moves the engine smoke back along the car from where the game puts
-  it; per car, through the car's preset.
+- **Engine smoke for rear- and mid-engined cars:** the smoke comes out where the engine is, by
+  the car: 3 m behind where the game puts it on the 911s, 2.5 m on the Carrera GT, Cayman S,
+  Clio V6, Elise, Ford GT, Gallardo and Murcielago.
 - **Keys:** F2 and F5 (Camera Toolkit free camera and pause), F9 (VR image dump), F10 (FFB restart)
   and F11 (VR shared-views debug flip) unbound in the installed inis; the packaged FFB ini no longer
   binds F10 (`KeyReset=0`; the F4 > Force feedback restart button remains). `[VR] SharedViewsOnce=1`
@@ -303,15 +321,10 @@
   *Settings for this car only* is gone; a car without a preset uses the shared values.
 - **Physics: spin limit (fixes the pinball):** a car spinning fast (launched by props, landing while
   rotating) could get caught in a collision loop and be thrown across the map. Your car never spins
-  faster than F4 > Physics > Spin limit (`[Physics] MaxSpin`, 15 rad/s), with the torque limited too.
-- **Physics: new grip sliders,** all per car with "Settings for this car only":
-  - Rear grip (oversteer): the rear tyres' grip relative to the front.
-  - Offroad grip: grip on grass, dirt, mud, gravel and sand (75%).
-  - Slide grip: a tyre that has broken loose slides on less grip than its peak (85%).
-  - Slide oversteer: the rear tyres' side grip under the game's own throttle, as on grass (front
-    drive cars: lifting off), coming back as the slide passes 20-45 degrees, so it stays catchable
-    (80%). It used to read the throttle from this mod's pedal binding, and took unbound pedals
-    (keyboard, gamepad, classic inputs) as full throttle: the rear grip was cut all the time.
+  faster than `[Physics] MaxSpin` (15 rad/s, in the ini), with the torque limited too.
+- **Physics: new grip sliders,** all per car:
+  - Offroad grip: grip on grass, dirt, mud, gravel and sand (95%).
+  - Slide grip: a tyre that has broken loose slides on less grip than its peak.
   - Rain grip: 10% less grip in the rain.
 - **Sequential shifting has neutral and reverse:** with manual shifting, down from first is neutral,
   then reverse; gas drives in reverse, and holding the brake no longer reverses.
@@ -349,9 +362,15 @@
   disagreed (damping 0.3 / 0.05 / 0.05, gain 1.0 / 0.85 / 0.85, ...). Now all three are: Gain 0.6,
   MaxForce 0.85, SlewRate 20, Aligning 1.0, Centering 0.2 (parked and slow only), Damping 0.15,
   Friction 0.05, ParkingFriction 0.2, SoftLock 1.0; effects: EngineRumble 0.05, Crashes 0.5,
-  Scrapes 0.3, Breakables 0.4, Landing 0.6, CarHits 0.6, HardImpactJerk 0.6, OffroadVibration 0.4,
-  TyreScrub 0.15, NosLighter 0.3, SpinLighter 0.5; kerbs and bumps (`Kerbs`) and the road surface
-  rumble (`SurfaceRumble`) off. An `nfsmw_ffb.ini` you already have keeps its values.
+  Scrapes 0.3, Breakables 0.4, Landing 0.6, CarHits 0.6, OffroadVibration 0.4, TyreScrub 0.15. An
+  `nfsmw_ffb.ini` you already have keeps its values.
+- **Effects that didn't come from the car are gone:** kerbs and bumps (`Kerbs`, fired on road
+  seams), the road surface rumble (`SurfaceRumble`, which Off-road vibration covers), lighter
+  steering with nitrous (`NosLighter`) and in wheelspin (`SpinLighter`, which lightened the
+  steering even when only the rear wheels spun; the tyre force goes light in a slide by itself).
+  Their keys left in `nfsmw_ffb.ini` are ignored.
+- **F4 > Force feedback is shorter:** Maximum force, Smoothing and Force change limit are set in
+  `nfsmw_ffb.ini` only (`MaxForce`, `SmoothingHz`, `SlewRate`); Strength stays.
 - **Tyre scrub:** a fine vibration while any tyre slides past its grip limit, read from the
   game's own per-tyre traction, rising with how far past it is and with speed (`TyreScrub`, 0.2;
   F4 > Force feedback).
@@ -366,8 +385,7 @@
   washes out, and pulls into the countersteer while the car is still rotating. Crash, scrape,
   vehicle hit, breakable and landing jolts now push the wheel the way the hit came from (they were
   sideways-less; a nose-to-tail vehicle hit, which has no clear side and always kicked right, now
-  only shakes), and kerb kicks go to the wheel that hit the kerb (the side was picked by which
-  front wheel sat higher).
+  only shakes).
 - **The steering lock is the game's own:** the lock the FFB uses for where the front wheels
   point comes from the game's front wheel angle over the steering input of that physics step. The
   game's reported lock (`GetMaxSteering`) is only written on the gamepad and AI paths, so with a
@@ -383,16 +401,11 @@
 - **`LogTelemetry=2` adds a steering trace:** every physics step, the steering input, front
   wheel angle, where the front axle travels, the lock, speed, yaw, sideways speeds, each tyre's
   slip angle and the game's drift state, in `nfsmw_ffb.log`.
-- **A jerk away from the hit when an impact damages the car:** every impact the gameplay mod's
-  car damage counts (its speed change over `[Damage] MinImpact`) is passed to the FFB mod
-  (`NfsmwFfb_Setting("DamageHits")`), which kicks the wheel away from the side of that contact and
-  shakes it briefly, harder for harder hits; the other short effects step back while it lasts.
-  `[FFB] HardImpactJerk` (0.8), also in F4 > Force feedback.
-- **Lighter steering during wheelspin** (`[FFB] SpinLighter`, 50% by default, F4 > FFB >
-  Wheelspin FFB): the driven wheels' slip is measured from the engine's differential speed against
-  the car's speed (wheel radius learnt while cruising); from 10% slip (full at 50%) the aligning and
-  centring forces lighten by that share, eased in and out. Damping, friction and effects stay. The
-  telemetry log line shows `spin=`.
+- **Harder jolts when an impact damages the car:** every impact the gameplay mod's car damage
+  counts (its speed change over `[Damage] MinImpact`) is passed to the FFB mod
+  (`NfsmwFfb_Setting("DamageHits")`). The crash or vehicle-hit jolt of that impact gets harder for
+  a harder hit (one jolt, not a second one on top), or a crash jolt starts away from the side of the
+  latest contact; the other short effects step back while it plays (`Crashes`).
 - **Stationary friction** (`[FFB] ParkingFriction`, now 30% by default, F4 > FFB > Stationary
   friction): the tyre scrub that makes the wheel heavy to turn at a standstill, gone by 18 km/h.
   It existed at 15% with no slider.
@@ -407,7 +420,6 @@
   effects while it plays. Vehicle hits and breakables are at full strength from 150 km/h.
 - **Off-road vibration** on grass, dirt, mud, gravel and sand, by the surface's own name under each
   front tyre (`OffroadVibration`).
-- **Lighter steering with nitrous** (`NosLighter`, 30%).
 
 ### v0.13.0: direct wheel steering, turning steering wheel, new force feedback
 

@@ -2,7 +2,7 @@
 //
 //   1. the latest car sample (telemetry, about 60 Hz) and the wheel's position and speed
 //   2. the force model: aligning torque, centring, damping, friction, soft lock; and the effects:
-//      engine, kerbs, surface, crashes, scrapes
+//      engine, crashes, scrapes, breakables, landings, vehicle hits, off-road, tyre scrub
 //   3. the safety chain:
 //        the aligning torque (driven by the game's physics steps) through a low-pass
 //        the oscillation guard: more damping and less gain while the wheel shakes by itself
@@ -28,17 +28,17 @@ struct Step {
     ForceParts parts;
     EffectParts effects;
     float aligningSmoothed = 0, guard = 0, raw = 0, limited = 0, out = 0;
-    float hitPriority = 0;          // how far a vehicle hit ducks the other effects (0..1)
+    float hitPriority = 0;          // how far a vehicle hit or damaging crash ducks the other effects (0..1)
 };
 
 // The effects added up, the others ducked under a vehicle hit while it plays so it comes through.
 float PrioritizedEffectSum(const EffectParts& effects, float* priorityOut = nullptr) {
-    // A traffic hit and a hard impact jerk are what the player has to feel: while they last, the
-    // other transient effects step back.
-    float priority = Clampf(fmaxf(effects.carHitLevel, effects.hardJerkLevel) * 4.0f, 0.0f, 1.0f);
+    // A traffic hit and a crash that damaged the car are what the player has to feel: while they
+    // last, the other transient effects step back.
+    float priority = Clampf(fmaxf(effects.carHitLevel, effects.crashLevel) * 4.0f, 0.0f, 1.0f);
     if (priorityOut) *priorityOut = priority;
-    float otherEffects = effects.Sum() - effects.carHit - effects.hardJerk;
-    return effects.carHit + effects.hardJerk + otherEffects * (1.0f - priority);
+    float loud = effects.carHit + (effects.crashLevel > 0.0f ? effects.crash : 0.0f);
+    return loud + (effects.Sum() - loud) * (1.0f - priority);
 }
 
 // The engine's state. One instance runs on the FFB thread; the tests make their own.
@@ -86,14 +86,11 @@ public:
 
         EffectParams ep;
         ep.engine = c.engineRumble;
-        ep.kerbs = c.kerbs;
-        ep.surface = c.surfaceRumble;
         ep.crashes = c.crashes;
         ep.scrapes = c.scrapes;
         ep.breakables = c.breakables;
         ep.landing = c.landing;
         ep.carHits = c.carHits;
-        ep.hardJerk = c.hardImpactJerk;
         ep.offroad = c.offroadVibration;
         ep.tyreScrub = c.tyreScrub;
         s.effects = effects_.Step(t, drive_, now, dt, ep);
@@ -107,16 +104,7 @@ public:
         // (The effects shake the wheel on purpose: the guard doesn't watch it while they do.)
         s.guard = c.oscillationGuard ? guard_.Step(fabsf(fx) > 0.03f ? 0.0f : w.vel, dt) : 0.0f;
         if (guard_.tripped) Log("ffb: wheel oscillating - damping raised until it settles");
-        // Wheelspin: the steering's weight (aligning and centring) lightens while the driven wheels
-        // spin, from 10% slip (full at 50%), eased in quickly and out more slowly.
-        float spinTarget = t.valid ? Clampf((t.wheelSpin - 0.1f) / 0.4f, 0.0f, 1.0f) : 0.0f;
-        spin_ += (spinTarget - spin_) * Clampf(dt / (spinTarget > spin_ ? 0.08f : 0.3f), 0.0f, 1.0f);
-        float weight = 1.0f - Clampf(c.spinLighter, 0.0f, 0.9f) * spin_;
-        float steering = (s.aligningSmoothed + s.parts.centering) * weight + s.parts.damping * (1.0f + 2.0f * s.guard) +
-                         s.parts.friction;
-        // Nitrous: the steering goes light while it burns (eased in and out, not the soft lock).
-        nos_ = Clampf(nos_ + (t.valid && t.nos ? dt / 0.3f : -dt / 0.5f), 0.0f, 1.0f);
-        steering *= 1.0f - Clampf(c.nosLighter, 0.0f, 0.9f) * nos_;
+        float steering = s.aligningSmoothed + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
         s.raw = steering * c.gain * (1.0f - 0.5f * s.guard) + s.parts.softLock;
 
         // No clipping: peaks are compressed above the knee, never cut flat, then scaled to MaxForce.
@@ -150,8 +138,6 @@ private:
     Model model_;
     Effects effects_;
     LowPass2 alignFilter_, velFilter_, velSmoothFilter_;
-    float nos_ = 0;                 // 0..1: how far the nitrous lightening has come in
-    float spin_ = 0;                // 0..1: how far the wheelspin lightening has come in
     SlewLimiter slew_;
     OscillationGuard guard_;
     float drive_ = 0, lastPos_ = 0, velRaw_ = 0, wheelVel_ = 0;
@@ -226,13 +212,13 @@ DWORD WINAPI FfbThread(LPVOID) {
         if (g_cfg.logTelemetry && now - logTime > 0.1) {
             logTime = now;
             Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) travel=%.2f "
-                "rpm=%.0f bump=%.2f/%.2f surf=%.2f@%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
-                "spin=%.2f fx: eng=%.3f kerb=%.3f surf=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f hard=%.3f scrub=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
+                "rpm=%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
+                "fx: eng=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f scrub=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
-                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm, t.bump[0], t.bump[1], t.surfaceRumble, t.surfaceHz,
+                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm,
                 s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
-                t.wheelSpin, s.effects.engine, s.effects.kerb, s.effects.surface, s.effects.crash, s.effects.scrape, s.effects.breakable,
-                s.effects.carHit, s.effects.hardJerk, s.effects.scrub, s.hitPriority, s.guard, s.raw, s.out);
+                s.effects.engine, s.effects.crash, s.effects.scrape, s.effects.breakable,
+                s.effects.carHit, s.effects.scrub, s.hitPriority, s.guard, s.raw, s.out);
         }
         if (now - statTime > 30.0) {
             if (engine.Limiting() > engine.Ticks() / 10)

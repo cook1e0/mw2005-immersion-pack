@@ -39,11 +39,6 @@ struct Telemetry {
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline
-    bool  nos;             // nitrous engaged (IEngine::IsNOSEngaged)
-    // The driven wheels' slip: their surface speed (EngineRacer::GetDifferentialAngularVelocity
-    // times the wheel radius, learnt while cruising) over the car's speed, minus 1 (0 = gripping,
-    // 1 = the wheels turn twice as fast as the car moves). 0 when unknown.
-    float wheelSpin;
 
     // Tyre state from the game's ISuspension, [0] = front left, [1] = front right, [2] = rear
     // left, [3] = rear right. Only when tireStateValid (SuspensionRacer: GetWheelTraction is not
@@ -52,13 +47,6 @@ struct Telemetry {
     bool  tireOnGround[4];    // this wheel is touching the ground
     float tireGrip[4];        // GetWheelTraction: 1 = full grip, lower = past the friction limit
 
-    // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
-    // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
-    float bump[2];
-    // Road surface under the front tyres: the game's own rumble for it (0..1, grass, gravel, rumble
-    // strips) and its frequency in Hz.
-    float surfaceRumble;
-    float surfaceHz;
     // Front wheels off the road ([0] left, [1] right): the surface's own name is grass, dirt, mud,
     // gravel, sand and the like (not asphalt, concrete, cobbles, metal, wood, rumble strips).
     bool  offroad[2];

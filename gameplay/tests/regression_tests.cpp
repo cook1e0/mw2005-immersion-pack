@@ -11,6 +11,7 @@ void Log(const char*, ...) {}
 const char* GameDir() { return ""; }
 double Now() { return 1; }
 HudStatus Game_Hud() { return {}; }
+float Physics_EngineSmokeBack() { return 0.0f; }
 const char* const kButtonKeys[6] = {"Handbrake", "Nitrous", "Speedbreaker", "ResetCar", "Camera", "LookBack"};
 
 static bool player;

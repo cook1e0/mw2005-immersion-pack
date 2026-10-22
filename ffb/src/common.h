@@ -44,22 +44,17 @@ struct Config {
 
     // Effects
     float engineRumble = 0.05f;     // engine vibration (mostly standing still)
-    float kerbs = 0.0f;             // kicks and shakes from kerbs and bumps
-    float surfaceRumble = 0.0f;     // the game's rumble on grass, gravel, dirt, rumble strips
     float crashes = 0.5f;           // jolts from hitting cars, walls and props
     float scrapes = 0.3f;           // grinding along walls
     float breakables = 0.4f;        // knocks from smashing breakable props (benches, sign posts...)
     float landing = 0.6f;           // kick and shake when landing after a jump
     float carHits = 0.6f;           // the same when hitting another vehicle
-    float hardImpactJerk = 0.6f;    // a jerk away from the hit on every impact that damages the car
     // Signals from the gameplay mod (not settings): it counts up damageHits for every impact that
     // damages the car, after writing that impact's strength (its speed change over the damage
     // threshold, 1 = just enough).
     float damageHits = 0.0f;
     float damageHitStrength = 0.0f;
     float offroadVibration = 0.4f;  // rumble on grass, dirt, mud, gravel
-    float nosLighter = 0.3f;        // steering this much lighter while the nitrous is on (0..0.9)
-    float spinLighter = 0.5f;       // steering this much lighter while the driven wheels spin (0..0.9)
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens
