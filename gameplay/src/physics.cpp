@@ -45,6 +45,19 @@
 // DYNAMIC_GRIP * traction boost * pilot factor at 0x69DD22), its grip limit is the static one. For
 // the player's car that multiply also takes [Physics] SlideGrip: below 1 a sliding tyre has less
 // grip than at its peak, so a rear that lets go slides the car instead of tightening the turn.
+// Speed grip loss (for comparing with Aero, to go): after the grip limit, UpdateLoaded multiplies
+// the tyre's side force by its surface's LATERAL_GRIP (0x69E098); for the player's tyres that also
+// takes 1 - [Physics] SpeedGripLoss * (speed / 300 km/h)^2, so a car pulls away and brakes as
+// before but corners on less grip the faster it goes.
+// Aero: Chassis::DoAerodynamics (called from SuspensionRacer::OnTaskSimulate) pushes the car down
+// with the game's own downforce: speed * AERO_COEFFICIENT * 2000 (Physics::Info::
+// AerodynamicDownforce), times the Aerodynamics tuning, at a point between the axles set by
+// AERO_CG, only while it is positive. That call is wrapped, and for the player's car a force of
+// [Physics] Aero times the car's weight at 300 km/h, growing with the square of the speed, is added
+// the same way at the same point (Chassis::State: matrix +0, linear_vel +0x50, ground_effect +0x6C,
+// cog +0x70, mass +0xAC, speed +0xBC; IRigidBody::ResolveForce(force, point), vtable +0x88): above
+// 0 more downforce, below 0 lift. It loads or unloads the tyres like the game's own, so the grip,
+// the suspension and the steering weight all follow.
 //
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
@@ -121,6 +134,16 @@ constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
+constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
+constexpr uintptr_t kCallDoAero = 0x6B206E;         // SuspensionRacer::OnTaskSimulate: call Chassis::DoAerodynamics
+constexpr uintptr_t kDoAerodynamics = 0x68D8E0;     // thiscall (state, drag_pct, aero_pct, front_z, rear_z, tunings)
+constexpr uintptr_t kAeroDropOff = 0x8F89D0, kAeroDropOffMin = 0x8F89D4;
+constexpr int kCh_Owner = 0x34;                     // Chassis: ISimable* (vtable +0x54: GetRigidBody)
+constexpr int kCh_Layout = 0x78;                    // Chassis: chassis attributes' layout
+constexpr int kChL_AeroCg = 0x5C, kChL_AeroCoef = 0x68;
+constexpr int kSt_LinearVel = 0x50, kSt_Ground = 0x6C, kSt_Cog = 0x70, kSt_Mass = 0xAC, kSt_Speed = 0xBC;
+constexpr int kTunings_Aero = 0x10;                 // Physics::Tunings: AERODYNAMICS
+constexpr float kAeroRefSpeed = 300.0f / 3.6f;      // Aero and SpeedGripLoss are their full value here
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -131,6 +154,11 @@ Simulate_t s_origSusp, s_origRB;
 bool s_playerSusp;      // the player's suspension is simulating
 extern "C" float s_slideGrip;
 float s_slideGrip = 1.0f;   // the sliding friction factor for the suspension simulating now
+// The player's tyres while its suspension simulates (else null) and their side grip factors.
+extern "C" uint8_t* s_latTires[4];
+extern "C" float s_latMul[4];
+uint8_t* s_latTires[4];
+float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -198,7 +226,14 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.slideGrip == 1.0f;
+           c.slideGrip == 1.0f && c.speedGripLoss == 0.0f;
+}
+
+// Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
+// least a tenth.
+float SpeedGrip(float loss, float speed) {
+    float r = speed / kAeroRefSpeed;
+    return Clamp(1.0f - loss * r * r, 0.1f, 1.0f);
 }
 
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
@@ -223,7 +258,15 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
+    if (g_cfg.speedGripLoss > 0.0f) {
+        float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
+        for (int i = 0; i < 4; i++) {
+            s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+            s_latMul[i] = fast;
+        }
+    }
     s_origSusp(susp, dT);
+    for (uint8_t*& t : s_latTires) t = nullptr;
     s_slideGrip = 1.0f;
     Restore(sv);
     s_playerSusp = false;
@@ -238,6 +281,79 @@ __asm__(
     "    fmuls _s_slideGrip\n"
     "    ret\n");
 extern "C" void SlideFrictionStub();
+
+// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times s_latMul for a tyre in
+// s_latTires. eax is kept; the flags are free here (the next test sets them again).
+__asm__(
+    ".text\n"
+    "_LateralGripStub:\n"
+    "    flds 0xF0(%ecx)\n"
+    "    pushl %eax\n"
+    "    xorl %eax, %eax\n"
+    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
+    "    je 2f\n"
+    "    incl %eax\n"
+    "    cmpl $4, %eax\n"
+    "    jb 1b\n"
+    "    popl %eax\n"
+    "    ret\n"
+    "2:  fmuls _s_latMul(,%eax,4)\n"
+    "    popl %eax\n"
+    "    ret\n");
+extern "C" void LateralGripStub();
+
+bool Plausible(uintptr_t p);
+
+typedef void(__thiscall* DoAerodynamics_t)(void* chassis, const uint8_t* state, float drag, float aero, float frontZ,
+                                           float rearZ, const uint8_t* tunings);
+typedef void*(__thiscall* GetRigidBody_t)(void* simable);
+typedef void(__thiscall* ResolveForce_t)(void* rb, const float* force, const float* point);
+
+// The game's own aerodynamics, then for the player's car [Physics] Aero's lift or downforce.
+void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* state, float drag, float aero, float frontZ,
+                                    float rearZ, const uint8_t* tunings) {
+    ((DoAerodynamics_t)kDoAerodynamics)(chassis, state, drag, aero, frontZ, rearZ, tunings);
+    if (!s_playerSusp || !g_cfg.physics || !state) return;
+    const float* m = (const float*)state;   // rows: right, up, forward, position (4 floats each)
+    uint8_t* layout = Field<uint8_t*>(chassis, kCh_Layout);
+    float mass = *(const float*)(state + kSt_Mass), speed = *(const float*)(state + kSt_Speed);
+    float tuning = tunings ? *(const float*)(tunings + kTunings_Aero) : 0.0f;
+
+    // The car's own aero, logged once per car: its downforce at 300 km/h as a share of its weight.
+    static uint8_t* logged;
+    if (logged != chassis && Plausible((uintptr_t)layout) && mass > 1.0f) {
+        logged = chassis;
+        float game = kAeroRefSpeed * Field<float>(layout, kChL_AeroCoef) * 2000.0f * (1.0f + 0.25f * tuning);
+        Log("physics: aero: the game's downforce at 300 km/h is %.0f%% of the car's weight (AERO_COEFFICIENT %.4f, "
+            "AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg), linear in speed; Aero %+.2f adds %.0f%% at 300 km/h, "
+            "with the square of the speed",
+            game / (mass * 9.81f) * 100.0f, Field<float>(layout, kChL_AeroCoef), Field<float>(layout, kChL_AeroCg), tuning,
+            mass, g_cfg.aero, g_cfg.aero * 100.0f);
+    }
+    if (g_cfg.aero == 0.0f || aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
+    float ground = *(const float*)(state + kSt_Ground);
+    if (ground == 0.0f) return;   // in the air: no lift or downforce to speak of
+    // As the game's own: less when tilted with fewer than two wheels down, none going backwards.
+    float upness = ground >= 0.5f ? 1.0f : std::max(m[5], 0.0f);
+    const float* vel = (const float*)(state + kSt_LinearVel);
+    float forwardness = std::max((vel[0] * m[8] + vel[1] * m[9] + vel[2] * m[10]) / speed, 0.0f);
+    forwardness = std::max(*(const float*)kAeroDropOffMin, powf(forwardness, *(const float*)kAeroDropOff));
+    float r = speed / kAeroRefSpeed;
+    float f = g_cfg.aero * mass * 9.81f * r * r * upness * forwardness;   // + down, - up
+    // At the game's aero point: the car's centre of gravity, moved along it by AERO_CG between the axles.
+    const float* cog = (const float*)(state + kSt_Cog);
+    float z = Plausible((uintptr_t)layout) ? (frontZ - rearZ) * (Field<float>(layout, kChL_AeroCg) * 0.01f) + rearZ : cog[2];
+    float point[3], force[3];
+    for (int a = 0; a < 3; a++) {
+        point[a] = m[a] * cog[0] + m[4 + a] * cog[1] + m[8 + a] * z + m[12 + a];
+        force[a] = -f * m[4 + a];
+    }
+    void* simable = Field<void*>(chassis, kCh_Owner);
+    if (!Plausible((uintptr_t)simable)) return;
+    void* rb = ((GetRigidBody_t)(*(uintptr_t**)simable)[0x54 / 4])(simable);
+    if (!Plausible((uintptr_t)rb)) return;
+    ((ResolveForce_t)(*(uintptr_t**)rb)[0x88 / 4])(rb, force, point);
+}
 
 // Called from TuneWheelParams for each blown tire, in place of the game's code.
 void __cdecl Hook_BlownTire(uint8_t* tire) {
@@ -554,6 +670,8 @@ const PerCar kPerCar[] = {
     {&Config::slideGrip, "SlideGrip", 0.4f, 1.0f},
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
+    {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
+    {&Config::aero, "Aero", -0.9f, 0.9f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
@@ -858,6 +976,10 @@ void Physics_Install() {
     if (Expect(kSlideFriction, {0xD8, 0x8E, 0xEC, 0x00, 0x00, 0x00})) {
         WriteCallNops(kSlideFriction, 6, (void*)&SlideFrictionStub);
         Log("physics: slide grip ready (%.2f)", g_cfg.slideGrip);
+        if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
+            WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
+            Log("physics: speed grip loss ready (%.2f)", g_cfg.speedGripLoss);
+        }
     } else {
         Log("physics: slide grip unavailable");
     }
@@ -867,6 +989,10 @@ void Physics_Install() {
     } else {
         Log("physics: unexpected vehicle code, the perfect launch stays");
     }
+    if (RetargetCall(kCallDoAero, kDoAerodynamics, (void*)&Hook_DoAerodynamics))
+        Log("physics: aero ready (%+.2f)", g_cfg.aero);
+    else
+        Log("physics: unexpected suspension code, no aero setting");
     if (RetargetCall(kCallDoDrifting, kDoDrifting, (void*)&Hook_DoDrifting)) {
         Log("physics: grip balance ready (balance %+.2f, off-road grip %.2f)", g_cfg.gripBalance, g_cfg.offroadGrip);
     } else {

@@ -193,8 +193,16 @@
   - Engine smoke in the back is automatic (below).
   - In the ini only: `[Physics] MaxSpin`, `[Engine] HeatUpMaxRPM` / `CoolDown` / `SmokeFrom`,
     `[Damage] MinImpact` / `SmokeFrom` / `SmokeTrail`.
-- **Grip loss at speed removed** (`[Physics] SpeedGripLoss`, also from the presets and the
-  per-car sections): cornering grip falling with the square of the speed isn't how tyres behave.
+- **Aero: lift or extra downforce per car** (`[Physics] Aero`, per car and in presets, F4 >
+  Physics): a force on top of the game's own aero, as a share of the car's weight at 300 km/h,
+  growing with the square of the speed. Below 0 it is lift: the tyres unload, so the car gets
+  lighter, looser and lighter on the steering the faster it goes (older muscle cars); above 0 it
+  plants the car (exotics). It goes through the game's own aero call, at the car's own aero point
+  (AERO_CG), so suspension, grip and force feedback all follow. The log shows each car's own
+  downforce at 300 km/h as a share of its weight.
+- **Grip loss at speed is back for now** (`[Physics] SpeedGripLoss`, F4 > Physics > Grip loss
+  at speed (old)), with spinesplitter's values in his presets, to compare with Aero: Aero -X
+  is about SpeedGripLoss X, through the tyres' load instead of a cut in side grip.
 - **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
   to the rear tyres' slip angle while sliding, so the same turn of the wheel steered the front
   wheels further mid-slide. The lock now follows the speed only.

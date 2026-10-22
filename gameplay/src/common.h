@@ -167,6 +167,8 @@ struct Config {
     float offroadGrip = 0.95f;      // tyre grip on grass, dirt, mud, gravel, sand
     float slideGrip = 1.0f;        // a sliding tyre's friction compared with its peak grip
     float rainGrip = 0.9f;          // tyre grip in the rain
+    float speedGripLoss = 0.0f;     // side grip lost at 300 km/h, with the square of the speed (to compare with aero)
+    float aero = 0.0f;              // downforce (+) or lift (-) at 300 km/h, share of the car's weight, with speed^2
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 15.0f;          // the player's car never spins faster (rad/s); 0 = the game's 30
