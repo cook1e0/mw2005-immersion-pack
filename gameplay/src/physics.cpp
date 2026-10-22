@@ -62,12 +62,13 @@
 // Aero: Chassis::DoAerodynamics (called from SuspensionRacer::OnTaskSimulate) pushes the car down
 // with the game's own downforce: speed * AERO_COEFFICIENT * 2000 (Physics::Info::
 // AerodynamicDownforce), times the Aerodynamics tuning, at a point between the axles set by
-// AERO_CG, only while it is positive. That call is wrapped, and for the player's car a force of
-// [Physics] Aero times the car's weight at 300 km/h, growing with the square of the speed, is added
-// the same way at the same point (Chassis::State: matrix +0, linear_vel +0x50, ground_effect +0x6C,
-// cog +0x70, mass +0xAC, speed +0xBC; IRigidBody::ResolveForce(force, point), vtable +0x88): above
-// 0 more downforce, below 0 lift. It loads or unloads the tyres like the game's own, so the grip,
-// the suspension and the steering weight all follow.
+// AERO_CG, only while it is positive. It is large: the Mustang's is 2.4 times its weight at
+// 300 km/h, which is most of the game's grip at speed (the grip limit is load * grip). That call is
+// wrapped, and for the player's car the downforce becomes [Physics] Downforce times the game's own:
+// the difference is added the same way at the same point (Chassis::State: matrix +0, linear_vel
+// +0x50, ground_effect +0x6C, cog +0x70, mass +0xAC, speed +0xBC; IRigidBody::ResolveForce(force,
+// point), vtable +0x88). Below 1 less, below 0 lift. It loads or unloads the tyres like the game's
+// own, so the grip, the suspension and the steering weight all follow.
 //
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
@@ -158,7 +159,7 @@ constexpr int kCh_Layout = 0x78;                    // Chassis: chassis attribut
 constexpr int kChL_AeroCg = 0x5C, kChL_AeroCoef = 0x68;
 constexpr int kSt_LinearVel = 0x50, kSt_Ground = 0x6C, kSt_Cog = 0x70, kSt_Mass = 0xAC, kSt_Speed = 0xBC;
 constexpr int kTunings_Aero = 0x10;                 // Physics::Tunings: AERODYNAMICS
-constexpr float kAeroRefSpeed = 300.0f / 3.6f;      // Aero and SpeedGripLoss are their full value here
+constexpr float kAeroRefSpeed = 300.0f / 3.6f;      // SpeedGripLoss is its full value here
 
 // Popped tire at Handicap 1: traction lost, and brake applied as rolling resistance.
 constexpr float kPoppedTraction = 0.45f;
@@ -178,6 +179,12 @@ float s_speedMul = 1.0f;    // the speed grip loss part of s_latMul this step
 // The tyre force ellipse for the player's tyres (s_latTires): the game's ratio times PowerOversteer.
 extern "C" float s_ellipse, s_ellipseInv;
 float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f;
+// The player's suspension and aero steps this second, for the diagnostics line ([Physics] LogPhysics).
+struct {
+    int suspSteps = 0, suspCustom = 0, aeroSteps = 0;   // the player's suspension steps (own values), aero steps
+    float gameForce = 0, extraForce = 0, weight = 0;    // N at the last aero step
+} s_diag;
+
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -263,7 +270,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
     bool player = Owns(susp, iface);
     s_playerSusp = player;
-    if (player) s_suspDT = dT;
+    if (player) s_suspDT = dT, s_diag.suspSteps++;
     if (!player || !g.ok || !g_cfg.physics || Stock()) {
         s_origSusp(susp, dT);
         s_playerSusp = false;
@@ -275,6 +282,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
         Log("physics: player suspension %p (torque split %.2f front)", susp, tranny ? Field<float>(tranny, kTR_TorqueSplit) : -1.0f);
     }
+    s_diag.suspCustom++;
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
@@ -368,43 +376,56 @@ typedef void*(__thiscall* GetRigidBody_t)(void* simable);
 typedef void(__thiscall* ResolveForce_t)(void* rb, const float* force, const float* point);
 
 // The game's own aerodynamics, then for the player's car [Physics] Aero's lift or downforce.
+// The game's own aerodynamics, then for the player's car the difference to [Physics] Downforce
+// times the game's own downforce (as DoAerodynamics computes it, at the same point).
 void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* state, float drag, float aero, float frontZ,
                                     float rearZ, const uint8_t* tunings) {
     ((DoAerodynamics_t)kDoAerodynamics)(chassis, state, drag, aero, frontZ, rearZ, tunings);
     if (!s_playerSusp || !g_cfg.physics || !state) return;
+    s_diag.aeroSteps++;
     const float* m = (const float*)state;   // rows: right, up, forward, position (4 floats each)
     uint8_t* layout = Field<uint8_t*>(chassis, kCh_Layout);
+    if (!Plausible((uintptr_t)layout)) return;
     float mass = *(const float*)(state + kSt_Mass), speed = *(const float*)(state + kSt_Speed);
     float tuning = tunings ? *(const float*)(tunings + kTunings_Aero) : 0.0f;
+    float coef = Field<float>(layout, kChL_AeroCoef), aeroCg = Field<float>(layout, kChL_AeroCg);
+    s_diag.weight = mass * 9.81f;
 
     // The car's own aero, logged once per car: its downforce at 300 km/h as a share of its weight.
     static uint8_t* logged;
-    if (logged != chassis && Plausible((uintptr_t)layout) && mass > 1.0f) {
+    if (logged != chassis && mass > 1.0f) {
         logged = chassis;
-        float game = kAeroRefSpeed * Field<float>(layout, kChL_AeroCoef) * 2000.0f * (1.0f + 0.25f * tuning);
-        Log("physics: aero: the game's downforce at 300 km/h is %.0f%% of the car's weight (AERO_COEFFICIENT %.4f, "
-            "AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg), linear in speed; Aero %+.2f adds %.0f%% at 300 km/h, "
-            "with the square of the speed",
-            game / (mass * 9.81f) * 100.0f, Field<float>(layout, kChL_AeroCoef), Field<float>(layout, kChL_AeroCg), tuning,
-            mass, g_cfg.aero, g_cfg.aero * 100.0f);
+        float game = kAeroRefSpeed * coef * 2000.0f * (1.0f + 0.25f * tuning);
+        Log("physics: aero: the game's downforce at 300 km/h is %.0f%% of the car's weight, linear in speed "
+            "(AERO_COEFFICIENT %.4f, AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg); Downforce %.2f makes it %.0f%%",
+            game / (mass * 9.81f) * 100.0f, coef, aeroCg, tuning, mass, g_cfg.downforce,
+            game / (mass * 9.81f) * 100.0f * g_cfg.downforce);
     }
-    if (!g_cfg.useAero || g_cfg.aero == 0.0f || aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
+    s_diag.gameForce = s_diag.extraForce = 0.0f;
+    if (aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
+    // The game's downforce, as DoAerodynamics has it: less when tilted with fewer than two wheels
+    // down, none going backwards, 0.8 in the air, the Aerodynamics tuning a quarter per step.
     float ground = *(const float*)(state + kSt_Ground);
-    if (ground == 0.0f) return;   // in the air: no lift or downforce to speak of
-    // As the game's own: less when tilted with fewer than two wheels down, none going backwards.
     float upness = ground >= 0.5f ? 1.0f : std::max(m[5], 0.0f);
     const float* vel = (const float*)(state + kSt_LinearVel);
     float forwardness = std::max((vel[0] * m[8] + vel[1] * m[9] + vel[2] * m[10]) / speed, 0.0f);
     forwardness = std::max(*(const float*)kAeroDropOffMin, powf(forwardness, *(const float*)kAeroDropOff));
-    float r = speed / kAeroRefSpeed;
-    float f = g_cfg.aero * mass * 9.81f * r * r * upness * forwardness;   // + down, - up
-    // At the game's aero point: the car's centre of gravity, moved along it by AERO_CG between the axles.
+    float game = aero * upness * forwardness * speed * coef * 2000.0f;
+    if (ground == 0.0f) game *= 0.8f;
+    game += game * 0.25f * tuning;
+    if (game <= 0.0f) return;
+    s_diag.gameForce = game;
+    if (!g_cfg.useAero || g_cfg.downforce == 1.0f) return;
+    float f = (g_cfg.downforce - 1.0f) * game;   // + more down, - less (below 0 Downforce: lift)
+    s_diag.extraForce = f;
+    // At the game's aero point: the car's centre of gravity, moved along it by AERO_CG between the
+    // axles while a wheel is down.
     const float* cog = (const float*)(state + kSt_Cog);
-    float z = Plausible((uintptr_t)layout) ? (frontZ - rearZ) * (Field<float>(layout, kChL_AeroCg) * 0.01f) + rearZ : cog[2];
+    float z = ground != 0.0f ? (frontZ - rearZ) * (aeroCg * 0.01f) + rearZ : cog[2];
     float point[3], force[3];
-    for (int a = 0; a < 3; a++) {
-        point[a] = m[a] * cog[0] + m[4 + a] * cog[1] + m[8 + a] * z + m[12 + a];
-        force[a] = -f * m[4 + a];
+    for (int k = 0; k < 3; k++) {
+        point[k] = m[k] * cog[0] + m[4 + k] * cog[1] + m[8 + k] * z + m[12 + k];
+        force[k] = -f * m[4 + k];
     }
     void* simable = Field<void*>(chassis, kCh_Owner);
     if (!Plausible((uintptr_t)simable)) return;
@@ -675,12 +696,35 @@ void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     }
 }
 
+// Once a second for the player's car: whether its suspension steps reach this mod (a car it can't
+// see gets none of the physics settings), and with [Physics] LogPhysics the aero forces and grip
+// factors at that moment.
+void Diagnostics(uint8_t* rb) {
+    static double last;
+    static uint8_t* warnedCar;
+    double now = Now();
+    if (now - last < 1.0) return;
+    last = now;
+    if (s_diag.suspSteps == 0 && g_cfg.physics && warnedCar != rb && s_playerSpeed > 2.0f) {
+        warnedCar = rb;
+        Log("physics: the player's car moves but its suspension steps don't reach the mod: no physics settings on it");
+    }
+    if (g_cfg.logPhysics && s_playerSpeed > 5.0f)
+        Log("physics: %3.0f km/h: suspension %d steps (%d with the mod's values), aero %d; game downforce %.0f%% of the "
+            "weight, ours %+.0f%%; side grip x%.2f/%.2f, ellipse %.2f",
+            s_playerSpeed * 3.6f, s_diag.suspSteps, s_diag.suspCustom, s_diag.aeroSteps,
+            s_diag.weight > 0 ? s_diag.gameForce / s_diag.weight * 100.0f : 0.0f,
+            s_diag.weight > 0 ? s_diag.extraForce / s_diag.weight * 100.0f : 0.0f, s_latMul[0], s_latMul[2], s_ellipse);
+    s_diag.suspSteps = s_diag.suspCustom = s_diag.aeroSteps = 0;
+}
+
 void __fastcall Hook_RBBeginFrame(uint8_t* rb, void*, float dT) {
     bool player = Owns(rb, Game_PlayerInterface((void*)kIRigidBodyHandle));
     uint8_t* data = player ? RBData(rb) : nullptr;
     if (data) {
         DropIfAsked(data);
         s_playerSpeed = Length((const float*)(data + kRV_LinearVel));
+        Diagnostics(rb);
         LimitSpin(data);
         LimitTorque(rb, data, dT);
     }
@@ -746,14 +790,14 @@ const PerCar kPerCar[] = {
     {&Config::rainGrip, "RainGrip", 0.5f, 1.0f},
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
     {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
-    {&Config::aero, "Aero", -0.9f, 0.9f},
+    {&Config::downforce, "Downforce", -0.25f, 2.0f},
     {&Config::powerOversteer, "PowerOversteer", 0.5f, 3.0f},
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
 // out of a section when it is written.
-const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SmokeBack"};
+const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SmokeBack", "Aero"};
 
 int PerCarIndex(float Config::*field) {
     for (int i = 0; i < kNumPerCar; i++)
@@ -1077,7 +1121,8 @@ void Physics_Install() {
         Log("physics: unexpected tyre code, no power oversteer");
     }
     if (RetargetCall(kCallDoAero, kDoAerodynamics, (void*)&Hook_DoAerodynamics))
-        Log("physics: aero ready (%+.2f)", g_cfg.aero);
+        Log("physics: downforce ready (%.2f x the game's, %s)", g_cfg.downforce,
+            g_cfg.useAero ? "in use" : "off: speed grip loss in use");
     else
         Log("physics: unexpected suspension code, no aero setting");
     if (RetargetCall(kCallDoDrifting, kDoDrifting, (void*)&Hook_DoDrifting)) {

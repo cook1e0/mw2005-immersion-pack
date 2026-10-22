@@ -190,29 +190,22 @@
   - Engine smoke in the back is automatic (below).
   - In the ini only: `[Physics] MaxSpin`, `[Engine] HeatUpMaxRPM` / `CoolDown` / `SmokeFrom`,
     `[Damage] MinImpact` / `SmokeFrom` / `SmokeTrail`.
-- **Aero: lift or extra downforce per car** (`[Physics] Aero`, per car and in presets, F4 >
-  Physics): a force on top of the game's own aero, as a share of the car's weight at 300 km/h,
-  growing with the square of the speed. Below 0 it is lift: the tyres unload, so the car gets
-  lighter, looser and lighter on the steering the faster it goes (older muscle cars); above 0 it
-  plants the car (exotics). It goes through the game's own aero call, at the car's own aero point
+- **Downforce per car** (`[Physics] Downforce`, per car and in presets, F4 > Physics): the game's
+  own aerodynamic downforce, scaled. It grows with speed and is large (the Mustang's is 2.4 times
+  its weight at 300 km/h), and since a tyre's grip limit is its load times its grip, it is most of
+  the game's grip at speed. Below 100% a car gets lighter and looser the faster it goes; below 0
+  it turns into lift. It goes through the game's own aero call, at the car's own aero point
   (AERO_CG), so suspension, grip and force feedback all follow. The log shows each car's own
   downforce at 300 km/h as a share of its weight.
-- **Power oversteer** (`[Physics] PowerOversteer`, per car and in presets, F4 > Physics): how much
-  of a driven tyre's grip the throttle uses, as a multiple of the game's own tyre force ellipse
-  (1.5 in UpdateLoaded). Higher: under power the driven wheels have less grip left for cornering,
-  more so the more torque the car has, so rear drive cars step out and front drive cars push wide.
-- **Slide oversteer is back for now** (`[Physics] SlideOversteer`, F4 > Physics > Slide oversteer
-  (old)), to compare with Power oversteer: F4 > Physics > Power oversteer
-  (`UsePowerOversteer`, on by default) picks which one applies, for every car. spinesplitter's
-  presets hold both: his slide oversteer values and a power oversteer giving a rear tyre at the
-  limit, half drive and half cornering, the same side grip cut (AWD 0.865 / 1.29x, RWD MUSCLE 0.95 /
-  1.10x, RWD TUNER 0.885 / 1.25x, RWD SUPER 0.985 / 1.03x, FWD 0.935 / 1.13x).
 - **Grip loss at speed is back for now** (`[Physics] SpeedGripLoss`, F4 > Physics > Grip loss
-  at speed (old)), to compare with Aero: Aero -X is about SpeedGripLoss X, through the tyres' load
-  instead of a cut in side grip. F4 > Physics > Aero at speed (`[Physics] UseAero`, on by default)
-  picks which one applies, for every car. spinesplitter's presets hold both: his grip loss values
-  and the same as lift (AWD 0.45 / -0.45, RWD MUSCLE 0.333, FWD 0.285, RWD TUNER 0.225, RWD SUPER
-  0.125).
+  at speed (old)), to compare with Downforce. F4 > Physics > Downforce at speed (`[Physics]
+  UseAero`, on by default) picks which one applies, for every car. spinesplitter's presets hold
+  both: his grip loss values and the Downforce giving the same grip at 250 km/h on a car with the
+  Mustang's aero (AWD 0.45 / 53%, RWD MUSCLE 0.333 / 66%, FWD 0.285 / 70%, RWD TUNER 0.225 / 77%,
+  RWD SUPER 0.125 / 87%).
+- **Physics diagnostics:** `[Physics] LogPhysics=1` logs a line a second while driving (the game's
+  downforce and ours, side grip factors, the tyre force ellipse), and the log notes a car whose
+  suspension steps don't reach the mod (it would get none of the physics settings).
 - **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
   to the rear tyres' slip angle while sliding, so the same turn of the wheel steered the front
   wheels further mid-slide. The lock now follows the speed only.

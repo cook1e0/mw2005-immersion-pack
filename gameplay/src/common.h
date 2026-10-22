@@ -168,8 +168,9 @@ struct Config {
     float slideGrip = 1.0f;        // a sliding tyre's friction compared with its peak grip
     float rainGrip = 0.9f;          // tyre grip in the rain
     float speedGripLoss = 0.0f;     // side grip lost at 300 km/h, with the square of the speed (to compare with aero)
-    float aero = 0.0f;              // downforce (+) or lift (-) at 300 km/h, share of the car's weight, with speed^2
-    bool  useAero = true;           // high speed: Aero applies (true) or SpeedGripLoss (false), never both
+    float downforce = 1.0f;         // times the game's own aerodynamic downforce (below 0: lift), per car
+    bool  useAero = true;           // high speed: Downforce applies (true) or SpeedGripLoss (false), never both
+    int   logPhysics = 0;           // 1: a physics line every second while driving (aero, grip factors)
     float powerOversteer = 1.0f;    // times the game's tyre force ellipse: throttle's share of a driven tyre's grip
     float slideOversteer = 1.0f;    // the older way: rear side grip under throttle (1 = off), to compare
     bool  usePowerOversteer = true; // PowerOversteer applies (true) or SlideOversteer (false), never both

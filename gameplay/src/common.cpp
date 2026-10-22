@@ -262,7 +262,8 @@ void LoadConfig() {
     c.slideGrip = Clamp(ReadFloat("Physics", "SlideGrip", c.slideGrip), 0.4f, 1.0f);
     c.rainGrip = Clamp(ReadFloat("Physics", "RainGrip", c.rainGrip), 0.5f, 1.0f);
     c.speedGripLoss = Clamp(ReadFloat("Physics", "SpeedGripLoss", c.speedGripLoss), 0.0f, 0.9f);
-    c.aero = Clamp(ReadFloat("Physics", "Aero", c.aero), -0.9f, 0.9f);
+    c.downforce = Clamp(ReadFloat("Physics", "Downforce", c.downforce), -0.25f, 2.0f);
+    c.logPhysics = ReadInt("Physics", "LogPhysics", 0);
     c.useAero = ReadInt("Physics", "UseAero", c.useAero) != 0;
     c.powerOversteer = Clamp(ReadFloat("Physics", "PowerOversteer", c.powerOversteer), 0.5f, 3.0f);
     c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
