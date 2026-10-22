@@ -2616,24 +2616,52 @@ static bool LoadedAsProxy(HINSTANCE inst) {
     return _stricmp(name ? name + 1 : path, "d3d9.dll") == 0;
 }
 
+// The game's import slot for d3d9.dll!Direct3DCreate9, by its import directory (not by where it
+// points now: an overlay may have redirected it already).
+static bool IsD3D9CreateSlot(void** slot) {
+    BYTE* base = (BYTE*)GetModuleHandleA(nullptr);
+    IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)(base + ((IMAGE_DOS_HEADER*)base)->e_lfanew);
+    const IMAGE_DATA_DIRECTORY& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress) return false;
+    for (IMAGE_IMPORT_DESCRIPTOR* imp = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); imp->Name; imp++) {
+        if (_stricmp((const char*)(base + imp->Name), "d3d9.dll") != 0 || !imp->OriginalFirstThunk) continue;
+        IMAGE_THUNK_DATA* names = (IMAGE_THUNK_DATA*)(base + imp->OriginalFirstThunk);
+        void** slots = (void**)(base + imp->FirstThunk);
+        for (int i = 0; names[i].u1.AddressOfData; i++) {
+            if (IMAGE_SNAP_BY_ORDINAL(names[i].u1.Ordinal)) continue;
+            IMAGE_IMPORT_BY_NAME* byName = (IMAGE_IMPORT_BY_NAME*)(base + names[i].u1.AddressOfData);
+            if (strcmp((const char*)byName->Name, "Direct3DCreate9") == 0) return &slots[i] == slot;
+        }
+    }
+    return false;
+}
+
 // .asi mode: redirect the game's D3D9.dll!Direct3DCreate9 IAT slot to the proxy export.
 static bool PatchImport() {
     void** slot = (void**)0x8904A8;
     HMODULE target = nullptr;
-    if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            (LPCSTR)*slot, &target) ||
-        GetProcAddress(target, "Direct3DCreate9") != *slot) {
-        Log("asi mode: Direct3DCreate9 import not found (not speed.exe v1.3?), VR inactive");
-        return false;
+    bool resolved = GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       (LPCSTR)*slot, &target) &&
+                    GetProcAddress(target, "Direct3DCreate9") == *slot;
+    char path[MAX_PATH] = "an unknown module";
+    if (target) GetModuleFileNameA(target, path, MAX_PATH);
+    if (!resolved) {
+        // An overlay (RivaTuner's RTSSHooks.dll injects early) can point the import at a hook of its
+        // own before this runs. It is still the game's slot: the device then comes straight from
+        // System32's d3d9.dll (Real() loads it), past that hook.
+        if (!IsD3D9CreateSlot(slot)) {
+            Log("asi mode: Direct3DCreate9 import not found (not speed.exe v1.3?), VR inactive");
+            return false;
+        }
+        Log("asi mode: Direct3DCreate9 import already redirected to %s (an overlay?); using the system d3d9.dll", path);
+        target = nullptr;
     }
     s_real = target;
     DWORD old;
     VirtualProtect(slot, 4, PAGE_READWRITE, &old);
     *slot = (void*)&Proxy_Direct3DCreate9;
     VirtualProtect(slot, 4, old, &old);
-    char path[MAX_PATH];
-    GetModuleFileNameA(target, path, MAX_PATH);
-    Log("asi mode: redirected Direct3DCreate9 import (real d3d9: %s)", path);
+    Log("asi mode: redirected Direct3DCreate9 import (real d3d9: %s)", target ? path : "System32");
     return true;
 }
 

@@ -172,7 +172,7 @@ void LoadConfig() {
     if (ReadInt("Controls", "SpeedSensitiveSteering", 1) == 0) c.steerSpeedSensitivity = 0.0f;   // an older file's switch
     c.steerSensitivity = Clamp(ReadFloat("Controls", "SteeringSensitivity", c.steerSensitivity), 0.25f, 4.0f);
     c.pedalDeadzone = Clamp(ReadFloat("Controls", "PedalDeadzone", c.pedalDeadzone), 0.0f, 0.4f);
-    c.gameController = ReadInt("Controls", "GameController", 0) != 0;
+    c.gameController = ReadInt("Controls", "GameController", c.gameController) != 0;
     c.classicInput = ReadInt("Controls", "ClassicInput", 0) != 0;
     c.menuController = ReadInt("Controls", "MenuController", c.menuController) != 0;
     c.menuAxes = ReadInt("Controls", "MenuAxes", c.menuAxes) != 0;
@@ -256,7 +256,7 @@ void LoadConfig() {
     c.grip = Clamp(ReadFloat("Physics", "Grip", c.grip), 0.3f, 2.0f);
     c.gripBalance = Clamp(ReadFloat("Physics", "GripBalance", c.gripBalance), -0.5f, 0.5f);
     LegacyGripBalance("Physics", IniPath(), &c.grip, &c.gripBalance);
-    c.abs = ReadInt("Physics", "ABS", 0) != 0;
+    c.abs = ReadInt("Physics", "ABS", c.abs) != 0;
     c.tc = ReadInt("Physics", "TC", 0) != 0;
     c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
     c.slideGrip = Clamp(ReadFloat("Physics", "SlideGrip", c.slideGrip), 0.4f, 1.0f);
