@@ -187,9 +187,6 @@
   - Traction control is one row: Off / Game's / Game's + launch control (below).
   - Speed-sensitive steering is one slider, 0 = off (`[Controls] SpeedSensitivity`; an older
     ini's `SpeedSensitiveSteering=0` reads as 0).
-  - Slide oversteer is gone: it was a fourth setting on the rear's grip in a slide, next to Drift
-    assist, Stability and Slide grip. Cars and presets that used it hold the rear a little better
-    under power.
   - Engine smoke in the back is automatic (below).
   - In the ini only: `[Physics] MaxSpin`, `[Engine] HeatUpMaxRPM` / `CoolDown` / `SmokeFrom`,
     `[Damage] MinImpact` / `SmokeFrom` / `SmokeTrail`.
@@ -200,6 +197,16 @@
   plants the car (exotics). It goes through the game's own aero call, at the car's own aero point
   (AERO_CG), so suspension, grip and force feedback all follow. The log shows each car's own
   downforce at 300 km/h as a share of its weight.
+- **Power oversteer** (`[Physics] PowerOversteer`, per car and in presets, F4 > Physics): how much
+  of a driven tyre's grip the throttle uses, as a multiple of the game's own tyre force ellipse
+  (1.5 in UpdateLoaded). Higher: under power the driven wheels have less grip left for cornering,
+  more so the more torque the car has, so rear drive cars step out and front drive cars push wide.
+- **Slide oversteer is back for now** (`[Physics] SlideOversteer`, F4 > Physics > Slide oversteer
+  (old)), to compare with Power oversteer: F4 > Physics > Power oversteer
+  (`UsePowerOversteer`, on by default) picks which one applies, for every car. spinesplitter's
+  presets hold both: his slide oversteer values and a power oversteer giving a rear tyre at the
+  limit, half drive and half cornering, the same side grip cut (AWD 0.865 / 1.29x, RWD MUSCLE 0.95 /
+  1.10x, RWD TUNER 0.885 / 1.25x, RWD SUPER 0.985 / 1.03x, FWD 0.935 / 1.13x).
 - **Grip loss at speed is back for now** (`[Physics] SpeedGripLoss`, F4 > Physics > Grip loss
   at speed (old)), to compare with Aero: Aero -X is about SpeedGripLoss X, through the tyres' load
   instead of a cut in side grip. F4 > Physics > Aero at speed (`[Physics] UseAero`, on by default)

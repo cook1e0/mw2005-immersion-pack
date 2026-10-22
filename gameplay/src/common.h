@@ -170,6 +170,9 @@ struct Config {
     float speedGripLoss = 0.0f;     // side grip lost at 300 km/h, with the square of the speed (to compare with aero)
     float aero = 0.0f;              // downforce (+) or lift (-) at 300 km/h, share of the car's weight, with speed^2
     bool  useAero = true;           // high speed: Aero applies (true) or SpeedGripLoss (false), never both
+    float powerOversteer = 1.0f;    // times the game's tyre force ellipse: throttle's share of a driven tyre's grip
+    float slideOversteer = 1.0f;    // the older way: rear side grip under throttle (1 = off), to compare
+    bool  usePowerOversteer = true; // PowerOversteer applies (true) or SlideOversteer (false), never both
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 15.0f;          // the player's car never spins faster (rad/s); 0 = the game's 30

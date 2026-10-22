@@ -264,6 +264,9 @@ void LoadConfig() {
     c.speedGripLoss = Clamp(ReadFloat("Physics", "SpeedGripLoss", c.speedGripLoss), 0.0f, 0.9f);
     c.aero = Clamp(ReadFloat("Physics", "Aero", c.aero), -0.9f, 0.9f);
     c.useAero = ReadInt("Physics", "UseAero", c.useAero) != 0;
+    c.powerOversteer = Clamp(ReadFloat("Physics", "PowerOversteer", c.powerOversteer), 0.5f, 3.0f);
+    c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
+    c.usePowerOversteer = ReadInt("Physics", "UsePowerOversteer", c.usePowerOversteer) != 0;
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
     c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);

@@ -49,6 +49,16 @@
 // the tyre's side force by its surface's LATERAL_GRIP (0x69E098); for the player's tyres that also
 // takes 1 - [Physics] SpeedGripLoss * (speed / 300 km/h)^2, so a car pulls away and brakes as
 // before but corners on less grip the faster it goes.
+// Power oversteer: UpdateLoaded weighs a driving wheel's drive force by TireForceEllipseRatio
+// (1.5, at 0x8AAC78) against the tyre's grip budget (load * static grip), so throttle uses up more
+// of the grip than its own force and leaves less for cornering; below the limit the drive force is
+// divided back (0x896D64, 1/1.5). For the player's tyres both are swapped for that ratio times
+// [Physics] PowerOversteer: above 1 the driven wheels lose more side grip under power, the more so
+// the more torque the car has (rear drive: oversteer, front drive: understeer).
+// Slide oversteer (the older way, to compare, behind [Physics] UsePowerOversteer=0): the rear
+// tyres' side grip (the LATERAL_GRIP multiply below) takes [Physics] SlideOversteer with the game's
+// throttle (lifting off in a front drive car), coming back as the rear's slip angle (Tire +0x118,
+// in turns) grows from 20 to 45 degrees.
 // Aero: Chassis::DoAerodynamics (called from SuspensionRacer::OnTaskSimulate) pushes the car down
 // with the game's own downforce: speed * AERO_COEFFICIENT * 2000 (Physics::Info::
 // AerodynamicDownforce), times the Aerodynamics tuning, at a point between the axles set by
@@ -134,6 +144,11 @@ constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
+constexpr uintptr_t kEllipse = 0x69DF61;            // UpdateLoaded: fmul [TireForceEllipseRatio] (esi = tyre)
+constexpr uintptr_t kEllipseUndo = 0x69E03A;        // UpdateLoaded: fmul [1 / 1.5] below the grip limit
+constexpr uintptr_t kEllipseRatio = 0x8AAC78, kEllipseInv = 0x896D64;
+constexpr int kTire_SlipAngle = 0x118;
+constexpr int kState_Gas = 0x4C;                    // Chassis::State: gas_input 0..1
 constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 constexpr uintptr_t kCallDoAero = 0x6B206E;         // SuspensionRacer::OnTaskSimulate: call Chassis::DoAerodynamics
 constexpr uintptr_t kDoAerodynamics = 0x68D8E0;     // thiscall (state, drag_pct, aero_pct, front_z, rear_z, tunings)
@@ -159,6 +174,10 @@ extern "C" uint8_t* s_latTires[4];
 extern "C" float s_latMul[4];
 uint8_t* s_latTires[4];
 float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+float s_speedMul = 1.0f;    // the speed grip loss part of s_latMul this step
+// The tyre force ellipse for the player's tyres (s_latTires): the game's ratio times PowerOversteer.
+extern "C" float s_ellipse, s_ellipseInv;
+float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f;
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
 
@@ -226,7 +245,8 @@ void Restore(const Saved& sv) {
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
-           c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f);
+           c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f) &&
+           (c.usePowerOversteer ? c.powerOversteer == 1.0f : c.slideOversteer == 1.0f);
 }
 
 // Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
@@ -258,12 +278,15 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    if (!g_cfg.useAero && g_cfg.speedGripLoss > 0.0f) {
-        float fast = SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed);
-        for (int i = 0; i < 4; i++) {
-            s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
-            s_latMul[i] = fast;
-        }
+    // The player's tyres, for the side grip and ellipse stubs (slide oversteer's rear part is set in
+    // the DoDrifting hook: it needs the throttle).
+    s_speedMul = !g_cfg.useAero && g_cfg.speedGripLoss > 0.0f ? SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed) : 1.0f;
+    float ratio = *(const float*)kEllipseRatio * (g_cfg.usePowerOversteer ? g_cfg.powerOversteer : 1.0f);
+    s_ellipse = ratio;
+    s_ellipseInv = 1.0f / ratio;
+    for (int i = 0; i < 4; i++) {
+        s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+        s_latMul[i] = s_speedMul;
     }
     s_origSusp(susp, dT);
     for (uint8_t*& t : s_latTires) t = nullptr;
@@ -301,6 +324,41 @@ __asm__(
     "    popl %eax\n"
     "    ret\n");
 extern "C" void LateralGripStub();
+
+// In place of UpdateLoaded's fmul [TireForceEllipseRatio] and its fmul [1/1.5] undo (6 bytes
+// each): the player's tyres (s_latTires) take s_ellipse / s_ellipseInv, the others the game's.
+__asm__(
+    ".text\n"
+    "_EllipseStub:\n"
+    "    pushl %eax\n"
+    "    xorl %eax, %eax\n"
+    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
+    "    je 2f\n"
+    "    incl %eax\n"
+    "    cmpl $4, %eax\n"
+    "    jb 1b\n"
+    "    popl %eax\n"
+    "    fmuls 0x8AAC78\n"
+    "    ret\n"
+    "2:  popl %eax\n"
+    "    fmuls _s_ellipse\n"
+    "    ret\n"
+    "_EllipseUndoStub:\n"
+    "    pushl %eax\n"
+    "    xorl %eax, %eax\n"
+    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
+    "    je 2f\n"
+    "    incl %eax\n"
+    "    cmpl $4, %eax\n"
+    "    jb 1b\n"
+    "    popl %eax\n"
+    "    fmuls 0x896D64\n"
+    "    ret\n"
+    "2:  popl %eax\n"
+    "    fmuls _s_ellipseInv\n"
+    "    ret\n");
+extern "C" void EllipseStub();
+extern "C" void EllipseUndoStub();
 
 bool Plausible(uintptr_t p);
 
@@ -580,9 +638,26 @@ void AidToggles() {
 
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
+// Slide oversteer's rear side grip factor for this step: with the game's throttle (rear or all-wheel
+// drive) or lifting off (front drive), less as the rear's slip angle grows past 20 degrees, none
+// from 45. On top of the speed grip loss part.
+void SlideOversteer(uint8_t* susp, const uint8_t* state) {
+    if (!s_latTires[2] || !s_latTires[3]) return;
+    float gas = Clamp(*(const float*)(state + kState_Gas), 0.0f, 1.0f);
+    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
+    bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
+    float power = frontDrive ? 1.0f - gas : gas;
+    float angle = 0.0f;
+    for (int i = 2; i < 4; i++) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
+    float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
+    s_latMul[2] = s_latMul[3] = s_speedMul * (1.0f - (1.0f - g_cfg.slideOversteer) * power * fade);
+}
+
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp) return;
+    if (state && g_cfg.physics && !g_cfg.usePowerOversteer && g_cfg.slideOversteer != 1.0f)
+        SlideOversteer(susp, (const uint8_t*)state);
     if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
     if (!g_cfg.physics) return;
     float front = 1.0f + g_cfg.gripBalance, rear = 1.0f - g_cfg.gripBalance, off = g_cfg.offroadGrip;
@@ -672,11 +747,13 @@ const PerCar kPerCar[] = {
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
     {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
     {&Config::aero, "Aero", -0.9f, 0.9f},
+    {&Config::powerOversteer, "PowerOversteer", 0.5f, 3.0f},
+    {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
 // out of a section when it is written.
-const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SlideOversteer", "SmokeBack"};
+const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SmokeBack"};
 
 int PerCarIndex(float Config::*field) {
     for (int i = 0; i < kNumPerCar; i++)
@@ -979,6 +1056,8 @@ void Physics_Install() {
         if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
             WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
             Log("physics: speed grip loss ready (%.2f, %s)", g_cfg.speedGripLoss, g_cfg.useAero ? "off: Aero in use" : "in use");
+            Log("physics: slide oversteer ready (%.2f, %s)", g_cfg.slideOversteer,
+                g_cfg.usePowerOversteer ? "off: power oversteer in use" : "in use");
         }
     } else {
         Log("physics: slide grip unavailable");
@@ -988,6 +1067,14 @@ void Physics_Install() {
         Log("physics: perfect launch %s", g_cfg.physics ? "off" : "as the game's (physics mod off)");
     } else {
         Log("physics: unexpected vehicle code, the perfect launch stays");
+    }
+    if (Expect(kEllipse, {0xD8, 0x0D, 0x78, 0xAC, 0x8A, 0x00}) && Expect(kEllipseUndo, {0xD8, 0x0D, 0x64, 0x6D, 0x89, 0x00})) {
+        WriteCallNops(kEllipse, 6, (void*)&EllipseStub);
+        WriteCallNops(kEllipseUndo, 6, (void*)&EllipseUndoStub);
+        Log("physics: power oversteer ready (%.2f x the game's tyre force ellipse %.2f, %s)", g_cfg.powerOversteer,
+            *(const float*)kEllipseRatio, g_cfg.usePowerOversteer ? "in use" : "off: slide oversteer in use");
+    } else {
+        Log("physics: unexpected tyre code, no power oversteer");
     }
     if (RetargetCall(kCallDoAero, kDoAerodynamics, (void*)&Hook_DoAerodynamics))
         Log("physics: aero ready (%+.2f)", g_cfg.aero);
