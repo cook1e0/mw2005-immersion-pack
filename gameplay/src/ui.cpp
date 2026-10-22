@@ -252,7 +252,7 @@ constexpr struct {
     {MOD_VR, "SeatReset", 0.0f},            // live: the seat bindings held now (-1, 0, 1)
     {MOD_VR, "HideArms", 1.0f},
     {MOD_FFB, "EngineRumble", 0.05f},
-    {MOD_FFB, "Crashes", 0.5f}, {MOD_FFB, "Scrapes", 0.3f},
+    {MOD_FFB, "Crashes", 1.0f}, {MOD_FFB, "Scrapes", 0.8f},
     {MOD_FFB, "Breakables", 0.4f},
     {MOD_VR, "MirrorBrightness", 1.4f}, {MOD_VR, "MirrorContrast", 1.0f},
     {MOD_VR, "WheelOverHud", 0.0f},

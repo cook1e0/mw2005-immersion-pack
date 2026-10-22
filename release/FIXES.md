@@ -391,8 +391,8 @@
 - **One set of defaults:** the code, the shipped `nfsmw_ffb.ini` and the F4 menu's Reset values
   disagreed (damping 0.3 / 0.05 / 0.05, gain 1.0 / 0.85 / 0.85, ...). Now all three are: Gain 0.6,
   MaxForce 0.85, SlewRate 20, Aligning 1.0, Centering 0.2 (parked and slow only), Damping 0.15,
-  Friction 0.05, ParkingFriction 0.2, SoftLock 1.0; effects: EngineRumble 0.05, Crashes 0.5,
-  Scrapes 0.3, Breakables 0.4, Landing 0.6, CarHits 0.6, OffroadVibration 0.4, TyreScrub 0.15. An
+  Friction 0.05, ParkingFriction 0.2, SoftLock 1.0; effects: EngineRumble 0.05, Crashes 1.0,
+  Scrapes 0.8, Breakables 0.4, Landing 0.6, CarHits 0.6, OffroadVibration 0.4, TyreScrub 0.15. An
   `nfsmw_ffb.ini` you already have keeps its values.
 - **Effects that didn't come from the car are gone:** kerbs and bumps (`Kerbs`, fired on road
   seams), the road surface rumble (`SurfaceRumble`, which Off-road vibration covers), lighter
@@ -431,6 +431,10 @@
 - **`LogTelemetry=2` adds a steering trace:** every physics step, the steering input, front
   wheel angle, where the front axle travels, the lock, speed, yaw, sideways speeds, each tyre's
   slip angle and the game's drift state, in `nfsmw_ffb.log`.
+- **Stronger wall hits and scrapes:** a wall hit's shove lasts 0.12 s (was 0.08) and its shake a
+  little longer; a scrape's pull toward the wall is stronger and it fades over 0.1 s after the last
+  contact, so a short brush is felt too. The defaults are now `Crashes=1.0` (was 0.5) and
+  `Scrapes=0.8` (was 0.3); an `nfsmw_ffb.ini` you already have keeps its values.
 - **Harder jolts when an impact damages the car:** every impact the gameplay mod's car damage
   counts (its speed change over `[Damage] MinImpact`) is passed to the FFB mod
   (`NfsmwFfb_Setting("DamageHits")`). The crash or vehicle-hit jolt of that impact gets harder for

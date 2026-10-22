@@ -9,7 +9,7 @@ const double kTwoPi = 6.283185307179586;
 double Advance(double phase, float hz, float dt) { return fmod(phase + kTwoPi * hz * dt, kTwoPi); }
 // Share of a knock's full strength at the car's speed (m/s): full from 150 km/h, a tenth at least.
 float SpeedShare(float speed) { return Clampf(speed / (150.0f / 3.6f), 0.1f, 1.0f); }
-const JoltShape kCrashJolt = {0.08f, 0.6f, 0.12f, 20.0f, 0.45f};
+const JoltShape kCrashJolt = {0.12f, 0.6f, 0.15f, 20.0f, 0.55f};   // a firm shove, then the shake
 const JoltShape kBreakJolt = {0.05f, 0.5f, 0.06f, 28.0f, 0.25f};   // short and sharp, a quick rattle
 const JoltShape kLandJolt = {0.07f, 0.7f, 0.10f, 18.0f, 0.35f};    // landings and vehicle hits
 }
@@ -148,14 +148,15 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     e.carHit = carHit_.Step(now, kLandJolt, &carLevel) * drive;
     e.carHitLevel = carLevel * drive;
 
-    // --- scraping along a wall: the contact stays fresh while the reports keep coming ---
+    // --- scraping along a wall: the contact stays fresh while the reports keep coming, and fades
+    // over 0.1 s after the last one, so a short brush is felt too ---
     float since = (float)(now - t.scrapeTime);
-    if (t.scrapeTime > 0 && since >= 0 && since < 0.12f && p.scrapes > 0.0f && speed > 1.0f) {
-        float env = Clampf((0.12f - since) / 0.05f, 0.0f, 1.0f);
+    if (t.scrapeTime > 0 && since >= 0 && since < 0.2f && p.scrapes > 0.0f && speed > 1.0f) {
+        float env = Clampf((0.2f - since) / 0.1f, 0.0f, 1.0f);
         float amp = p.scrapes * tanhf(t.scrapeSpeed / 12.0f) * env;
         double tt = now;
         float grind = 0.6f * (float)sin(kTwoPi * 41.0 * tt) + 0.4f * (float)sin(kTwoPi * 67.0 * tt + 1.0);
-        e.scrape = (amp * 0.5f * grind - Clampf(t.scrapeLat, -1.0f, 1.0f) * amp * 0.25f) * drive;
+        e.scrape = (amp * 0.5f * grind - Clampf(t.scrapeLat, -1.0f, 1.0f) * amp * 0.4f) * drive;
     }
     return e;
 }

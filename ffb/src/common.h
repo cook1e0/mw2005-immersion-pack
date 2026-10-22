@@ -44,8 +44,8 @@ struct Config {
 
     // Effects
     float engineRumble = 0.05f;     // engine vibration (mostly standing still)
-    float crashes = 0.5f;           // jolts from hitting cars, walls and props
-    float scrapes = 0.3f;           // grinding along walls
+    float crashes = 1.0f;           // jolts from hitting cars, walls and props
+    float scrapes = 0.8f;           // grinding along walls
     float breakables = 0.4f;        // knocks from smashing breakable props (benches, sign posts...)
     float landing = 0.6f;           // kick and shake when landing after a jump
     float carHits = 0.6f;           // the same when hitting another vehicle
