@@ -38,6 +38,9 @@
   quad). Without it, what rendered next - the rear view among it - drew with no depth test, and the
   sky covered the road in the mirrors. The skip now turns depth testing back on itself whenever the
   pass would have drawn.
+- **SMAA removed:** v0.21.0's headset SMAA anti-aliasing (`[VR] Smaa`, `SmaaEdges` and their F4
+  entries) is gone, with the SMAA shaders it shipped. Anisotropic filtering stays. The widescreen
+  fix's own SMAA (flat screen only) is unaffected.
 - **Anisotropic filtering:** textures at an angle (the road ahead, walls) stay sharp. Samplers the
   game sets to linear minification are switched to anisotropic, except with a depth texture bound (the
   shadow map, whose hardware comparison needs linear): `[VR] Anisotropic` 0 off, 1 2x, 2 4x, 3 8x,
