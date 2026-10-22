@@ -149,6 +149,7 @@ constexpr uintptr_t kEllipse = 0x69DF61;            // UpdateLoaded: fmul [TireF
 constexpr uintptr_t kEllipseUndo = 0x69E03A;        // UpdateLoaded: fmul [1 / 1.5] below the grip limit
 constexpr uintptr_t kEllipseRatio = 0x8AAC78, kEllipseInv = 0x896D64;
 constexpr int kTire_SlipAngle = 0x118;
+constexpr int kTire_DriveScale = 0x120;             // ... drive force factor, applied after the ellipse ratio
 constexpr int kState_Gas = 0x4C;                    // Chassis::State: gas_input 0..1
 constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 constexpr uintptr_t kCallDoAero = 0x6B206E;         // SuspensionRacer::OnTaskSimulate: call Chassis::DoAerodynamics
@@ -179,11 +180,26 @@ float s_speedMul = 1.0f;    // the speed grip loss part of s_latMul this step
 // The tyre force ellipse for the player's tyres (s_latTires): the game's ratio times PowerOversteer.
 extern "C" float s_ellipse, s_ellipseInv;
 float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f;
+// For [Physics] LogPhysics, each player tyre's last UpdateLoaded: its drive force before the ellipse
+// ratio (0 when the ratio wasn't applied), its grip budget and the length of its force (side force
+// and ratio times drive force) before that is cut to the budget.
+extern "C" float s_driveRaw[4], s_budget[4], s_forceLen[4];
+float s_driveRaw[4], s_budget[4], s_forceLen[4];
+float s_gas = 0.0f;         // the player's throttle at the last DoDrifting
+float s_slideWould = 1.0f;  // slide oversteer's rear side grip factor this step, in use or not
 // The player's suspension and aero steps this second, for the diagnostics line ([Physics] LogPhysics).
 struct {
     int suspSteps = 0, suspCustom = 0, aeroSteps = 0;   // the player's suspension steps (own values), aero steps
     float gameForce = 0, extraForce = 0, weight = 0;    // N at the last aero step
 } s_diag;
+// What the two oversteer settings did this second, per axle (front, rear), over the steps a tyre put
+// down drive force with the throttle past half: side force factors against the game's ellipse
+// (power oversteer at the set value and at 1.5, 2 and 3), slide oversteer's, the drive force's share
+// of the grip budget, and how many of those steps were at the grip limit.
+struct OversteerStats {
+    int steps = 0, atLimit = 0;
+    float power = 0, powerMin = 1, at[3] = {}, slide = 0, share = 0;
+} s_over[2];
 
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
@@ -266,6 +282,36 @@ float SpeedGrip(float loss, float speed) {
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
 float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
 
+// After the player's suspension step: what each oversteer setting does to the side force of the
+// tyres that put down drive force with the throttle past half. UpdateLoaded cuts a tyre's force
+// (side, ratio * drive) to its grip budget, so the side force keeps min(1, budget / length); power
+// oversteer's factor is that at its ratio over that at the game's.
+void MeasureOversteer() {
+    if (s_gas < 0.5f) return;
+    const float game = *(const float*)kEllipseRatio;
+    const float tries[3] = {1.5f, 2.0f, 3.0f};
+    for (int i = 0; i < 4; i++) {
+        uint8_t* tire = s_latTires[i];
+        float budget = s_budget[i], len = s_forceLen[i];
+        if (!tire || s_driveRaw[i] == 0.0f || budget <= 0.0f) continue;
+        float drive = fabsf(s_driveRaw[i] * Field<float>(tire, kTire_DriveScale));
+        float side2 = std::max(len * len - s_ellipse * s_ellipse * drive * drive, 0.0f);
+        auto keep = [&](float ratio) {
+            float l = sqrtf(side2 + ratio * ratio * drive * drive);
+            return l > budget ? budget / l : 1.0f;
+        };
+        OversteerStats& o = s_over[i >= 2];
+        float base = keep(game), power = keep(game * g_cfg.powerOversteer) / base;
+        o.steps++;
+        if (len > budget) o.atLimit++;
+        o.power += power;
+        o.powerMin = std::min(o.powerMin, power);
+        for (int k = 0; k < 3; k++) o.at[k] += keep(game * tries[k]) / base;
+        o.slide += i >= 2 ? s_slideWould : 1.0f;
+        o.share += drive / budget;
+    }
+}
+
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
     bool player = Owns(susp, iface);
@@ -295,8 +341,10 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     for (int i = 0; i < 4; i++) {
         s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
         s_latMul[i] = s_speedMul;
+        s_driveRaw[i] = s_budget[i] = s_forceLen[i] = 0.0f;
     }
     s_origSusp(susp, dT);
+    if (g_cfg.logPhysics) MeasureOversteer();
     for (uint8_t*& t : s_latTires) t = nullptr;
     s_slideGrip = 1.0f;
     Restore(sv);
@@ -329,6 +377,14 @@ __asm__(
     "    popl %eax\n"
     "    ret\n"
     "2:  fmuls _s_latMul(,%eax,4)\n"
+    // For the diagnostics: UpdateLoaded's locals at esp+0x18 (grip budget) and esp+0x34 (force length)
+    // here, 12 bytes further down with the return address and the two pushes.
+    "    pushl %edx\n"
+    "    movl 0x24(%esp), %edx\n"
+    "    movl %edx, _s_budget(,%eax,4)\n"
+    "    movl 0x40(%esp), %edx\n"
+    "    movl %edx, _s_forceLen(,%eax,4)\n"
+    "    popl %edx\n"
     "    popl %eax\n"
     "    ret\n");
 extern "C" void LateralGripStub();
@@ -348,7 +404,8 @@ __asm__(
     "    popl %eax\n"
     "    fmuls 0x8AAC78\n"
     "    ret\n"
-    "2:  popl %eax\n"
+    "2:  fsts _s_driveRaw(,%eax,4)\n"
+    "    popl %eax\n"
     "    fmuls _s_ellipse\n"
     "    ret\n"
     "_EllipseUndoStub:\n"
@@ -661,24 +718,26 @@ typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
 // Slide oversteer's rear side grip factor for this step: with the game's throttle (rear or all-wheel
 // drive) or lifting off (front drive), less as the rear's slip angle grows past 20 degrees, none
-// from 45. On top of the speed grip loss part.
-void SlideOversteer(uint8_t* susp, const uint8_t* state) {
-    if (!s_latTires[2] || !s_latTires[3]) return;
+// from 45. On top of the speed grip loss part. Also notes the throttle for the diagnostics.
+float SlideOversteer(uint8_t* susp, const uint8_t* state) {
     float gas = Clamp(*(const float*)(state + kState_Gas), 0.0f, 1.0f);
+    s_gas = gas;
     uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
     bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
     float power = frontDrive ? 1.0f - gas : gas;
     float angle = 0.0f;
     for (int i = 2; i < 4; i++) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
     float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
-    s_latMul[2] = s_latMul[3] = s_speedMul * (1.0f - (1.0f - g_cfg.slideOversteer) * power * fade);
+    return 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
 }
 
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp) return;
-    if (state && g_cfg.physics && !g_cfg.usePowerOversteer && g_cfg.slideOversteer != 1.0f)
-        SlideOversteer(susp, (const uint8_t*)state);
+    if (state && g_cfg.physics && s_latTires[2] && s_latTires[3]) {
+        s_slideWould = SlideOversteer(susp, (const uint8_t*)state);
+        if (!g_cfg.usePowerOversteer) s_latMul[2] = s_latMul[3] = s_speedMul * s_slideWould;
+    }
     if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
     if (!g_cfg.physics) return;
     float front = 1.0f + g_cfg.gripBalance, rear = 1.0f - g_cfg.gripBalance, off = g_cfg.offroadGrip;
@@ -715,6 +774,18 @@ void Diagnostics(uint8_t* rb) {
             s_playerSpeed * 3.6f, s_diag.suspSteps, s_diag.suspCustom, s_diag.aeroSteps,
             s_diag.weight > 0 ? s_diag.gameForce / s_diag.weight * 100.0f : 0.0f,
             s_diag.weight > 0 ? s_diag.extraForce / s_diag.weight * 100.0f : 0.0f, s_latMul[0], s_latMul[2], s_ellipse);
+    for (int a = 0; a < 2; a++) {
+        const OversteerStats& o = s_over[a];
+        if (!g_cfg.logPhysics || o.steps == 0) continue;
+        float n = (float)o.steps;
+        Log("physics:   %s on the throttle (%d tyre steps): drive force %.0f%% of the grip, at the limit %.0f%% of the "
+            "time; side force x%.2f (min x%.2f) by power oversteer %.2f%s (x%.2f/%.2f/%.2f at 1.5/2/3), x%.2f by slide "
+            "oversteer %.2f%s",
+            a ? "rear" : "front", o.steps, o.share / n * 100.0f, o.atLimit / n * 100.0f, o.power / n, o.powerMin,
+            g_cfg.powerOversteer, g_cfg.usePowerOversteer ? " (in use)" : "", o.at[0] / n, o.at[1] / n, o.at[2] / n,
+            o.slide / n, g_cfg.slideOversteer, g_cfg.usePowerOversteer ? "" : " (in use)");
+    }
+    for (OversteerStats& o : s_over) o = OversteerStats();
     s_diag.suspSteps = s_diag.suspCustom = s_diag.aeroSteps = 0;
 }
 
