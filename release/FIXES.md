@@ -1,4 +1,4 @@
-### Unreleased: force feedback from the tyres, ABS and traction control, physics presets, car mirrors and in-car dashboard in VR, grip sliders, spin limit, new force feedback jolts
+### v0.22.0: force feedback from the tyres, ABS and traction control, physics presets, downforce and power oversteer, car mirrors and in-car dashboard in VR, grip sliders, spin limit, new force feedback jolts
 
 - **The pack is now called Most Wanted 2005 Immersion Pack Mod:** the README and the release zip
   (`mw2005-immersion-pack-<version>.zip`) carry the new name. The files inside keep theirs
@@ -172,8 +172,8 @@
 
 - **New physics presets (by spinesplitter):** AWD, RWD MUSCLE, RWD TUNER, RWD SUPER and FWD
   replace the earlier six, and every drivable car (41) loads one of them. His values are in
-  the current format: Grip and Grip balance in place of Front / Rear grip, no Slide oversteer, the
-  15 rad/s spin limit.
+  the current format: Grip and Grip balance in place of Front / Rear grip, his grip loss and slide
+  oversteer translated into Downforce and Power oversteer (below), the 15 rad/s spin limit.
 - **Wheel buttons in the game's menus with `GameController=0`:** turning the game's own controller
   input off (so a wheel's pedals don't also move the camera) used to hide the wheel in the menus
   too. Now it only applies while driving; in the menus `MenuController` and `MenuAxes` decide.
@@ -203,9 +203,21 @@
   both: his grip loss values and the Downforce giving the same grip at 250 km/h on a car with the
   Mustang's aero (AWD 0.45 / 53%, RWD MUSCLE 0.333 / 66%, FWD 0.285 / 70%, RWD TUNER 0.225 / 77%,
   RWD SUPER 0.125 / 87%).
+- **Power oversteer per car** (`[Physics] PowerOversteer`, per car and in presets, F4 > Physics):
+  the game weighs a driven tyre's drive force by its tyre force ellipse (1.5) against the tyre's
+  grip, so throttle uses up grip that cornering then lacks. Your car's tyres take that ratio times
+  this: above 1 a rear drive car steps out and a front drive car pushes wide under power, the
+  more so the more torque reaches the road (mostly in low gears; at speed the game's downforce
+  leaves the tyres far from their limit). spinesplitter's presets: AWD 1.29, RWD MUSCLE 1.1,
+  FWD 1.13, RWD TUNER 1.25, RWD SUPER 1.03.
+- **Slide oversteer is back for now** (`[Physics] SlideOversteer`, F4 > Physics > Slide oversteer
+  (old)): the rear tyres' side grip cut on the throttle at any speed, to compare with Power
+  oversteer. F4 > Physics > Power oversteer (`[Physics] UsePowerOversteer`, on by default) picks
+  which one applies; the presets hold his values for both.
 - **Physics diagnostics:** `[Physics] LogPhysics=1` logs a line a second while driving (the game's
-  downforce and ours, side grip factors, the tyre force ellipse), and the log notes a car whose
-  suspension steps don't reach the mod (it would get none of the physics settings).
+  downforce and ours, side grip factors, the tyre force ellipse, and on the throttle what Power
+  oversteer and Slide oversteer each do to the driven tyres' side force), and the log notes a car
+  whose suspension steps don't reach the mod (it would get none of the physics settings).
 - **Wheel steering keeps one ratio in a slide:** speed-sensitive wheel steering widened the lock
   to the rear tyres' slip angle while sliding, so the same turn of the wheel steered the front
   wheels further mid-slide. The lock now follows the speed only.

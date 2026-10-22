@@ -88,6 +88,11 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[HUD] Meter / Speedbreaker` | damage/heat meter in place of the speedbreaker meter; keep the speedbreaker |
 | `[Physics] TractionControl / Stability / DriftAssist` | driving aid strength, 1 = the game's own (F4's Traction control row sets `TractionControl` and `TC` together) |
 | `[Physics] Grip / GripBalance / Gravity` | tire grip; grip moved to the front (+, oversteer) or rear (-, understeer); gravity in g |
+| `[Physics] Downforce` | the game's own aerodynamic downforce times this (1 = the game's, below 0 lift); it grows with speed, so lower values lose grip at speed. Per car or preset |
+| `[Physics] PowerOversteer` | the game's tyre force ellipse times this: above 1 throttle uses up more of the driven tyres' grip (rear drive steps out, front drive pushes wide), mostly in low gears. Per car or preset |
+| `[Physics] UseAero / SpeedGripLoss` | 0 = the older grip loss at speed (`SpeedGripLoss`, a share of side grip lost at 300 km/h) in place of `Downforce`, to compare |
+| `[Physics] UsePowerOversteer / SlideOversteer` | 0 = the older slide oversteer (`SlideOversteer`, rear side grip on the throttle) in place of `PowerOversteer`, to compare |
+| `[Physics] LogPhysics` | log the downforce, grip factors and what each oversteer setting does once a second (ini only) |
 | `[Car.<name>]` | a car's own physics values and its preset (`Preset=`), set by *Load into this car* in the menu; the preset's values are applied every time the car is driven |
 | `nfsmw_physics_presets.ini` | named physics slider sets used by each car's `Preset=` value and the F4 preset picker |
 | `[Controls] Steering / Accelerate / Brake / Handbrake / ...` | driving controls read by this mod instead of the game |
