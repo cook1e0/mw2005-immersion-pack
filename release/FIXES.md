@@ -1,4 +1,4 @@
-### Unreleased
+### v0.23.0: downforce that grows with the speed squared, page resets keep the wheel setup
 
 - **Page resets keep your wheel setup:** F4's Reset page to mod / game defaults no longer
   changes the wheel rotation, steering lock, steering and pedal deadzones, the game's controller

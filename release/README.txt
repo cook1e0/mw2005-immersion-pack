@@ -34,6 +34,9 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.22.1: replace scripts\nfsmw_gameplay.asi. Your ini files keep working; the new
+[Physics] DownforceSquared starts off (F4 > Physics). See FIXES.md.
+
 Upgrading from v0.22.0: replace scripts\nfsmw_vr.asi. For side mirrors that show the rear view,
 set GameMirrors=1 and MirrorScale=0.88 under [VR] in scripts\nfsmw_vr.ini (the new defaults).
 
