@@ -1229,6 +1229,21 @@ const struct {
     {&g_cfg.hudMeter, 0}, {&g_cfg.speedbreaker, 1},
 };
 
+// What describes the player's own wheel, pedals and setup rather than a taste: a page reset keeps
+// these, like the bindings (a reset shouldn't flip the force or change the wheel's rotation); the
+// row's own reset arrow still does.
+const void* const kKeptOnReset[] = {
+    &g_cfg.wheelRotation, &g_cfg.steeringLock, &g_cfg.steerDeadzone, &g_cfg.pedalDeadzone,
+    &g_cfg.gameController, &g_cfg.menuController, &g_cfg.menuAxes,
+    &s_ext[FFB_DEVICE], &s_ext[FFB_INVERT], &s_ext[FFB_GAIN],
+};
+
+bool KeptOnReset(const Item& it) {
+    for (const void* p : kKeptOnReset)
+        if (p == it.value) return true;
+    return false;
+}
+
 bool GameDefaultOf(const Item& it, float* f) {
     if (it.kind != NUMBER && it.kind != TOGGLE) return false;
     for (auto& g : kGameDefaults)
@@ -1284,12 +1299,14 @@ bool ResetItem(const Item& it, bool game = false) {
     return true;
 }
 
-// Every setting on the page holding item `index`.
+// Every setting on the page holding item `index`, but the player's wheel setup (kKeptOnReset; its own
+// row's reset arrow still resets it).
 int ResetPage(int index, bool game) {
     int page = index;
     while (page > 0 && kItems[page].kind != PAGE) page--;
     int n = 0;
-    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++) n += ResetItem(kItems[i], game);
+    for (int i = page + 1; i < kNumItems && kItems[i].kind != PAGE; i++)
+        if (!KeptOnReset(kItems[i])) n += ResetItem(kItems[i], game);
     return n;
 }
 
@@ -1510,7 +1527,7 @@ void Change(int index, int dir) {
             s_menu.resetArmed = index;
             s_menu.resetTime = Now();
             Note(std::string("Press again to reset this page to the ") + (it.flags & BF_GAME ? "game's" : "mod's") +
-                 " defaults (bindings are kept)");
+                 " defaults (bindings and your wheel setup are kept)");
             return;
         }
         s_menu.resetArmed = -1;
@@ -1939,8 +1956,8 @@ const char* HelpText(const Item& it) {
         return "Lifts the car straight up by Drop height and lets it fall, keeping its forward speed: for testing landings anywhere.";
     if (it.value == &g_cfg.dropHeight) return "How high Drop from air lifts the car.";
     if (it.kind == ACTION) return "Pops all four tires, as a spike strip does.";
-    if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings are kept.";
-    if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings are kept.";
+    if (it.kind == RESET && (it.flags & BF_GAME)) return "Settings on this page as the unmodded game has them. Bindings and your wheel setup are kept.";
+    if (it.kind == RESET) return "Every setting on this page back to the mod's default. Bindings and your wheel setup are kept: wheel rotation, steering lock, deadzones, the game's controller input switches, and the force feedback wheel, direction and strength.";
     if (it.kind == LINK) return it.section == kMainPage ? "Back to the categories." : "";
     for (auto& h : kHelp)
         if (h.value == it.value) return h.text;

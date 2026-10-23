@@ -1,5 +1,10 @@
 ### Unreleased
 
+- **Page resets keep your wheel setup:** F4's Reset page to mod / game defaults no longer
+  changes the wheel rotation, steering lock, steering and pedal deadzones, the game's controller
+  input switches (GameController, MenuController, MenuAxes), or the force feedback wheel, its
+  direction (Reverse) and strength. Like the bindings, they describe your hardware, not a taste.
+  A row's own reset arrow still resets it.
 - **Downforce that grows with the square of the speed** (`[Physics] DownforceSquared`, F4 >
   Physics, off by default): the game's downforce grows in a straight line with the speed, so it is
   already large at low speed (41% of the Mustang's weight at 50 km/h, 59% of the M3's at 45) and
