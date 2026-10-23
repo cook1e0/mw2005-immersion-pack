@@ -178,7 +178,7 @@ struct Config {
     bool  usePowerOversteer = true; // PowerOversteer applies (true) or SlideOversteer (false), never both
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
-    float maxSpin = 15.0f;          // the player's car never spins faster (rad/s); 0 = the game's 30
+    float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD

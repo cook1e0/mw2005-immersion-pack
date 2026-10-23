@@ -1,3 +1,10 @@
+### Unreleased
+
+- **Spin limit back to 8 rad/s** (`[Physics] MaxSpin`, was 15 since v0.22.0): spinesplitter's value.
+  It stops cars being spun up and launched, and keeps crashes from whirling the view around in
+  VR; driving and spins stay well under it (about 4 rad/s at most). The shipped ini, presets and
+  per-car sections have 8; an ini you already have keeps its value.
+
 ### v0.23.0: downforce that grows with the speed squared, page resets keep the wheel setup
 
 - **Page resets keep your wheel setup:** F4's Reset page to mod / game defaults no longer
@@ -197,7 +204,7 @@
 - **New physics presets (by spinesplitter):** AWD, RWD MUSCLE, RWD TUNER, RWD SUPER and FWD
   replace the earlier six, and every drivable car (41) loads one of them. His values are in
   the current format: Grip and Grip balance in place of Front / Rear grip, his grip loss and slide
-  oversteer translated into Downforce and Power oversteer (below), the 15 rad/s spin limit.
+  oversteer translated into Downforce and Power oversteer (below), the 8 rad/s spin limit.
 - **Wheel buttons in the game's menus with `GameController=0`:** turning the game's own controller
   input off (so a wheel's pedals don't also move the camera) used to hide the wheel in the menus
   too. Now it only applies while driving; in the menus `MenuController` and `MenuAxes` decide.
@@ -387,7 +394,7 @@
   *Settings for this car only* is gone; a car without a preset uses the shared values.
 - **Physics: spin limit (fixes the pinball):** a car spinning fast (launched by props, landing while
   rotating) could get caught in a collision loop and be thrown across the map. Your car never spins
-  faster than `[Physics] MaxSpin` (15 rad/s, in the ini), with the torque limited too.
+  faster than `[Physics] MaxSpin` (8 rad/s, in the ini), with the torque limited too.
 - **Physics: new grip sliders,** all per car:
   - Offroad grip: grip on grass, dirt, mud, gravel and sand (95%).
   - Slide grip: a tyre that has broken loose slides on less grip than its peak.
