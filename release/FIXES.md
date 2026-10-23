@@ -1,5 +1,10 @@
 ### Unreleased
 
+- **No more bouncing off walls** (`[Physics] WallBounce`, F4 > Physics > Wall bounce, 0% by
+  default): your car no longer springs back off walls and barriers; it stops at the wall or slides
+  along it. The game already did that for head-on hits only (`Tweak_HeadOnDot`); angled hits used
+  the car's `WALL_ELASTICITY`. The slider brings back a share of the game's bounce. The friction
+  along the wall, the spin from the hit, force feedback jolts and damage are the game's as before.
 - **Spin limit back to 8 rad/s** (`[Physics] MaxSpin`, was 15 since v0.22.0): spinesplitter's value.
   It stops cars being spun up and launched, and keeps crashes from whirling the view around in
   VR; driving and spins stay well under it (about 4 rad/s at most). The shipped ini, presets and

@@ -1151,6 +1151,34 @@ void __fastcall Hook_PerfectLaunch(uint8_t* vehicle, void* edx) {
     ((void(__fastcall*)(uint8_t*, void*))kPerfectLaunch)(vehicle, edx);
 }
 
+// Wall bounce: RigidBody::ResolveWorldCollision (0x699410) sets the impact's elasticity (Moment
+// +0x10C) from the car's WALL_ELASTICITY, then calls ModifyCollision for the world (the RBVehicle
+// one, 0x68BD60, through the vtable slot 0x8AC96C and the same slot of three vehicle classes
+// built on it, RBTractor's among them), which for the player's car already makes a
+// head-on hit (Tweak_HeadOnDot) fully inelastic. After it, the player's car keeps [Physics]
+// WallBounce of the elasticity on every wall hit: at 0 it slides along or stops at the wall instead
+// of springing off. The friction, the spin from the hit and the collision reports stay the game's.
+constexpr uintptr_t kSlotsWorldModify[] = {0x8AC96C, 0x8ACBDC, 0x8ACE14, 0x8AD264};
+constexpr uintptr_t kWorldModify = 0x68BD60;      // thiscall (SimSurface&, Plane&, Moment&)
+constexpr int kMo_Elasticity = 0x10C;
+constexpr int kRBV_Behavior = 0x48;                // RBVehicle: its Behavior (vtable +4: GetOwner)
+
+void __fastcall Hook_WorldModify(uint8_t* self, void*, const void* surface, const void* plane, uint8_t* moment) {
+    ((void(__thiscall*)(void*, const void*, const void*, void*))kWorldModify)(self, surface, plane, moment);
+    if (!g_cfg.physics || g_cfg.wallBounce >= 1.0f || !moment) return;
+    // The player's car, by the same test the game makes here: Behavior::GetOwner()->IsPlayer().
+    uint8_t* behavior = self + kRBV_Behavior;
+    void* owner = ((void*(__thiscall*)(void*))(*(uintptr_t**)behavior)[1])(behavior);
+    if (!Plausible((uintptr_t)owner) || !((bool(__thiscall*)(void*))(*(uintptr_t**)owner)[9])(owner)) return;
+    float& e = Field<float>(moment, kMo_Elasticity);
+    static int logged;
+    if (g_cfg.logPhysics && logged < 5 && e > 0.0f) {
+        logged++;
+        Log("physics: wall hit: the game's bounce %.2f, kept %.2f", e, e * g_cfg.wallBounce);
+    }
+    e *= g_cfg.wallBounce;
+}
+
 void Physics_Install() {
     if (!Expect(kSuspSimulate, {0x81, 0xEC, 0xFC, 0x00, 0x00, 0x00, 0x56, 0x8B, 0xF1}) ||
         !Expect(kRBBeginFrame, {0x51, 0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x78}) ||
@@ -1201,6 +1229,12 @@ void Physics_Install() {
             g_cfg.downforceSquared ? ", with the speed squared" : "", g_cfg.useAero ? "in use" : "off: speed grip loss in use");
     else
         Log("physics: unexpected suspension code, no aero setting");
+    int slots = 0;
+    for (uintptr_t slot : kSlotsWorldModify) slots += SetSlot(slot, kWorldModify, (void*)&Hook_WorldModify);
+    if (slots)
+        Log("physics: wall bounce %.0f%% of the game's (%d of 4 vehicle classes)", g_cfg.wallBounce * 100.0f, slots);
+    else
+        Log("physics: unexpected collision code, the game's wall bounce stays");
     if (RetargetCall(kCallDoDrifting, kDoDrifting, (void*)&Hook_DoDrifting)) {
         Log("physics: grip balance ready (balance %+.2f, off-road grip %.2f)", g_cfg.gripBalance, g_cfg.offroadGrip);
     } else {

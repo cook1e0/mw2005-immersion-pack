@@ -90,6 +90,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Physics] Grip / GripBalance / Gravity` | tire grip; grip moved to the front (+, oversteer) or rear (-, understeer); gravity in g |
 | `[Physics] Downforce` | the game's own aerodynamic downforce times this (1 = the game's, below 0 lift); it grows with speed, so lower values lose grip at speed. Per car or preset |
 | `[Physics] PowerOversteer` | the game's tyre force ellipse times this: above 1 throttle uses up more of the driven tyres' grip (rear drive steps out, front drive pushes wide), mostly in low gears. Per car or preset |
+| `[Physics] WallBounce` | how much your car springs back off walls and barriers, a share of the game's bounce (0 = none, the default; 1 = the game's) |
 | `[Physics] DownforceSquared / DownforceMatchSpeed` | 1 = the downforce grows with the square of the speed (as real aero) instead of the game's straight line, equal to the game's at `DownforceMatchSpeed` (250 km/h): much less at low speed, a little more at top speed. Every car |
 | `[Physics] UseAero / SpeedGripLoss` | 0 = the older grip loss at speed (`SpeedGripLoss`, a share of side grip lost at 300 km/h) in place of `Downforce`, to compare |
 | `[Physics] UsePowerOversteer / SlideOversteer` | 0 = the older slide oversteer (`SlideOversteer`, rear side grip on the throttle) in place of `PowerOversteer`, to compare |

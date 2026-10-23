@@ -266,6 +266,7 @@ void LoadConfig() {
     c.logPhysics = ReadInt("Physics", "LogPhysics", 0);
     c.useAero = ReadInt("Physics", "UseAero", c.useAero) != 0;
     c.downforceSquared = ReadInt("Physics", "DownforceSquared", c.downforceSquared) != 0;
+    c.wallBounce = Clamp(ReadFloat("Physics", "WallBounce", c.wallBounce), 0.0f, 1.0f);
     c.downforceMatch = Clamp(ReadFloat("Physics", "DownforceMatchSpeed", c.downforceMatch), 50.0f, 400.0f);
     c.powerOversteer = Clamp(ReadFloat("Physics", "PowerOversteer", c.powerOversteer), 0.5f, 3.0f);
     c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
