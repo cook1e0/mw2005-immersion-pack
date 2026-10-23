@@ -1,3 +1,12 @@
+### Unreleased
+
+- **Downforce that grows with the square of the speed** (`[Physics] DownforceSquared`, F4 >
+  Physics, off by default): the game's downforce grows in a straight line with the speed, so it is
+  already large at low speed (41% of the Mustang's weight at 50 km/h, 59% of the M3's at 45) and
+  the cars stick in slow and medium corners. Real aero grows with the square of the speed. With it
+  on, the downforce equals the game's (times Downforce) at `DownforceMatchSpeed` (250 km/h), a
+  fifth of it at 50 km/h and 1.2 times it at 300. Every car.
+
 ### v0.22.1: side mirrors show the rear view again
 
 - **VR: the side mirrors show the rear view by default** (`[VR] GameMirrors=1`, was 0: the game's

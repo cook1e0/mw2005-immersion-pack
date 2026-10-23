@@ -170,6 +170,8 @@ struct Config {
     float speedGripLoss = 0.0f;     // side grip lost at 300 km/h, with the square of the speed (to compare with aero)
     float downforce = 1.0f;         // times the game's own aerodynamic downforce (below 0: lift), per car
     bool  useAero = true;           // high speed: Downforce applies (true) or SpeedGripLoss (false), never both
+    bool  downforceSquared = false; // the downforce grows with the square of the speed (as real aero), not linearly
+    float downforceMatch = 250.0f;  // km/h where the squared downforce equals the game's (times Downforce)
     int   logPhysics = 0;           // 1: a physics line every second while driving (aero, grip factors)
     float powerOversteer = 1.0f;    // times the game's tyre force ellipse: throttle's share of a driven tyre's grip
     float slideOversteer = 1.0f;    // the older way: rear side grip under throttle (1 = off), to compare
