@@ -1,3 +1,10 @@
+### Unreleased
+
+- **Mod versions in F4:** the menu's title row shows the release the mods come from (e.g. v0.25.0).
+  When the gameplay, force feedback and VR mods are from different releases it shows each one, so a
+  half-updated install is easy to spot (an FFB or VR build from before this shows as "older"). The
+  version is also the first line of each mod's log.
+
 ### v0.25.0: tyre load sensitivity, grip that falls off past the peak, suspension firmness and roll balance
 
 - **Tyre load sensitivity** (`[Physics] LoadSensitivity=0.2`, ini, every car): in the game a

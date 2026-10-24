@@ -13,3 +13,4 @@ EXPORTS
     NfsmwFfb_Test
     NfsmwFfb_DeviceName
     NfsmwFfb_Status
+    NfsmwFfb_Version

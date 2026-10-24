@@ -2582,6 +2582,9 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     return nullptr;
 }
 
+// This build's release (git describe), for the gameplay mod's menu.
+const char* __cdecl Proxy_NfsmwVr_Version() { return MOD_VERSION; }
+
 // Same as the recentre key. 0 when no headset session is running.
 int __cdecl Proxy_NfsmwVr_Recenter() {
     if (!s_active || !s_xr) return 0;
@@ -2673,7 +2676,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
         HMODULE proxy = GetModuleHandleA("d3d9.dll");
         if (!LoadedAsProxy(inst) && proxy && GetProcAddress(proxy, "NfsmwVr_Loaded")) return TRUE;
         LogInit();
-        Log("NFSMW VR mod loaded");
+        Log("NFSMW VR mod " MOD_VERSION " loaded");
         // Capture the mod's built-in defaults before the INI is read: the F4 menu writes the current
         // car's values to [VR], so the INI can't be where a fresh car model starts from.
         Cockpit_PerCarDefaults();

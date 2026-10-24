@@ -11,7 +11,11 @@ cd /d "%~dp0"
 if not exist bin mkdir bin
 if not exist obj mkdir obj
 if not exist obj\x64 mkdir obj\x64
-set CFLAGS=/nologo /c /O2 /MT /EHsc /std:c++17 /W3 /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /Ithird_party\openxr\include
+rem The release this build comes from (git describe: a tag, commits past it, -dirty), shown in F4.
+set MODVER=
+for /f "delims=" %%v in ('git describe --tags --always --dirty 2^>nul') do set "MODVER=%%v"
+if not defined MODVER set MODVER=dev
+set CFLAGS=/nologo /c /O2 /MT /EHsc /std:c++17 /W3 /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /Ithird_party\openxr\include /DMOD_VERSION=\"%MODVER%\"
 call :x86 || exit /b 1
 call :x64 || exit /b 1
 echo Built bin\d3d9.dll, bin\nfsmw_vr_host.exe and bin\nfsmw_crashdump.exe

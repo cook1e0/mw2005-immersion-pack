@@ -66,7 +66,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     HMODULE proxy = GetModuleHandleA("dsound.dll");
     if (!LoadedAs(inst, "dsound.dll") && proxy && GetProcAddress(proxy, "NfsmwGameplay_Loaded")) return TRUE;
     LogInit();
-    Log("NFSMW gameplay mod, built " __DATE__ " " __TIME__);
+    Log("NFSMW gameplay mod " MOD_VERSION ", built " __DATE__ " " __TIME__);
     if (LoadedAs(inst, "dsound.dll") && !LoadRealDsound()) {
         Log("cannot load the system dsound.dll - game audio will fail");
         MessageBoxA(nullptr, "nfsmw_gameplay: cannot load the system dsound.dll", "NFSMW gameplay mod", MB_ICONERROR);

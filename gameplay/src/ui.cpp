@@ -1341,6 +1341,25 @@ void AfterNumberChange(const Item& it) {
     s_menu.dirty = true;
 }
 
+// The mods' versions for the menu's title: one when every loaded mod has the same, else each
+// (an FFB or VR build from before the version export shows as "older").
+std::string ModVersions() {
+    typedef const char*(__cdecl * Version_t)();
+    auto version = [](int mod, const char* name) -> std::string {
+        HMODULE m = ExtModule(mod);
+        if (!m) return "";
+        FARPROC f = GetProcAddress(m, name);
+        const char* v = f ? ((Version_t)f)() : nullptr;
+        return v && *v ? v : "older";
+    };
+    std::string own = MOD_VERSION, ffb = version(MOD_FFB, "NfsmwFfb_Version"), vr = version(MOD_VR, "NfsmwVr_Version");
+    if ((ffb.empty() || ffb == own) && (vr.empty() || vr == own)) return own;
+    std::string s = "gameplay " + own;
+    if (!ffb.empty()) s += "   FFB " + ffb;
+    if (!vr.empty()) s += "   VR " + vr;
+    return s;
+}
+
 // Keys typed while a preset is renamed: '\r' done, 27 cancel, '\b' delete, else the character.
 struct {
     SRWLOCK lock = SRWLOCK_INIT;
@@ -1737,6 +1756,7 @@ void DrawMenu(int W, int H, float k) {
         for (auto& c : car) c = (char)toupper((unsigned char)c);
         titleText += "  -  " + car;
     }
+    titleText += "     " + ModVersions();
     const char* title = titleText.c_str();
     float w = std::max(labelW + gap + valueW, std::max(TextWidth(hint.c_str()), TextWidth(title))) + 2 * pad;
     if (noted) w = std::max(w, TextWidth(s_menu.note.c_str()) + 2 * pad);
@@ -2545,6 +2565,12 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
         float y = ImGui::GetCursorPosY();
         ImGui::SetCursorPosY(y + (ImGui::GetTextLineHeightWithSpacing() * 1.45f - ImGui::GetTextLineHeightWithSpacing()) * 0.6f);
         ImGui::TextDisabled("%s", crumb.c_str());
+        // The mods' versions, at the right end of the title row.
+        std::string ver = ModVersions();
+        ImGui::SameLine();
+        float vw = ImGui::CalcTextSize(ver.c_str()).x;
+        ImGui::SetCursorPosX(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - vw));
+        ImGui::TextDisabled("%s", ver.c_str());
     }
     ImGui::Dummy(ImVec2(0, 4 * k));
 

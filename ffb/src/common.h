@@ -1,6 +1,11 @@
 // Shared declarations for the NFSMW force feedback mod.
 #pragma once
 
+// The release this build comes from, set by the build script (git describe).
+#ifndef MOD_VERSION
+#define MOD_VERSION "dev"
+#endif
+
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #define DIRECTINPUT_VERSION 0x0800

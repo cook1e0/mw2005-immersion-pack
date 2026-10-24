@@ -20,6 +20,9 @@ extern "C" float* __cdecl NfsmwFfb_Gain() { return &g_cfg.gain; }
 extern "C" int __cdecl NfsmwFfb_Reset() { return s_active && Ffb_RequestReset() ? 1 : 0; }
 extern "C" int __cdecl NfsmwFfb_Test() { return s_active && Ffb_RequestTest() ? 1 : 0; }
 extern "C" int __cdecl NfsmwFfb_DeviceName(int index, char* out, int len) { return s_active ? Ffb_DeviceName(index, out, len) : 0; }
+// This build's release (git describe), for the gameplay mod's menu.
+extern "C" const char* __cdecl NfsmwFfb_Version() { return MOD_VERSION; }
+
 extern "C" int __cdecl NfsmwFfb_Status(char* out, int len) {
     if (!out || len <= 0) return 0;
     if (!s_active || !g_cfg.enabled) { snprintf(out, len, "Off: [FFB] Enabled=0"); return 0; }
@@ -161,7 +164,7 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID) {
     s_self = inst;
     DisableThreadLibraryCalls(inst);
     LogInit();
-    Log("NFSMW force feedback mod, built " __DATE__ " " __TIME__);
+    Log("NFSMW force feedback mod " MOD_VERSION ", built " __DATE__ " " __TIME__);
     LoadConfig();
     InitializeCriticalSection(&g_diLock);
     if (!g_cfg.enabled) {
