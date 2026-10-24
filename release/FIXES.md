@@ -1,4 +1,4 @@
-### Unreleased
+### v0.24.0: no wall bounce, spin limit back to 8 rad/s
 
 - **No more bouncing off walls** (`[Physics] WallBounce`, F4 > Physics > Wall bounce, 0% by
   default): your car no longer springs back off walls and barriers; it stops at the wall or slides

@@ -72,8 +72,8 @@ all three mods run alongside it. Two things about the fix itself:
 - `ffb/`, `gameplay/`: MSYS2 with the mingw32 toolchain, run `./build.sh` (`./build.sh install`
   copies into `C:\Games\NFSMW`, or `$NFSMW_DIR`: as `scripts\nfsmw_*.asi` if that is installed,
   otherwise as the proxy DLL).
-- Release zip: build all three, then `./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll v0.23.0`
-  (the x86 loader and the version being released) writes `dist/mw2005-immersion-pack-v0.23.0.zip`.
+- Release zip: build all three, then `./package.sh path/to/Ultimate-ASI-Loader/dinput8.dll v0.24.0`
+  (the x86 loader and the version being released) writes `dist/mw2005-immersion-pack-v0.24.0.zip`.
   With `NFSMW_SETTINGS=<game>/scripts` the zip carries that game's `.ini` files (F4 menu
   settings, bindings, seats) instead of the defaults.
 
