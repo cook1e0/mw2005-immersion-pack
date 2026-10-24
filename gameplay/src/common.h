@@ -113,6 +113,7 @@ struct Config {
     float coolDown = 0.01f;         // heat lost per second below the redline
     float powerLossStart = 0.9f;    // heat where the engine starts losing power
     float powerLoss = 0.5f;         // fraction of torque lost at full heat
+    float engineBrakeFade = 0.1f;   // throttle at which the player's engine braking is gone (1 = the game's)
     bool  totaled = true;           // a blown engine totals the car (crash camera, "Totaled")
     std::string debugBlow;          // binding that blows the engine (testing)
     std::string debugRepair;        // binding that repairs it (testing)
@@ -183,9 +184,7 @@ struct Config {
     bool  downforceSquared = false; // the downforce grows with the square of the speed (as real aero), not linearly
     float downforceMatch = 250.0f;  // km/h where the squared downforce equals the game's (times Downforce)
     int   logPhysics = 0;           // 1: a physics line every second while driving (aero, grip factors)
-    float powerOversteer = 1.0f;    // times the game's tyre force ellipse: throttle's share of a driven tyre's grip
-    float slideOversteer = 1.0f;    // the older way: rear side grip under throttle (1 = off), to compare
-    bool  usePowerOversteer = true; // PowerOversteer applies (true) or SlideOversteer (false), never both
+    float frictionCircle = 1.0f;    // a driven tyre's side force kept within the grip its drive torque leaves (0 = off, above 1 exaggerated)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30

@@ -207,6 +207,7 @@ void LoadConfig() {
     c.coolDown = Clamp(ReadFloat("Engine", "CoolDown", c.coolDown), 0.0f, 100.0f);
     c.powerLossStart = Clamp(ReadFloat("Engine", "PowerLossStart", c.powerLossStart), 0.0f, 0.99f);
     c.powerLoss = Clamp(ReadFloat("Engine", "PowerLoss", c.powerLoss), 0.0f, 1.0f);
+    c.engineBrakeFade = Clamp(ReadFloat("Engine", "EngineBrakingFade", c.engineBrakeFade), 0.02f, 1.0f);
     c.totaled = ReadInt("Engine", "Totaled", 1) != 0;
     c.debugBlow = ReadStr("Engine", "DebugBlow", "");
     c.debugRepair = ReadStr("Engine", "DebugRepair", "");
@@ -272,9 +273,7 @@ void LoadConfig() {
     c.suspFirmness = Clamp(ReadFloat("Physics", "SuspensionFirmness", c.suspFirmness), 0.5f, 2.0f);
     c.rollBalance = Clamp(ReadFloat("Physics", "RollBalance", c.rollBalance), -0.5f, 0.5f);
     c.downforceMatch = Clamp(ReadFloat("Physics", "DownforceMatchSpeed", c.downforceMatch), 50.0f, 400.0f);
-    c.powerOversteer = Clamp(ReadFloat("Physics", "PowerOversteer", c.powerOversteer), 0.5f, 3.0f);
-    c.slideOversteer = Clamp(ReadFloat("Physics", "SlideOversteer", c.slideOversteer), 0.4f, 1.0f);
-    c.usePowerOversteer = ReadInt("Physics", "UsePowerOversteer", c.usePowerOversteer) != 0;
+    c.frictionCircle = Clamp(ReadFloat("Physics", "FrictionCircle", c.frictionCircle), 0.0f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
     c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);

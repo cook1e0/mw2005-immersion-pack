@@ -44,21 +44,25 @@
 // Slide grip: a tyre that has broken loose slides on its dynamic friction (UpdateLoaded,
 // DYNAMIC_GRIP * traction boost * pilot factor at 0x69DD22), its grip limit is the static one. For
 // the player's car that multiply also takes [Physics] SlideGrip: below 1 a sliding tyre has less
-// grip than at its peak, so a rear that lets go slides the car instead of tightening the turn.
+// grip than at its peak, so a rear that lets go slides the car instead of tightening the turn. The
+// sliding friction drives the wheel as well as holding it sideways, so it is weighted by the share of
+// the tyre's skid that is sideways: a wheel spinning at a launch or locked under braking keeps the
+// game's friction (with all of it, launches spun up and stayed spinning).
 // Speed grip loss (for comparing with Aero, to go): after the grip limit, UpdateLoaded multiplies
 // the tyre's side force by its surface's LATERAL_GRIP (0x69E098); for the player's tyres that also
 // takes 1 - [Physics] SpeedGripLoss * (speed / 300 km/h)^2, so a car pulls away and brakes as
 // before but corners on less grip the faster it goes.
-// Power oversteer: UpdateLoaded weighs a driving wheel's drive force by TireForceEllipseRatio
-// (1.5, at 0x8AAC78) against the tyre's grip budget (load * static grip), so throttle uses up more
-// of the grip than its own force and leaves less for cornering; below the limit the drive force is
-// divided back (0x896D64, 1/1.5). For the player's tyres both are swapped for that ratio times
-// [Physics] PowerOversteer: above 1 the driven wheels lose more side grip under power, the more so
-// the more torque the car has (rear drive: oversteer, front drive: understeer).
-// Slide oversteer (the older way, to compare, behind [Physics] UsePowerOversteer=0): the rear
-// tyres' side grip (the LATERAL_GRIP multiply below) takes [Physics] SlideOversteer with the game's
-// throttle (lifting off in a front drive car), coming back as the rear's slip angle (Tire +0x118,
-// in turns) grows from 20 to 45 degrees.
+// Friction circle: a tyre has one grip budget for driving and cornering together. The game only
+// keeps to it at the limit, and only in its gripping model (UpdateLoaded weighs the drive force by
+// TireForceEllipseRatio, 1.5, against the budget); its sliding model takes the forces from the
+// dynamic friction along the skid, where the engine's torque doesn't count until it has spun the
+// wheel up, so under power the side grip came and went with the model in use. For the player's
+// tyres the side force (at the LATERAL_GRIP multiply below) is now held within
+// budget * sqrt(1 - u^2) in both models, u being the drive torque the wheel gets this step (Tire
+// +0xE0; the game's own drive force in its gripping model is (it + the brake torque) / radius,
+// 0x69DD8B) over its radius, as a share of the budget: full throttle in a low gear (u near 1) leaves a driven tyre
+// little side grip, at speed in a high gear little changes. [Physics] FrictionCircle blends it in
+// (0 = off, 1 = the whole circle; above 1 the drive torque counts that many times over, to test). Rear drive steps out under power, front drive pushes wide.
 // Aero: Chassis::DoAerodynamics (called from SuspensionRacer::OnTaskSimulate) pushes the car down
 // with the game's own downforce: speed * AERO_COEFFICIENT * 2000 (Physics::Info::
 // AerodynamicDownforce), times the Aerodynamics tuning, at a point between the axles set by
@@ -163,17 +167,23 @@ constexpr int kTire_Radius = 0xC4, kTire_AngVel = 0xD0, kTire_SlipSpeed = 0xE8;
 // Tire::UpdateLoaded (0x69F065) from its argument whatever the wheel does; the slip speed at +0xE8
 // is forced to 0 in some states (0x69F1EB), so a locked wheel can't be told from it.
 constexpr int kTire_RoadSpeed = 0xF4;
+// Tire: the wheel's slip along it this step (m/s), wheel speed (angular velocity * radius) less the
+// ground's, stored by UpdateLoaded (0x69DCB1) before the sliding friction.
+constexpr int kTire_Slip = 0xF0;
+// Tire: the share of its force it kept at the last step (1, or the grip limit / the force when that
+// was over it, set at 0x69DFB4 / 0x69E004). Below 1, UpdateLoaded uses the sliding model this step.
+constexpr int kTire_GripUsed = 0x110;
 constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
 constexpr int kRain_Intensity = 0x4C;
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
-constexpr uintptr_t kEllipse = 0x69DF61;            // UpdateLoaded: fmul [TireForceEllipseRatio] (esi = tyre)
-constexpr uintptr_t kEllipseUndo = 0x69E03A;        // UpdateLoaded: fmul [1 / 1.5] below the grip limit
-constexpr uintptr_t kEllipseRatio = 0x8AAC78, kEllipseInv = 0x896D64;
 constexpr int kTire_SlipAngle = 0x118;
-constexpr int kTire_DriveScale = 0x120;             // ... drive force factor, applied after the ellipse ratio
 constexpr int kTire_Load = 0xD4;                    // ... load (N) for this step (0 off the ground)
+constexpr int kTire_SideForce = 0xD8;               // ... side force this step (N), cut to the grip limit
+// ... the drivetrain's torque on the wheel this step (N m): UpdateLoaded scales it by 1 - handbrake
+// (0x69DBD5, the handbrake declutches); the brake torque is at +0xE4.
+constexpr int kTire_DriveTorque = 0xE0;
 constexpr uintptr_t kGripLimit = 0x69DFCE;          // UpdateLoaded: fmul [esp+0x1C]; fstp [esp+0x1C] (the grip limit)
 constexpr int kSR_SuspLayout = 0xC8;                // SuspensionRacer: chassis layout DoWheelForces reads
 // Chassis layout AxlePairs (front, rear): rebound and bump damping, springs, anti-roll bars.
@@ -206,31 +216,31 @@ extern "C" float s_latMul[4];
 uint8_t* s_latTires[4];
 float s_latMul[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 float s_speedMul = 1.0f;    // the speed grip loss part of s_latMul this step
-// The tyre force ellipse for the player's tyres (s_latTires): the game's ratio times PowerOversteer.
-extern "C" float s_ellipse, s_ellipseInv;
-float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f;
-// For [Physics] LogPhysics, each player tyre's last UpdateLoaded: its drive force before the ellipse
-// ratio (0 when the ratio wasn't applied), its grip budget and the length of its force (side force
-// and ratio times drive force) before that is cut to the budget.
-extern "C" float s_driveRaw[4], s_budget[4], s_forceLen[4];
-float s_driveRaw[4], s_budget[4], s_forceLen[4];
+// Each player tyre's grip budget at its last UpdateLoaded (the grip limit, after load sensitivity).
+extern "C" float s_budget[4];
+float s_budget[4];
 float s_gas = 0.0f;         // the player's throttle at the last DoDrifting
 float s_refLoad[2];         // a front / rear tyre's static load (N), for load sensitivity
 float s_lsRatio[4], s_lsFactor[4], s_peakFactor[4], s_peakAngle[4];   // the last step's, for the log
-float s_slideWould = 1.0f;  // slide oversteer's rear side grip factor this step, in use or not
 // The player's suspension and aero steps this second, for the diagnostics line ([Physics] LogPhysics).
 struct {
     int suspSteps = 0, suspCustom = 0, aeroSteps = 0;   // the player's suspension steps (own values), aero steps
     float gameForce = 0, extraForce = 0, weight = 0;    // N at the last aero step
 } s_diag;
-// What the two oversteer settings did this second, per axle (front, rear), over the steps a tyre put
-// down drive force with the throttle past half: side force factors against the game's ellipse
-// (power oversteer at the set value and at 1.5, 2 and 3), slide oversteer's, the drive force's share
-// of the grip budget, and how many of those steps were at the grip limit.
-struct OversteerStats {
-    int steps = 0, atLimit = 0;
-    float power = 0, powerMin = 1, at[3] = {}, slide = 0, share = 0;
-} s_over[2];
+// The friction circle this second, per axle (front, rear), over the steps a tyre was driven: the
+// drive torque's share of its grip (mean, highest), how many steps its side force was held to the
+// circle, and the side force it kept (1 when not held), for [Physics] LogPhysics.
+struct CircleStats {
+    int steps = 0, held = 0;
+    float use = 0, useMax = 0, keep = 0;
+} s_circle[2];
+// Slide grip this second, per axle (front, rear), over the steps a player's tyre used the sliding
+// model: the factor it took (SlideGrip by the sideways share of the skid) and its wheel slip, for
+// [Physics] LogPhysics.
+struct SlideStats {
+    int steps = 0;
+    float factor = 0, min = 1, spin = 0;
+} s_slide[2];
 
 
 template <class T> T& Field(uint8_t* p, int off) { return *(T*)(p + off); }
@@ -322,7 +332,7 @@ bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
            c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f) &&
-           (c.usePowerOversteer ? c.powerOversteer == 1.0f : c.slideOversteer == 1.0f) && c.loadSensitivity == 0.0f &&
+           c.frictionCircle == 0.0f && c.loadSensitivity == 0.0f &&
            c.pastPeakGrip >= 1.0f && c.suspFirmness == 1.0f && c.rollBalance == 0.0f;
 }
 
@@ -335,36 +345,6 @@ float SpeedGrip(float loss, float speed) {
 
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
 float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
-
-// After the player's suspension step: what each oversteer setting does to the side force of the
-// tyres that put down drive force with the throttle past half. UpdateLoaded cuts a tyre's force
-// (side, ratio * drive) to its grip budget, so the side force keeps min(1, budget / length); power
-// oversteer's factor is that at its ratio over that at the game's.
-void MeasureOversteer() {
-    if (s_gas < 0.5f) return;
-    const float game = *(const float*)kEllipseRatio;
-    const float tries[3] = {1.5f, 2.0f, 3.0f};
-    for (int i = 0; i < 4; i++) {
-        uint8_t* tire = s_latTires[i];
-        float budget = s_budget[i], len = s_forceLen[i];
-        if (!tire || s_driveRaw[i] == 0.0f || budget <= 0.0f) continue;
-        float drive = fabsf(s_driveRaw[i] * Field<float>(tire, kTire_DriveScale));
-        float side2 = std::max(len * len - s_ellipse * s_ellipse * drive * drive, 0.0f);
-        auto keep = [&](float ratio) {
-            float l = sqrtf(side2 + ratio * ratio * drive * drive);
-            return l > budget ? budget / l : 1.0f;
-        };
-        OversteerStats& o = s_over[i >= 2];
-        float base = keep(game), power = keep(game * g_cfg.powerOversteer) / base;
-        o.steps++;
-        if (len > budget) o.atLimit++;
-        o.power += power;
-        o.powerMin = std::min(o.powerMin, power);
-        for (int k = 0; k < 3; k++) o.at[k] += keep(game * tries[k]) / base;
-        o.slide += i >= 2 ? s_slideWould : 1.0f;
-        o.share += drive / budget;
-    }
-}
 
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
@@ -395,38 +375,85 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     Saved sv;
     Apply(susp, sv);
     s_slideGrip = g_cfg.slideGrip;
-    // The player's tyres, for the side grip and ellipse stubs (slide oversteer's rear part is set in
-    // the DoDrifting hook: it needs the throttle).
+    // The player's tyres, for the side grip stub.
     s_speedMul = !g_cfg.useAero && g_cfg.speedGripLoss > 0.0f ? SpeedGrip(g_cfg.speedGripLoss, s_playerSpeed) : 1.0f;
-    float ratio = *(const float*)kEllipseRatio * (g_cfg.usePowerOversteer ? g_cfg.powerOversteer : 1.0f);
-    s_ellipse = ratio;
-    s_ellipseInv = 1.0f / ratio;
     for (int i = 0; i < 4; i++) {
         s_latTires[i] = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
         s_latMul[i] = s_speedMul;
-        s_driveRaw[i] = s_budget[i] = s_forceLen[i] = 0.0f;
+        s_budget[i] = 0.0f;
     }
     s_origSusp(susp, dT);
-    if (g_cfg.logPhysics) MeasureOversteer();
     for (uint8_t*& t : s_latTires) t = nullptr;
     s_slideGrip = 1.0f;
     Restore(sv);
     s_playerSusp = false;
 }
 
-// In place of UpdateLoaded's fmul [esi+0xEC] (6 bytes: a call and a nop): the same multiply and
-// the slide grip factor.
+// The slide grip factor for a sliding tyre: SlideGrip by the sideways share of its skid, so a tyre
+// sliding sideways takes all of it and one spinning or locked in a straight line (a launch, a stop)
+// keeps the game's friction. The skid speed is UpdateLoaded's sqrt(lat^2 + slip^2), the slip the
+// tyre's own (+0xF0, stored just before); if they don't agree the stack isn't what it was read as,
+// and the whole factor applies, as before.
+extern "C" __attribute__((used)) float SlideFriction(uint8_t* tire, float lat, float skid) {
+    int at = -1;
+    for (int i = 0; i < 4; i++)
+        if (s_latTires[i] == tire) at = i;
+    if (at < 0) return 1.0f;
+    bool sliding = Field<float>(tire, kTire_GripUsed) < 1.0f;
+    float slip = Field<float>(tire, kTire_Slip);
+    float want = sqrtf(lat * lat + slip * slip);
+    if (!(fabsf(want - skid) <= 0.01f * want + 0.01f)) {
+        static bool logged;
+        if (!logged) {
+            logged = true;
+            Log("physics: slide grip: skid speed %.3f, expected %.3f (lateral %.3f, slip %.3f); not weighted by direction",
+                skid, want, lat, slip);
+        }
+        return s_slideGrip;
+    }
+    float share = skid > 0.001f ? Clamp(fabsf(lat) / skid, 0.0f, 1.0f) : 0.0f;
+    float f = 1.0f - (1.0f - s_slideGrip) * share;
+    if (sliding) {
+        SlideStats& s = s_slide[at >= 2];
+        s.steps++, s.factor += f, s.spin += fabsf(slip);
+        if (f < s.min) s.min = f;
+    }
+    return f;
+}
+
+// In place of UpdateLoaded's fmul [esi+0xEC] (6 bytes: a call and a nop): the same multiply, then
+// with SlideGrip below 1 times SlideFriction(tyre, lateral speed, skid speed). Past UpdateLoaded's
+// push ecx just before and the return address, its esp+X is this stub's esp+X+8: the lateral speed
+// (its first argument) at 0x2C, the skid speed at 0x10. eax, ecx and edx are kept, and the product is
+// held in memory over the call (the x87 stack is otherwise empty); the flags are free.
 __asm__(
     ".text\n"
     "_SlideFrictionStub:\n"
     "    fmuls 0xEC(%esi)\n"
-    "    fmuls _s_slideGrip\n"
-    "    ret\n");
+    "    cmpl $0x3F800000, _s_slideGrip\n"
+    "    je 1f\n"
+    "    subl $4, %esp\n"
+    "    fstps (%esp)\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    // 24 bytes down from UpdateLoaded's esp: skid speed at 0x28, then (one push more) lateral at 0x48.
+    "    pushl 0x28(%esp)\n"
+    "    pushl 0x48(%esp)\n"
+    "    pushl %esi\n"
+    "    call _SlideFriction\n"
+    "    addl $12, %esp\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    fmuls (%esp)\n"
+    "    addl $4, %esp\n"
+    "1:  ret\n");
 extern "C" void SlideFrictionStub();
 
-// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times LatGrip (s_latMul and
-// the past-peak loss) for a tyre in s_latTires. The x87 stack is empty here; eax, ecx and edx are
-// kept; the flags are free (the next test sets them again).
+// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times LatGrip (s_latMul, the
+// past-peak loss and the friction circle) for a tyre in s_latTires. The x87 stack is empty here; eax,
+// ecx and edx are kept; the flags are free (the next test sets them again).
 __asm__(
     ".text\n"
     "_LateralGripStub:\n"
@@ -440,13 +467,11 @@ __asm__(
     "    popl %eax\n"
     "    flds 0xF0(%ecx)\n"
     "    ret\n"
-    // For the diagnostics: UpdateLoaded's locals at esp+0x18 (grip budget) and esp+0x34 (force length)
-    // here, 12 bytes further down with the return address and the two pushes.
+    // The grip budget: UpdateLoaded's local at esp+0x18 here, 12 bytes further down with the return
+    // address and the two pushes.
     "2:  pushl %edx\n"
     "    movl 0x24(%esp), %edx\n"
     "    movl %edx, _s_budget(,%eax,4)\n"
-    "    movl 0x40(%esp), %edx\n"
-    "    movl %edx, _s_forceLen(,%eax,4)\n"
     "    pushl %ecx\n"
     "    pushl %eax\n"
     "    pushl %eax\n"
@@ -459,42 +484,6 @@ __asm__(
     "    popl %eax\n"
     "    ret\n");
 extern "C" void LateralGripStub();
-
-// In place of UpdateLoaded's fmul [TireForceEllipseRatio] and its fmul [1/1.5] undo (6 bytes
-// each): the player's tyres (s_latTires) take s_ellipse / s_ellipseInv, the others the game's.
-__asm__(
-    ".text\n"
-    "_EllipseStub:\n"
-    "    pushl %eax\n"
-    "    xorl %eax, %eax\n"
-    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
-    "    je 2f\n"
-    "    incl %eax\n"
-    "    cmpl $4, %eax\n"
-    "    jb 1b\n"
-    "    popl %eax\n"
-    "    fmuls 0x8AAC78\n"
-    "    ret\n"
-    "2:  fsts _s_driveRaw(,%eax,4)\n"
-    "    popl %eax\n"
-    "    fmuls _s_ellipse\n"
-    "    ret\n"
-    "_EllipseUndoStub:\n"
-    "    pushl %eax\n"
-    "    xorl %eax, %eax\n"
-    "1:  cmpl _s_latTires(,%eax,4), %esi\n"
-    "    je 2f\n"
-    "    incl %eax\n"
-    "    cmpl $4, %eax\n"
-    "    jb 1b\n"
-    "    popl %eax\n"
-    "    fmuls 0x896D64\n"
-    "    ret\n"
-    "2:  popl %eax\n"
-    "    fmuls _s_ellipseInv\n"
-    "    ret\n");
-extern "C" void EllipseStub();
-extern "C" void EllipseUndoStub();
 
 bool OffroadTire(uint8_t* tire);
 
@@ -545,19 +534,65 @@ bool LooseSurface(int i, uint8_t* tire) {
     return loose[i];
 }
 
-// The side grip factor for a player's tyre this step: s_latMul, times the past-peak loss for its
-// slip angle (fading in from 2 to 5 m/s, where the angle means something).
-extern "C" __attribute__((used)) float LatGrip(int i) {
-    float m = s_latMul[i], keep = g_cfg.pastPeakGrip;
-    uint8_t* tire = s_latTires[i];
-    if (keep >= 1.0f || !tire) return m;
+// The past-peak loss for a player's tyre's slip angle (fading in from 2 to 5 m/s, where the angle
+// means something).
+float PastPeak(int i, uint8_t* tire) {
+    float keep = g_cfg.pastPeakGrip;
     float a = fabsf(Field<float>(tire, kTire_SlipAngle)) * 360.0f;
-    if (!(a <= 180.0f)) return m;           // NaN or nonsense
+    if (!(a <= 180.0f)) return 1.0f;        // NaN or nonsense
     if (a > 90.0f) a = 180.0f - a;           // rolling backwards
     float f = 1.0f - (1.0f - keep) * Smoothstep(8.0f, 25.0f, a) * Smoothstep(2.0f, 5.0f, s_playerSpeed);
     if (f < 1.0f && LooseSurface(i, tire)) f = 1.0f;
     s_peakFactor[i] = f, s_peakAngle[i] = a;
-    return m * f;
+    return f;
+}
+
+// The friction circle for a player's tyre: the factor that holds its side force (after the game's
+// cut and `m`) within budget * room. u is the drive torque's share of the grip (torque / radius /
+// budget; none while it holds the car back, engine braking), and room = sqrt(1 - u^2). A wheel
+// that spins (its slip from 0.5 to 2 m/s) has its force along its skid: its side share is the
+// lateral speed over the skid speed (the lateral speed from the slip angle and the ground speed
+// along the wheel, angular velocity * radius - the slip), and room is at least that, so a car
+// sliding further sideways gets side grip back and a power slide can be held. FrictionCircle up to
+// 1 blends room from 1 (0) to all of it (1); above 1 the drive torque counts that many times over
+// (an exaggeration, for testing).
+float Circle(int i, uint8_t* tire, float m) {
+    float budget = s_budget[i], radius = Field<float>(tire, kTire_Radius);
+    if (!(budget > 0.0f) || !(radius > 0.0f)) return 1.0f;
+    float slip = Field<float>(tire, kTire_Slip);
+    float fwd = Field<float>(tire, kTire_AngVel) * radius - slip;
+    float torque = Field<float>(tire, kTire_DriveTorque);
+    if (torque * fwd < 0.0f && fabsf(fwd) > 0.5f) return 1.0f;
+    float k = g_cfg.frictionCircle;
+    float u = fabsf(torque) / radius / budget * std::max(k, 1.0f);
+    if (!(u > 0.02f)) return 1.0f;           // not driven, or NaN
+    float room = sqrtf(std::max(0.0f, 1.0f - u * u));
+    float spin = Smoothstep(0.5f, 2.0f, fabsf(slip));
+    if (spin > 0.0f) {
+        float angle = Clamp(fabsf(Field<float>(tire, kTire_SlipAngle)) * 6.2831853f, 0.0f, 1.55f);
+        float lat = tanf(angle) * fabsf(fwd);
+        float skid = sqrtf(lat * lat + slip * slip);
+        room = std::max(room, lat / skid * spin);
+    }
+    float cap = budget * (1.0f - std::min(k, 1.0f) * (1.0f - room));
+    float side = fabsf(Field<float>(tire, kTire_SideForce)) * m;
+    float f = side > cap ? cap / side : 1.0f;
+    CircleStats& c = s_circle[i >= 2];
+    c.steps++, c.use += std::min(u, 9.0f), c.keep += f;
+    c.useMax = std::max(c.useMax, u);
+    if (f < 1.0f) c.held++;
+    return f;
+}
+
+// The side grip factor for a player's tyre this step: s_latMul, times the past-peak loss and the
+// friction circle.
+extern "C" __attribute__((used)) float LatGrip(int i) {
+    float m = s_latMul[i];
+    uint8_t* tire = s_latTires[i];
+    if (!tire) return m;
+    if (g_cfg.pastPeakGrip < 1.0f) m *= PastPeak(i, tire);
+    if (g_cfg.frictionCircle > 0.0f) m *= Circle(i, tire, m);
+    return m;
 }
 
 bool Plausible(uintptr_t p);
@@ -858,28 +893,11 @@ void AidToggles() {
 
 typedef void(__thiscall* DoDrifting_t)(void* susp, void* state);
 
-// Slide oversteer's rear side grip factor for this step: with the game's throttle (rear or all-wheel
-// drive) or lifting off (front drive), less as the rear's slip angle grows past 20 degrees, none
-// from 45. On top of the speed grip loss part. Also notes the throttle for the diagnostics.
-float SlideOversteer(uint8_t* susp, const uint8_t* state) {
-    float gas = Clamp(*(const float*)(state + kState_Gas), 0.0f, 1.0f);
-    s_gas = gas;
-    uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
-    bool frontDrive = tranny && Field<float>(tranny, kTR_TorqueSplit) >= 0.99f;
-    float power = frontDrive ? 1.0f - gas : gas;
-    float angle = 0.0f;
-    for (int i = 2; i < 4; i++) angle = std::max(angle, fabsf(Field<float>(s_latTires[i], kTire_SlipAngle)) * 360.0f);
-    float fade = 1.0f - Smoothstep(20.0f, 45.0f, angle);
-    return 1.0f - (1.0f - g_cfg.slideOversteer) * power * fade;
-}
-
 void __fastcall Hook_DoDrifting(uint8_t* susp, void*, void* state) {
     ((DoDrifting_t)kDoDrifting)(susp, state);
     if (!s_playerSusp) return;
-    if (state && g_cfg.physics && s_latTires[2] && s_latTires[3]) {
-        s_slideWould = SlideOversteer(susp, (const uint8_t*)state);
-        if (!g_cfg.usePowerOversteer) s_latMul[2] = s_latMul[3] = s_speedMul * s_slideWould;
-    }
+    // The game's throttle, for the diagnostics.
+    if (state) s_gas = Clamp(*(const float*)((const uint8_t*)state + kState_Gas), 0.0f, 1.0f);
     if (uint8_t* aidIface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle)) Aids(susp, aidIface, s_suspDT);
     if (!g_cfg.physics) return;
     float front = 1.0f + g_cfg.gripBalance, rear = 1.0f - g_cfg.gripBalance, off = g_cfg.offroadGrip;
@@ -912,27 +930,32 @@ void Diagnostics(uint8_t* rb) {
     }
     if (g_cfg.logPhysics && s_playerSpeed > 5.0f)
         Log("physics: %3.0f km/h: suspension %d steps (%d with the mod's values), aero %d; game downforce %.0f%% of the "
-            "weight, ours %+.0f%%; side grip x%.2f/%.2f, ellipse %.2f",
+            "weight, ours %+.0f%%; side grip x%.2f/%.2f",
             s_playerSpeed * 3.6f, s_diag.suspSteps, s_diag.suspCustom, s_diag.aeroSteps,
             s_diag.weight > 0 ? s_diag.gameForce / s_diag.weight * 100.0f : 0.0f,
-            s_diag.weight > 0 ? s_diag.extraForce / s_diag.weight * 100.0f : 0.0f, s_latMul[0], s_latMul[2], s_ellipse);
+            s_diag.weight > 0 ? s_diag.extraForce / s_diag.weight * 100.0f : 0.0f, s_latMul[0], s_latMul[2]);
     for (int a = 0; a < 2; a++) {
-        const OversteerStats& o = s_over[a];
-        if (!g_cfg.logPhysics || o.steps == 0) continue;
-        float n = (float)o.steps;
-        Log("physics:   %s on the throttle (%d tyre steps): drive force %.0f%% of the grip, at the limit %.0f%% of the "
-            "time; side force x%.2f (min x%.2f) by power oversteer %.2f%s (x%.2f/%.2f/%.2f at 1.5/2/3), x%.2f by slide "
-            "oversteer %.2f%s",
-            a ? "rear" : "front", o.steps, o.share / n * 100.0f, o.atLimit / n * 100.0f, o.power / n, o.powerMin,
-            g_cfg.powerOversteer, g_cfg.usePowerOversteer ? " (in use)" : "", o.at[0] / n, o.at[1] / n, o.at[2] / n,
-            o.slide / n, g_cfg.slideOversteer, g_cfg.usePowerOversteer ? "" : " (in use)");
+        const CircleStats& c = s_circle[a];
+        if (!g_cfg.logPhysics || c.steps == 0) continue;
+        float n = (float)c.steps;
+        Log("physics:   %s driven (%d tyre steps, throttle %.2f): drive torque %.0f%% of the grip (up to %.0f%%); "
+            "side force held to the friction circle %.0f%% of the steps, kept x%.2f",
+            a ? "rear" : "front", c.steps, s_gas, c.use / n * 100.0f, c.useMax * 100.0f, c.held / n * 100.0f, c.keep / n);
     }
     if (g_cfg.logPhysics && s_playerSpeed > 5.0f && (g_cfg.loadSensitivity > 0.0f || g_cfg.pastPeakGrip < 1.0f))
         Log("physics:   tyres FL FR RL RR: load %.2f %.2f %.2f %.2f of static, grip limit x%.2f %.2f %.2f %.2f; "
             "slip %.0f %.0f %.0f %.0f deg, side grip x%.2f %.2f %.2f %.2f", s_lsRatio[0], s_lsRatio[1], s_lsRatio[2],
             s_lsRatio[3], s_lsFactor[0], s_lsFactor[1], s_lsFactor[2], s_lsFactor[3], s_peakAngle[0], s_peakAngle[1],
             s_peakAngle[2], s_peakAngle[3], s_peakFactor[0], s_peakFactor[1], s_peakFactor[2], s_peakFactor[3]);
-    for (OversteerStats& o : s_over) o = OversteerStats();
+    for (int a = 0; a < 2; a++) {
+        const SlideStats& s = s_slide[a];
+        if (!g_cfg.logPhysics || s.steps == 0) continue;
+        float n = (float)s.steps;
+        Log("physics:   %s sliding (%d tyre steps, %.0f km/h): slide grip x%.2f (min x%.2f) of %.2f, wheel slip %.1f m/s",
+            a ? "rear" : "front", s.steps, s_playerSpeed * 3.6f, s.factor / n, s.min, g_cfg.slideGrip, s.spin / n);
+    }
+    for (SlideStats& s : s_slide) s = SlideStats();
+    for (CircleStats& c : s_circle) c = CircleStats();
     s_diag.suspSteps = s_diag.suspCustom = s_diag.aeroSteps = 0;
 }
 
@@ -1009,15 +1032,13 @@ const PerCar kPerCar[] = {
     {&Config::maxSpin, "MaxSpin", 0.0f, 30.0f},
     {&Config::speedGripLoss, "SpeedGripLoss", 0.0f, 0.9f},
     {&Config::downforce, "Downforce", -0.25f, 2.0f},
-    {&Config::powerOversteer, "PowerOversteer", 0.5f, 3.0f},
-    {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::suspFirmness, "SuspensionFirmness", 0.5f, 2.0f},
     {&Config::rollBalance, "RollBalance", -0.5f, 0.5f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
 // out of a section when it is written.
-const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SmokeBack", "Aero"};
+const char* const kOldPerCarKeys[] = {"FrontGrip", "RearGrip", "SmokeBack", "Aero", "PowerOversteer", "SlideOversteer"};
 
 int PerCarIndex(float Config::*field) {
     for (int i = 0; i < kNumPerCar; i++)
@@ -1268,6 +1289,8 @@ void Physics_SetOwnSettings(bool on) {
 
 float Physics_PlayerSpeed() { return s_playerSpeed; }
 
+float Physics_GasInput() { return s_gas; }
+
 float Physics_TcThrottle() { return g_cfg.tc ? s_aid.tcGas : 1.0f; }
 
 void Physics_Aids(bool* absActive, bool* tcActive) {
@@ -1348,8 +1371,7 @@ void Physics_Install() {
         if (Expect(kLateralGrip, {0xD9, 0x81, 0xF0, 0x00, 0x00, 0x00})) {
             WriteCallNops(kLateralGrip, 6, (void*)&LateralGripStub);
             Log("physics: speed grip loss ready (%.2f, %s)", g_cfg.speedGripLoss, g_cfg.useAero ? "off: Aero in use" : "in use");
-            Log("physics: slide oversteer ready (%.2f, %s)", g_cfg.slideOversteer,
-                g_cfg.usePowerOversteer ? "off: power oversteer in use" : "in use");
+            Log("physics: friction circle ready (%.2f)", g_cfg.frictionCircle);
         }
     } else {
         Log("physics: slide grip unavailable");
@@ -1359,14 +1381,6 @@ void Physics_Install() {
         Log("physics: perfect launch %s", g_cfg.physics ? "off" : "as the game's (physics mod off)");
     } else {
         Log("physics: unexpected vehicle code, the perfect launch stays");
-    }
-    if (Expect(kEllipse, {0xD8, 0x0D, 0x78, 0xAC, 0x8A, 0x00}) && Expect(kEllipseUndo, {0xD8, 0x0D, 0x64, 0x6D, 0x89, 0x00})) {
-        WriteCallNops(kEllipse, 6, (void*)&EllipseStub);
-        WriteCallNops(kEllipseUndo, 6, (void*)&EllipseUndoStub);
-        Log("physics: power oversteer ready (%.2f x the game's tyre force ellipse %.2f, %s)", g_cfg.powerOversteer,
-            *(const float*)kEllipseRatio, g_cfg.usePowerOversteer ? "in use" : "off: slide oversteer in use");
-    } else {
-        Log("physics: unexpected tyre code, no power oversteer");
     }
     if (Expect(kGripLimit, {0xD8, 0x4C, 0x24, 0x1C, 0xD9, 0x5C, 0x24, 0x1C})) {
         WriteCallNops(kGripLimit, 8, (void*)&GripLimitStub);

@@ -15,6 +15,8 @@ void Physics_Frame();
 void Physics_DropCar();
 // The player's car's speed (m/s) at its last physics step.
 float Physics_PlayerSpeed();
+// The throttle the game's chassis took at the player's last physics step (0..1).
+float Physics_GasInput();
 // Traction control: the share of the throttle to send now (1 = all of it; 1 with TC off).
 float Physics_TcThrottle();
 // ABS / traction control working right now (for the HUD icons). Game thread.

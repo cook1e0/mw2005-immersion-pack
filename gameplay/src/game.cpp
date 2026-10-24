@@ -57,6 +57,11 @@ constexpr uintptr_t kCallDoAutoReverse = 0x6A8D89;  // InputPlayer::FetchInput: 
 constexpr uintptr_t kDoAutoReverse = 0x69CEF0;      // void InputPlayer::DoAutoReverse(float, float)
 constexpr uintptr_t kIsAutomaticShift = 0x68D090;   // bool InputPlayer::IsAutomaticShift() (IInput)
 constexpr uintptr_t kEngineSimulate = 0x6AF740;     // void EngineRacer::OnTaskSimulate(float)
+// OnTaskSimulate: torque = engine torque * throttle + engine braking * (1 - throttle), the engine
+// braking (GetBrakingTorque, 0x6A0910) being -(full throttle torque) * the car's ENGINE_BRAKING at
+// this rpm. Here, fsub [esi+0x8C] makes that 1 - throttle (x87: 1, engine braking).
+constexpr uintptr_t kEngineBrakeWeight = 0x6AFAEB;
+constexpr int kER_Throttle = 0x8C;
 constexpr uintptr_t kIListFind = 0x5D59F0;          // IUnknown* UTL::COM::Object::_IList::Find(void*)
 constexpr uintptr_t kITransmissionHandle = 0x404010;// ITransmission::_IHandle (its address is the key)
 constexpr uintptr_t kGetDiffAngVel = 0x692140;      // float EngineRacer::GetDifferentialAngularVelocity(bool)
@@ -845,9 +850,73 @@ void ClutchSimulate(uint8_t* eng, float dT) {
     *stiffness = saved;
 }
 
+}  // namespace
+
+// Engine braking against the throttle: the game weighs it by 1 - throttle, so it fades out only at
+// full throttle and the net torque turns positive only past ENGINE_BRAKING / (1 + ENGINE_BRAKING)
+// of the pedal (25-40% by the car). For the player's engine it is gone by [Engine]
+// EngineBrakingFade instead (a real engine stops braking as soon as the throttle opens), falling in a
+// straight line from full at a closed throttle.
+extern "C" uint8_t* s_brakeEngine;
+uint8_t* s_brakeEngine;   // the player's EngineRacer while EngineBrakingFade applies, else null
+
+extern "C" __attribute__((used)) float EngineBrakeWeight(uint8_t* eng) {
+    float t = Field<float>(eng, kER_Throttle);
+    return 1.0f - Clamp(t / g_cfg.engineBrakeFade, 0.0f, 1.0f);
+}
+
+// In place of fsub [esi+0x8C] (6 bytes): for s_brakeEngine, the 1 on the x87 stack becomes
+// EngineBrakeWeight; the engine braking under it is held in memory over the call. eax, ecx and edx
+// are kept (ebx, the gear, is callee-saved); the flags are free.
+__asm__(
+    ".text\n"
+    "_EngineBrakeStub:\n"
+    "    cmpl _s_brakeEngine, %esi\n"
+    "    je 1f\n"
+    "    fsubs 0x8C(%esi)\n"
+    "    ret\n"
+    "1:  fstp %st(0)\n"
+    "    subl $4, %esp\n"
+    "    fstps (%esp)\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    "    pushl %esi\n"
+    "    call _EngineBrakeWeight\n"
+    "    addl $4, %esp\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    flds (%esp)\n"
+    "    fxch %st(1)\n"
+    "    addl $4, %esp\n"
+    "    ret\n");
+extern "C" void EngineBrakeStub();
+
+namespace {
+
+// [Physics] LogPhysics: four times a second while the throttle is pressed under 30 km/h, the throttle
+// at each stage (the pedal, what the chassis took, what the engine used), the brakes, gear, clutch,
+// engine and gearbox rpm: where a launch loses the start of the pedal.
+void LogLaunch(uint8_t* eng) {
+    static double last;
+    InputSnapshot in = Input_Get();
+    float speed = Physics_PlayerSpeed() * 3.6f;
+    double now = Now();
+    if (!g_cfg.logPhysics || in.pedal[0] < 0.02f || speed > 30.0f || now - last < 0.25) return;
+    last = now;
+    const Clutch& c = Field<Clutch>(eng, kER_Clutch);
+    Log("launch: %4.1f km/h: pedal %.2f, chassis %.2f, engine %.2f; brake %.2f, handbrake %.2f; gear %d, clutch %d "
+        "(%.2f s); engine %.0f rpm, gearbox %.0f rpm", speed, in.pedal[0], Physics_GasInput(),
+        Field<float>(eng, kER_Throttle), in.pedal[1], in.handbrake, Field<int>(eng, kER_Gear) - 1, c.state, c.time,
+        Field<float>(eng, kER_AngularVelocity) * 9.5492966f, Field<float>(eng, kER_TransmissionVelocity) * 9.5492966f);
+}
+
 void __fastcall Hook_EngineSimulate(uint8_t* eng, void*, float dT) {
+    s_brakeEngine = g_cfg.engineBrakeFade < 1.0f && eng == s.engine ? eng : nullptr;
     ClutchSimulate(eng, dT);
     if (eng != s.engine) return;
+    LogLaunch(eng);
     PlayerEngineStep(eng);
     if (WearApplies(eng)) UpdateWear(eng, dT);
 }
@@ -965,6 +1034,12 @@ bool Game_Install() {
     const uint8_t nop = 0x90;
     Write(kIsAutomaticShift + 5, &nop, 1);
     WriteRel(kEngineSimulate, 0xE9, (void*)&Hook_EngineSimulate);
+    if (Expect(kEngineBrakeWeight, {0xD8, 0xA6, 0x8C, 0x00, 0x00, 0x00})) {
+        WriteCallNops(kEngineBrakeWeight, 6, (void*)&EngineBrakeStub);
+        Log("engine braking: gone at %.0f%% throttle", g_cfg.engineBrakeFade * 100.0f);
+    } else {
+        Log("engine braking: not at 0x%06X, left as the game's", (unsigned)kEngineBrakeWeight);
+    }
     if (ExpectPtr(kSlotOnImpact, kOnImpact)) {
         void* p = (void*)&Hook_OnImpact;
         Write(kSlotOnImpact, &p, 4);

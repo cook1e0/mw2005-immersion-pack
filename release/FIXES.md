@@ -4,6 +4,29 @@
   When the gameplay, force feedback and VR mods are from different releases it shows each one, so a
   half-updated install is easy to spot (an FFB or VR build from before this shows as "older"). The
   version is also the first line of each mod's log.
+- **Friction circle replaces power oversteer** (`[Physics] FrictionCircle=1`, F4 > Physics, every
+  car): a tyre has one grip budget for driving and cornering, and the share the drive torque uses
+  is now gone from cornering (a tyre using X of its grip to drive keeps sqrt(1 - X^2) for
+  cornering), as in the sims. Full throttle in a low gear steps a rear drive car out and pushes a
+  front drive car wide; at speed in a high gear it changes little, so throttle control matters
+  most where a car has the torque to spin its wheels. Once the wheels spin, side grip comes back
+  as the car slides further sideways, so a power slide can be held with throttle and countersteer.
+  Power oversteer only acted on the steps where the game's gripping tyre model was in use, and
+  the game switches a tyre at its limit back and forth between that and its sliding model, so
+  its effect came and went; the circle acts the same in both. `PowerOversteer`, `SlideOversteer`
+  and `UsePowerOversteer` are gone (from the presets too; the menu clears them from a car's
+  section when it saves). 0 = the game's; above 1 (up to 3) the drive torque counts that many times
+  over, an exaggeration for testing.
+- **Throttle pulls from the start of the pedal** (`[Engine] EngineBrakingFade=0.1`, F4 > Engine):
+  the game blends engine braking out in a straight line up to full throttle, so the car only
+  pulled once the throttle passed 25-40% (by the car's own engine braking) and the start of the
+  pedal did nothing. Now engine braking is gone by 10% throttle, as a real engine's is once the
+  throttle opens; lifting off brakes as before. 1 = the game's.
+- **Slide grip no longer spins up launches:** the game's sliding friction both drives a spinning
+  wheel and holds a sliding one sideways, so `SlideGrip` below 100% also cut a spinning wheel's
+  drive, and a launch (most of all in supercars, whose presets have 75% or 50%) spun up and stayed
+  spinning. It now applies only as far as the tyre slides sideways: a slide or drift takes all of
+  it, wheelspin at a launch and a wheel locked in a straight line keep the game's grip.
 
 ### v0.25.0: tyre load sensitivity, grip that falls off past the peak, suspension firmness and roll balance
 
