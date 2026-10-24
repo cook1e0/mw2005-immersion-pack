@@ -1,4 +1,4 @@
-### Unreleased
+### v0.25.0: tyre load sensitivity, grip that falls off past the peak, suspension firmness and roll balance
 
 - **Tyre load sensitivity** (`[Physics] LoadSensitivity=0.2`, ini, every car): in the game a
   tyre's grip limit is exactly its load times its grip. Real tyres get less than proportionally

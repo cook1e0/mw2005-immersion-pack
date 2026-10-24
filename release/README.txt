@@ -34,6 +34,11 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.24.0: replace scripts\nfsmw_gameplay.asi. Your ini files keep working. The new
+tyre model is on for every car (LoadSensitivity=0.2, PastPeakGrip=0.85 under [Physics]; 0 and 1
+give the game's tyres back). Suspension firmness and Roll balance are in F4 > Physics, per car.
+See FIXES.md.
+
 Upgrading from v0.23.0: replace scripts\nfsmw_gameplay.asi. Your ini files keep working; the new
 [Physics] WallBounce starts at 0 (no bounce off walls; F4 > Physics). Your ini keeps its spin limit:
 for the new 8 rad/s, set MaxSpin=8 in scripts\nfsmw_gameplay.ini and nfsmw_physics_presets.ini.
