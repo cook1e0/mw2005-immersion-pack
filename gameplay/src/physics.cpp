@@ -89,7 +89,9 @@
 // Suspension firmness: DoWheelForces reads springs (+0x38), anti-roll bars (+0x48) and dampers
 // (bump +0x30, rebound +0x28), front and rear, from the chassis layout at SuspensionRacer +0xC8.
 // For the player's step they are scaled by [Physics] SuspensionFirmness (dampers by its square
-// root, keeping the damping ratio), and put back after.
+// root, keeping the damping ratio), and put back after. [Physics] RollBalance moves the anti-roll
+// bars' stiffness between the axles (front times 1 + it, rear times 1 - it): with load sensitivity,
+// the stiffer end takes more of the load moved across in a corner and lets go first.
 //
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
@@ -289,7 +291,7 @@ void Apply(uint8_t* susp, Saved& sv) {
     float* rear = *(float**)(kDriftRearTable + 0x10);
     for (int i = 0; i < g.rearN; i++) rear[i] = 1.0f + (g.rear[i] - 1.0f) * c.driftAssist;
     uint8_t* layout = Field<uint8_t*>(susp, kSR_SuspLayout);
-    if (c.suspFirmness != 1.0f && Plausible((uintptr_t)layout)) {
+    if ((c.suspFirmness != 1.0f || c.rollBalance != 0.0f) && Plausible((uintptr_t)layout)) {
         sv.susp = layout;
         float damp = sqrtf(c.suspFirmness);
         for (int k = 0; k < 4; k++)
@@ -297,6 +299,8 @@ void Apply(uint8_t* susp, Saved& sv) {
                 float& v = Field<float>(layout, kSuspOffsets[k] + a * 4);
                 sv.suspVals[k * 2 + a] = v;
                 v *= k < 2 ? damp : c.suspFirmness;
+                // Roll balance: the anti-roll bars' stiffness moved to the front (+) or the rear (-).
+                if (kSuspOffsets[k] == kChL_Swaybar) v *= a == 0 ? 1.0f + c.rollBalance : 1.0f - c.rollBalance;
             }
     }
 }
@@ -319,7 +323,7 @@ bool Stock() {
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
            c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f) &&
            (c.usePowerOversteer ? c.powerOversteer == 1.0f : c.slideOversteer == 1.0f) && c.loadSensitivity == 0.0f &&
-           c.pastPeakGrip >= 1.0f && c.suspFirmness == 1.0f;
+           c.pastPeakGrip >= 1.0f && c.suspFirmness == 1.0f && c.rollBalance == 0.0f;
 }
 
 // Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
@@ -381,9 +385,10 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         if (Plausible((uintptr_t)layout)) {
             auto ax = [&](int off, int a) { return Field<float>(layout, off + a * 4); };
             Log("physics: suspension front / rear: springs %.0f / %.0f lb/in, anti-roll bars %.0f / %.0f, damping bump %.0f / %.0f, "
-                "rebound %.0f / %.0f; weight %.0f%% front; firmness %.2f", ax(kChL_Spring, 0), ax(kChL_Spring, 1),
-                ax(kChL_Swaybar, 0), ax(kChL_Swaybar, 1), ax(kChL_Shock, 0), ax(kChL_Shock, 1), ax(kChL_ShockExt, 0),
-                ax(kChL_ShockExt, 1), Field<float>(layout, kChL_WeightBias), g_cfg.suspFirmness);
+                "rebound %.0f / %.0f; weight %.0f%% front; firmness %.2f, roll balance %+.2f", ax(kChL_Spring, 0),
+                ax(kChL_Spring, 1), ax(kChL_Swaybar, 0), ax(kChL_Swaybar, 1), ax(kChL_Shock, 0), ax(kChL_Shock, 1),
+                ax(kChL_ShockExt, 0), ax(kChL_ShockExt, 1), Field<float>(layout, kChL_WeightBias), g_cfg.suspFirmness,
+                g_cfg.rollBalance);
         }
     }
     s_diag.suspCustom++;
@@ -1007,6 +1012,7 @@ const PerCar kPerCar[] = {
     {&Config::powerOversteer, "PowerOversteer", 0.5f, 3.0f},
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
     {&Config::suspFirmness, "SuspensionFirmness", 0.5f, 2.0f},
+    {&Config::rollBalance, "RollBalance", -0.5f, 0.5f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken

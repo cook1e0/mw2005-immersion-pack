@@ -172,6 +172,7 @@ struct Config {
     bool  useAero = true;           // high speed: Downforce applies (true) or SpeedGripLoss (false), never both
     float loadSensitivity = 0.2f;   // a tyre's grip limit grows with load^(1 - this), around its static load (0 = the game's)
     float pastPeakGrip = 0.85f;     // side grip a tyre keeps sliding well past its peak slip angle (1 = the game's flat curve)
+    float rollBalance = 0.0f;       // anti-roll bar stiffness moved to the front (+, understeer) or rear (-), per car
     float suspFirmness = 1.0f;      // springs and anti-roll bars times this, dampers by its square root (per car)
     float wallBounce = 0.0f;        // share of the game's wall rebound the player's car keeps (0 = none)
     bool  downforceSquared = false; // the downforce grows with the square of the speed (as real aero), not linearly

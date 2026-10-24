@@ -16,6 +16,10 @@
   the car's own springs and anti-roll bars times this, its dampers by the square root (the same
   damping ratio). Softer: more body roll, more nose rise under throttle and dive under braking;
   firmer: flatter and sharper. The log shows each car's springs, bars, dampers and weight split.
+- **Roll balance** (`[Physics] RollBalance`, per car and in presets, F4 > Physics): the anti-roll
+  bars' stiffness moved to the front (+) or the rear (-). With load sensitivity the stiffer end takes
+  more of the load moved across in a corner and lets go first: + understeers, - oversteers. Unlike
+  Grip balance it acts only while cornering, more the harder you corner.
 
 ### v0.24.0: no wall bounce, spin limit back to 8 rad/s
 
