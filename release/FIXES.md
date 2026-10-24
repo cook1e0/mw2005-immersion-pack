@@ -1,3 +1,22 @@
+### Unreleased
+
+- **Tyre load sensitivity** (`[Physics] LoadSensitivity=0.2`, ini, every car): in the game a
+  tyre's grip limit is exactly its load times its grip. Real tyres get less than proportionally
+  more grip from more load; now your car's do too, around each tyre's share of the car's weight (so
+  standing still nothing changes). Load moved across an axle in a corner costs that axle grip, so
+  the car's own weight distribution, anti-roll bars and springs set its balance (a rear-engined car
+  is looser at the rear, a front-heavy one pushes), and downforce glues less (4 times the load now
+  gives 3 times the grip). 0 = the game's.
+- **Grip falls off past the peak** (`[Physics] PastPeakGrip=0.85`, ini, every car): the game's
+  cornering force rises with the slip angle and stays flat from 12 degrees on, so a car sliding at
+  30 degrees grips like one at 12. Your tyres' side grip now falls from 8 degrees of slip to 85% by
+  25, as a real tyre's does, so a slide grows unless you catch it. Not on grass, dirt and other loose
+  ground, where a ploughing tyre keeps its grip. 1 = the game's.
+- **Suspension firmness** (`[Physics] SuspensionFirmness`, per car and in presets, F4 > Physics):
+  the car's own springs and anti-roll bars times this, its dampers by the square root (the same
+  damping ratio). Softer: more body roll, more nose rise under throttle and dive under braking;
+  firmer: flatter and sharper. The log shows each car's springs, bars, dampers and weight split.
+
 ### v0.24.0: no wall bounce, spin limit back to 8 rad/s
 
 - **No more bouncing off walls** (`[Physics] WallBounce`, F4 > Physics > Wall bounce, 0% by

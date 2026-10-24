@@ -73,6 +73,24 @@
 // also multiplies it by speed / DownforceMatchSpeed, so it grows with the square of the speed like
 // real aero and equals Downforce times the game's at that speed.
 //
+// Load sensitivity: UpdateLoaded's grip limit (the budget the tyre's force is cut to) is its load
+// times its grip, exactly in proportion (built at 0x69DFAE..0x69DFD2: +0x12C * traction boost *
+// STATIC_GRIP * load (+0xD4) * pilot factor). For the player's tyres it is then multiplied by
+// (load / static load)^-[Physics] LoadSensitivity, the static load being the tyre's share of the
+// car's weight (mass, gravity, FRONT_WEIGHT_BIAS at chassis layout +0x6C): at rest nothing changes,
+// a tyre loaded more gets less than proportionally more grip. So load moved across an axle in a
+// corner costs that axle grip (anti-roll bars and springs set the balance), a heavier axle has less
+// grip for its weight (rear-engined cars are looser at the rear), and downforce glues less.
+// Past-peak grip: the game's cornering force rises with the slip angle (tables per 2 degrees and
+// load, 0x8F8A70) and stays flat from 12 degrees on; a real tyre peaks and then slides on less.
+// The player's tyres' side force (the LATERAL_GRIP multiply) takes 1 - (1 - [Physics] PastPeakGrip)
+// * Smoothstep(8, 25 degrees, the slip angle), not on loose surfaces (grass, dirt...), where the
+// force keeps rising as the tyre ploughs.
+// Suspension firmness: DoWheelForces reads springs (+0x38), anti-roll bars (+0x48) and dampers
+// (bump +0x30, rebound +0x28), front and rear, from the chassis layout at SuspensionRacer +0xC8.
+// For the player's step they are scaled by [Physics] SuspensionFirmness (dampers by its square
+// root, keeping the damping ratio), and put back after.
+//
 // ABS and traction control use each tyre's own wheel speed: UpdateLoaded keeps the radius (+0xC4),
 // the angular speed (+0xD0, rad/s) and the slip speed (+0xE8 = +0xD0 * +0xC4 - the road speed under
 // the tyre, set at 0x69F209): strongly negative when a wheel locks under braking, positive when it
@@ -153,6 +171,12 @@ constexpr uintptr_t kEllipseUndo = 0x69E03A;        // UpdateLoaded: fmul [1 / 1
 constexpr uintptr_t kEllipseRatio = 0x8AAC78, kEllipseInv = 0x896D64;
 constexpr int kTire_SlipAngle = 0x118;
 constexpr int kTire_DriveScale = 0x120;             // ... drive force factor, applied after the ellipse ratio
+constexpr int kTire_Load = 0xD4;                    // ... load (N) for this step (0 off the ground)
+constexpr uintptr_t kGripLimit = 0x69DFCE;          // UpdateLoaded: fmul [esp+0x1C]; fstp [esp+0x1C] (the grip limit)
+constexpr int kSR_SuspLayout = 0xC8;                // SuspensionRacer: chassis layout DoWheelForces reads
+// Chassis layout AxlePairs (front, rear): rebound and bump damping, springs, anti-roll bars.
+constexpr int kChL_ShockExt = 0x28, kChL_Shock = 0x30, kChL_Spring = 0x38, kChL_Swaybar = 0x48;
+constexpr int kChL_WeightBias = 0x6C;               // FRONT_WEIGHT_BIAS, percent
 constexpr int kState_Gas = 0x4C;                    // Chassis::State: gas_input 0..1
 constexpr uintptr_t kLateralGrip = 0x69E098;        // UpdateLoaded: fld [ecx+0xF0] (surface LATERAL_GRIP; esi = tyre)
 constexpr uintptr_t kCallDoAero = 0x6B206E;         // SuspensionRacer::OnTaskSimulate: call Chassis::DoAerodynamics
@@ -189,6 +213,8 @@ float s_ellipse = 1.5f, s_ellipseInv = 1.0f / 1.5f;
 extern "C" float s_driveRaw[4], s_budget[4], s_forceLen[4];
 float s_driveRaw[4], s_budget[4], s_forceLen[4];
 float s_gas = 0.0f;         // the player's throttle at the last DoDrifting
+float s_refLoad[2];         // a front / rear tyre's static load (N), for load sensitivity
+float s_lsRatio[4], s_lsFactor[4], s_peakFactor[4], s_peakAngle[4];   // the last step's, for the log
 float s_slideWould = 1.0f;  // slide oversteer's rear side grip factor this step, in use or not
 // The player's suspension and aero steps this second, for the diagnostics line ([Physics] LogPhysics).
 struct {
@@ -238,9 +264,15 @@ bool CaptureTables() {
 bool Owns(uint8_t* obj, void* iface) { return iface && (uint8_t*)iface >= obj && (uint8_t*)iface < obj + 0x300; }
 
 // Saved values while the player's suspension simulates.
+bool Plausible(uintptr_t p);
+
 struct Saved {
     float grip, slip, yaw;
+    uint8_t* susp = nullptr;    // the chassis layout whose springs, dampers and bars were scaled
+    float suspVals[8];
 };
+
+const int kSuspOffsets[4] = {kChL_ShockExt, kChL_Shock, kChL_Spring, kChL_Swaybar};
 
 void Apply(uint8_t* susp, Saved& sv) {
     const Config& c = g_cfg;
@@ -256,6 +288,17 @@ void Apply(uint8_t* susp, Saved& sv) {
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i] * c.stability;
     float* rear = *(float**)(kDriftRearTable + 0x10);
     for (int i = 0; i < g.rearN; i++) rear[i] = 1.0f + (g.rear[i] - 1.0f) * c.driftAssist;
+    uint8_t* layout = Field<uint8_t*>(susp, kSR_SuspLayout);
+    if (c.suspFirmness != 1.0f && Plausible((uintptr_t)layout)) {
+        sv.susp = layout;
+        float damp = sqrtf(c.suspFirmness);
+        for (int k = 0; k < 4; k++)
+            for (int a = 0; a < 2; a++) {
+                float& v = Field<float>(layout, kSuspOffsets[k] + a * 4);
+                sv.suspVals[k * 2 + a] = v;
+                v *= k < 2 ? damp : c.suspFirmness;
+            }
+    }
 }
 
 void Restore(const Saved& sv) {
@@ -266,13 +309,17 @@ void Restore(const Saved& sv) {
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i];
     float* rear = *(float**)(kDriftRearTable + 0x10);
     memcpy(rear, g.rear, g.rearN * sizeof(float));
+    if (sv.susp)
+        for (int k = 0; k < 4; k++)
+            for (int a = 0; a < 2; a++) Field<float>(sv.susp, kSuspOffsets[k] + a * 4) = sv.suspVals[k * 2 + a];
 }
 
 bool Stock() {
     const Config& c = g_cfg;
     return (c.tractionControl >= 1.0f || c.tc) && c.stability >= 1.0f && c.driftAssist >= 1.0f && c.grip == 1.0f &&
            c.slideGrip == 1.0f && (c.useAero || c.speedGripLoss == 0.0f) &&
-           (c.usePowerOversteer ? c.powerOversteer == 1.0f : c.slideOversteer == 1.0f);
+           (c.usePowerOversteer ? c.powerOversteer == 1.0f : c.slideOversteer == 1.0f) && c.loadSensitivity == 0.0f &&
+           c.pastPeakGrip >= 1.0f && c.suspFirmness == 1.0f;
 }
 
 // Side grip left at `speed` (m/s) for SpeedGripLoss `loss`: 1 - loss * (speed / 300 km/h)^2, at
@@ -330,6 +377,14 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
         logged = susp;
         uint8_t* tranny = Field<uint8_t*>(susp, kSR_Tranny);
         Log("physics: player suspension %p (torque split %.2f front)", susp, tranny ? Field<float>(tranny, kTR_TorqueSplit) : -1.0f);
+        uint8_t* layout = Field<uint8_t*>(susp, kSR_SuspLayout);
+        if (Plausible((uintptr_t)layout)) {
+            auto ax = [&](int off, int a) { return Field<float>(layout, off + a * 4); };
+            Log("physics: suspension front / rear: springs %.0f / %.0f lb/in, anti-roll bars %.0f / %.0f, damping bump %.0f / %.0f, "
+                "rebound %.0f / %.0f; weight %.0f%% front; firmness %.2f", ax(kChL_Spring, 0), ax(kChL_Spring, 1),
+                ax(kChL_Swaybar, 0), ax(kChL_Swaybar, 1), ax(kChL_Shock, 0), ax(kChL_Shock, 1), ax(kChL_ShockExt, 0),
+                ax(kChL_ShockExt, 1), Field<float>(layout, kChL_WeightBias), g_cfg.suspFirmness);
+        }
     }
     s_diag.suspCustom++;
     Saved sv;
@@ -364,12 +419,12 @@ __asm__(
     "    ret\n");
 extern "C" void SlideFrictionStub();
 
-// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times s_latMul for a tyre in
-// s_latTires. eax is kept; the flags are free here (the next test sets them again).
+// In place of UpdateLoaded's fld [ecx+0xF0] (6 bytes): the same load, times LatGrip (s_latMul and
+// the past-peak loss) for a tyre in s_latTires. The x87 stack is empty here; eax, ecx and edx are
+// kept; the flags are free (the next test sets them again).
 __asm__(
     ".text\n"
     "_LateralGripStub:\n"
-    "    flds 0xF0(%ecx)\n"
     "    pushl %eax\n"
     "    xorl %eax, %eax\n"
     "1:  cmpl _s_latTires(,%eax,4), %esi\n"
@@ -378,16 +433,24 @@ __asm__(
     "    cmpl $4, %eax\n"
     "    jb 1b\n"
     "    popl %eax\n"
+    "    flds 0xF0(%ecx)\n"
     "    ret\n"
-    "2:  fmuls _s_latMul(,%eax,4)\n"
     // For the diagnostics: UpdateLoaded's locals at esp+0x18 (grip budget) and esp+0x34 (force length)
     // here, 12 bytes further down with the return address and the two pushes.
-    "    pushl %edx\n"
+    "2:  pushl %edx\n"
     "    movl 0x24(%esp), %edx\n"
     "    movl %edx, _s_budget(,%eax,4)\n"
     "    movl 0x40(%esp), %edx\n"
     "    movl %edx, _s_forceLen(,%eax,4)\n"
+    "    pushl %ecx\n"
+    "    pushl %eax\n"
+    "    pushl %eax\n"
+    "    call _LatGrip\n"
+    "    addl $4, %esp\n"
+    "    popl %eax\n"
+    "    popl %ecx\n"
     "    popl %edx\n"
+    "    fmuls 0xF0(%ecx)\n"
     "    popl %eax\n"
     "    ret\n");
 extern "C" void LateralGripStub();
@@ -428,6 +491,70 @@ __asm__(
 extern "C" void EllipseStub();
 extern "C" void EllipseUndoStub();
 
+bool OffroadTire(uint8_t* tire);
+
+// Load sensitivity, for a player's tyre: its grip limit times (load / static load)^-LoadSensitivity.
+extern "C" __attribute__((used)) void GripLimit(uint8_t* tire, float* limit) {
+    float k = g_cfg.loadSensitivity;
+    if (k <= 0.0f) return;
+    for (int i = 0; i < 4; i++) {
+        if (s_latTires[i] != tire) continue;
+        float ref = s_refLoad[i >= 2], load = Field<float>(tire, kTire_Load);
+        if (ref > 1.0f && load > 0.0f && *limit > 0.0f) {
+            float r = Clamp(load / ref, 0.05f, 20.0f), f = powf(r, -k);
+            *limit *= f;
+            s_lsRatio[i] = r, s_lsFactor[i] = f;
+        }
+        return;
+    }
+}
+
+// In place of the grip limit's last multiply and store (8 bytes): the same, then GripLimit on the
+// stored value (UpdateLoaded's esp+0x1C there, 0x20 past the return address). The x87 stack is
+// empty after the store; eax, ecx and edx are kept.
+__asm__(
+    ".text\n"
+    "_GripLimitStub:\n"
+    "    fmuls 0x20(%esp)\n"
+    "    fstps 0x20(%esp)\n"
+    "    pushl %eax\n"
+    "    pushl %ecx\n"
+    "    pushl %edx\n"
+    "    leal 0x2C(%esp), %eax\n"
+    "    pushl %eax\n"
+    "    pushl %esi\n"
+    "    call _GripLimit\n"
+    "    addl $8, %esp\n"
+    "    popl %edx\n"
+    "    popl %ecx\n"
+    "    popl %eax\n"
+    "    ret\n");
+extern "C" void GripLimitStub();
+
+// A player's tyre on a loose surface (no past-peak loss there), by its surface, cached per tyre.
+bool LooseSurface(int i, uint8_t* tire) {
+    static uintptr_t surface[4];
+    static bool loose[4];
+    uintptr_t s = *(uintptr_t*)(tire + kTire_Surface + 8);
+    if (s != surface[i]) surface[i] = s, loose[i] = OffroadTire(tire);
+    return loose[i];
+}
+
+// The side grip factor for a player's tyre this step: s_latMul, times the past-peak loss for its
+// slip angle (fading in from 2 to 5 m/s, where the angle means something).
+extern "C" __attribute__((used)) float LatGrip(int i) {
+    float m = s_latMul[i], keep = g_cfg.pastPeakGrip;
+    uint8_t* tire = s_latTires[i];
+    if (keep >= 1.0f || !tire) return m;
+    float a = fabsf(Field<float>(tire, kTire_SlipAngle)) * 360.0f;
+    if (!(a <= 180.0f)) return m;           // NaN or nonsense
+    if (a > 90.0f) a = 180.0f - a;           // rolling backwards
+    float f = 1.0f - (1.0f - keep) * Smoothstep(8.0f, 25.0f, a) * Smoothstep(2.0f, 5.0f, s_playerSpeed);
+    if (f < 1.0f && LooseSurface(i, tire)) f = 1.0f;
+    s_peakFactor[i] = f, s_peakAngle[i] = a;
+    return m * f;
+}
+
 bool Plausible(uintptr_t p);
 
 typedef void(__thiscall* DoAerodynamics_t)(void* chassis, const uint8_t* state, float drag, float aero, float frontZ,
@@ -450,6 +577,11 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
     float tuning = tunings ? *(const float*)(tunings + kTunings_Aero) : 0.0f;
     float coef = Field<float>(layout, kChL_AeroCoef), aeroCg = Field<float>(layout, kChL_AeroCg);
     s_diag.weight = mass * 9.81f;
+    // Each tyre's static load, for load sensitivity: its share of the car's weight.
+    float bias = Field<float>(layout, kChL_WeightBias) * 0.01f;
+    if (!(bias > 0.2f && bias < 0.8f)) bias = 0.5f;
+    float weight = mass * 9.81f * (g_cfg.gravity > 0.0f ? g_cfg.gravity : 1.0f);
+    s_refLoad[0] = weight * bias * 0.5f, s_refLoad[1] = weight * (1.0f - bias) * 0.5f;
 
     // The car's own aero, logged once per car: its downforce at 300 km/h as a share of its weight.
     static uint8_t* logged;
@@ -790,6 +922,11 @@ void Diagnostics(uint8_t* rb) {
             g_cfg.powerOversteer, g_cfg.usePowerOversteer ? " (in use)" : "", o.at[0] / n, o.at[1] / n, o.at[2] / n,
             o.slide / n, g_cfg.slideOversteer, g_cfg.usePowerOversteer ? "" : " (in use)");
     }
+    if (g_cfg.logPhysics && s_playerSpeed > 5.0f && (g_cfg.loadSensitivity > 0.0f || g_cfg.pastPeakGrip < 1.0f))
+        Log("physics:   tyres FL FR RL RR: load %.2f %.2f %.2f %.2f of static, grip limit x%.2f %.2f %.2f %.2f; "
+            "slip %.0f %.0f %.0f %.0f deg, side grip x%.2f %.2f %.2f %.2f", s_lsRatio[0], s_lsRatio[1], s_lsRatio[2],
+            s_lsRatio[3], s_lsFactor[0], s_lsFactor[1], s_lsFactor[2], s_lsFactor[3], s_peakAngle[0], s_peakAngle[1],
+            s_peakAngle[2], s_peakAngle[3], s_peakFactor[0], s_peakFactor[1], s_peakFactor[2], s_peakFactor[3]);
     for (OversteerStats& o : s_over) o = OversteerStats();
     s_diag.suspSteps = s_diag.suspCustom = s_diag.aeroSteps = 0;
 }
@@ -869,6 +1006,7 @@ const PerCar kPerCar[] = {
     {&Config::downforce, "Downforce", -0.25f, 2.0f},
     {&Config::powerOversteer, "PowerOversteer", 0.5f, 3.0f},
     {&Config::slideOversteer, "SlideOversteer", 0.4f, 1.0f},
+    {&Config::suspFirmness, "SuspensionFirmness", 0.5f, 2.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance): taken
@@ -1223,6 +1361,13 @@ void Physics_Install() {
             *(const float*)kEllipseRatio, g_cfg.usePowerOversteer ? "in use" : "off: slide oversteer in use");
     } else {
         Log("physics: unexpected tyre code, no power oversteer");
+    }
+    if (Expect(kGripLimit, {0xD8, 0x4C, 0x24, 0x1C, 0xD9, 0x5C, 0x24, 0x1C})) {
+        WriteCallNops(kGripLimit, 8, (void*)&GripLimitStub);
+        Log("physics: load sensitivity %.2f, past-peak grip %.2f, suspension firmness %.2f", g_cfg.loadSensitivity,
+            g_cfg.pastPeakGrip, g_cfg.suspFirmness);
+    } else {
+        Log("physics: unexpected tyre code, no load sensitivity");
     }
     if (RetargetCall(kCallDoAero, kDoAerodynamics, (void*)&Hook_DoAerodynamics))
         Log("physics: downforce ready (%.2f x the game's%s, %s)", g_cfg.downforce,
