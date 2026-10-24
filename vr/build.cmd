@@ -13,6 +13,7 @@ if not exist obj mkdir obj
 if not exist obj\x64 mkdir obj\x64
 rem The release this build comes from (git describe: a tag, commits past it, -dirty), shown in F4.
 set MODVER=
+git update-index -q --refresh >nul 2>&1
 for /f "delims=" %%v in ('git describe --tags --always --dirty 2^>nul') do set "MODVER=%%v"
 if not defined MODVER set MODVER=dev
 set CFLAGS=/nologo /c /O2 /MT /EHsc /std:c++17 /W3 /DNDEBUG /D_CRT_SECURE_NO_WARNINGS /Ithird_party\openxr\include /DMOD_VERSION=\"%MODVER%\"

@@ -5,6 +5,7 @@ cd "$(dirname "$0")"
 export PATH=/c/msys64/mingw32/bin:$PATH
 mkdir -p build
 # The release this build comes from (git describe: a tag, commits past it, -dirty), shown in F4.
+git update-index -q --refresh >/dev/null 2>&1 || true
 VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 g++ -DMOD_VERSION=\"$VERSION\" -std=c++17 -O2 -Wall -Wno-unused-function -Wno-delete-non-virtual-dtor -Wno-stringop-truncation -Wno-sign-compare -m32 -march=i686 -mfpmath=387 \
     -shared -static -static-libgcc -static-libstdc++ \

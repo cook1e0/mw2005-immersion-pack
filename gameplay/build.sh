@@ -12,6 +12,7 @@ for f in imgui imgui_draw imgui_tables imgui_widgets; do
     [ build/imgui/$f.o -nt third_party/imgui/$f.cpp ] || g++ $FLAGS $IMGUI -c -o build/imgui/$f.o third_party/imgui/$f.cpp
 done
 # The release this build comes from (git describe: a tag, commits past it, -dirty), shown in F4.
+git update-index -q --refresh >/dev/null 2>&1 || true
 VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
 g++ $FLAGS $IMGUI -DMOD_VERSION=\"$VERSION\" -shared -o build/dsound.dll \
     src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/hud.cpp src/physics.cpp src/vfx.cpp src/traffic.cpp src/ui.cpp src/controls.cpp src/flow.cpp src/inisave.cpp src/iconpack.cpp \
