@@ -37,7 +37,7 @@ nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 Upgrading from v0.25.0: replace scripts\nfsmw_gameplay.asi, nfsmw_ffb.asi and nfsmw_vr.asi (F4
 now shows each mod's release, and flags a half-updated install). Your ini files keep working: the
 new settings start at their defaults (FrictionCircle=1 under [Physics], EngineBrakingFade=0.1 under
-[Engine], LaunchRevs=0.3 under [Clutch]). PowerOversteer, SlideOversteer and UsePowerOversteer are
+[Engine]). PowerOversteer, SlideOversteer and UsePowerOversteer are
 gone: the friction circle replaces them, and the old keys are ignored. ABS and traction control now
 act under hard braking and wheelspin, and RainGrip only in the rain, so cars grip a little more in
 the dry. See FIXES.md.

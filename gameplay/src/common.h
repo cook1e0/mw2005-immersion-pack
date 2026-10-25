@@ -59,7 +59,6 @@ struct Config {
     float biteEnd = 0.20f;          // pedal travel where it grips fully
     float strength = 1.0f;          // clutch friction relative to the game's own clutch
     float lockRpm = 150.0f;         // slip below which a released clutch locks up
-    float launchRevs = 0.3f;        // no clutch pedal: share of the rev range a launch revs to (0 = the game's)
     float buttonPressTime = 0.08f;  // digital clutch (button/key): seconds to floor it
     float buttonReleaseTime = 0.45f;// ... and to let it out
 

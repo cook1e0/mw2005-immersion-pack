@@ -180,7 +180,6 @@ struct {
     int refused = -100;         // gear we last refused to engage (log once)
     bool missed = false;        // ... for lack of clutch: it stays refused until the stick leaves the gate
     bool forcing = false;       // clutch state is currently ours
-    bool launching = false;     // no clutch pedal: the launch clutch slips the clutch (LaunchClutch)
     uint32_t toggles = 0;
     uint32_t ups = 0, downs = 0;    // ShiftUp / ShiftDown presses seen
     bool inputSynced = false;
@@ -842,60 +841,12 @@ void ReleaseClutch(uint8_t* eng) {
     if (c.state == Clutch::ENGAGING && c.time > 1000.0f) c.time = c.engageTime = 0.05f;
 }
 
-// Launch clutch, without a clutch pedal: the game engages the clutch in 0.05 s once the throttle
-// passes 10% (OnTaskSimulate, 0x6AF9F2), so pulling away the engine is held near idle, where it has
-// little torque, and the car crawls until the throttle is well in. Here, from a stop in first or
-// reverse (the game's clutch DISENGAGED, the gearbox within 200 rpm of idle) the clutch slips, its
-// grip rising from 300 rpm below to 300 rpm above a target rpm: idle + throttle * [Clutch]
-// LaunchRevs of the way to the redline. The engine settles near that target and the car pulls on
-// it; the clutch locks once the car is moving (the gearbox 200 rpm past idle: standing, the gearbox
-// reads idle, as the engine does) with the gearbox within LockRPM of the engine, or past the target.
-// Off the throttle the clutch stays open (as the game's does), and if the car is already rolling the
-// game takes over again. Returns false when it isn't launching: the caller runs the game's step.
-bool LaunchClutch(uint8_t* eng, float dT) {
-    auto stop = [&]() {
-        if (s.launching) ReleaseClutch(eng);
-        s.launching = false;
-        return false;
-    };
-    uint8_t* layout = Field<uint8_t*>(eng, kER_EngineLayout);
-    int gear = Field<int>(eng, kER_Gear);
-    if (g_cfg.launchRevs <= 0.0f || !layout || (gear != G_FIRST && gear != G_REVERSE)) return stop();
-    float idle = Field<float>(layout, 0x5C), redline = Field<float>(layout, 0x58);
-    if (!(idle > 100.0f && redline > idle + 500.0f)) return stop();
-    Clutch& c = Field<Clutch>(eng, kER_Clutch);
-    float rpm = Field<float>(eng, kER_AngularVelocity) * 9.5492966f;
-    float boxRpm = Field<float>(eng, kER_TransmissionVelocity) * 9.5492966f;
-    float throttle = Clamp(Field<float>(eng, kER_Throttle), 0.0f, 1.0f);
-    if (!s.launching) {
-        if (c.state != Clutch::DISENGAGED || boxRpm > idle + 200.0f) return false;
-        s.launching = true;
-    }
-    float target = idle + throttle * g_cfg.launchRevs * (redline - idle);
-    bool moving = boxRpm > idle + 200.0f;
-    if (throttle < 0.05f) {
-        // Off the throttle: open, as the game's clutch is; rolling, the game takes over.
-        if (moving) return stop();
-        SlipClutch(eng, dT, 0.0f);
-        return true;
-    }
-    if (moving && (fabsf(rpm - boxRpm) < g_cfg.lockRpm || boxRpm > target)) {
-        s.launching = false;
-        c.state = Clutch::ENGAGED;
-        c.time = c.engageTime = 0.0f;
-        return false;
-    }
-    SlipClutch(eng, dT, Smoothstep(target - 300.0f, target + 300.0f, rpm));
-    return true;
-}
-
 void ClutchSimulate(uint8_t* eng, float dT) {
     if (eng != s.engine || !s.clutchActive || !Fresh()) {
-        if (eng == s.engine && !s.clutchActive && Fresh() && LaunchClutch(eng, dT)) return;
         if (eng == s.engine) {
             // The pedal unbound or the input gone stale while it held the clutch: hand it back.
-            if (s.forcing || s.launching) ReleaseClutch(eng);
-            s.forcing = s.launching = false;
+            if (s.forcing) ReleaseClutch(eng);
+            s.forcing = false;
         }
         s_origEngineSimulate(eng, dT);
         return;
@@ -975,10 +926,10 @@ void LogLaunch(uint8_t* eng) {
     if (!g_cfg.logPhysics || in.pedal[0] < 0.02f || speed > 30.0f || now - last < 0.25) return;
     last = now;
     const Clutch& c = Field<Clutch>(eng, kER_Clutch);
-    Log("launch: %4.1f km/h: pedal %.2f, chassis %.2f, engine %.2f; brake %.2f, handbrake %.2f; gear %d, clutch %d%s "
+    Log("launch: %4.1f km/h: pedal %.2f, chassis %.2f, engine %.2f; brake %.2f, handbrake %.2f; gear %d, clutch %d "
         "(%.2f s); engine %.0f rpm, gearbox %.0f rpm", speed, in.pedal[0], Physics_GasInput(),
         Field<float>(eng, kER_Throttle), in.pedal[1], in.handbrake, Field<int>(eng, kER_Gear) - 1, c.state,
-        s.launching ? " launch" : "", c.time,
+        c.time,
         Field<float>(eng, kER_AngularVelocity) * 9.5492966f, Field<float>(eng, kER_TransmissionVelocity) * 9.5492966f);
 }
 

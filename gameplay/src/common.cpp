@@ -151,7 +151,6 @@ void LoadConfig() {
     if (c.biteStart < c.biteEnd + 0.02f) c.biteStart = c.biteEnd + 0.02f;
     c.strength = Clamp(ReadFloat("Clutch", "Strength", c.strength), 0.1f, 2.0f);
     c.lockRpm = Clamp(ReadFloat("Clutch", "LockRPM", c.lockRpm), 10.0f, 2000.0f);
-    c.launchRevs = Clamp(ReadFloat("Clutch", "LaunchRevs", c.launchRevs), 0.0f, 0.8f);
     c.buttonPressTime = Clamp(ReadFloat("Clutch", "ButtonPressTime", c.buttonPressTime), 0.0f, 5.0f);
     c.buttonReleaseTime = Clamp(ReadFloat("Clutch", "ButtonReleaseTime", c.buttonReleaseTime), 0.0f, 5.0f);
 

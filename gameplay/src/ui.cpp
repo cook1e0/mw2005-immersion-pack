@@ -656,7 +656,6 @@ const Item kItems[] = {
     {NUMBER, "Clutch strength", "Clutch", "Strength", &g_cfg.strength, 0.1f, 2.0f, 0.1f, 1, "%.1f", 0},
     {NUMBER, "Bite point start", "Clutch", "BiteStart", &g_cfg.biteStart, 0.05f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Bite point end", "Clutch", "BiteEnd", &g_cfg.biteEnd, 0.0f, 0.95f, 0.05f, 100, "%.0f%%", 0},
-    {NUMBER, "Launch revs (no clutch pedal)", "Clutch", "LaunchRevs", &g_cfg.launchRevs, 0.0f, 0.8f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
     PAGE_("ENGINE"),
@@ -1223,7 +1222,7 @@ const struct {
 } kGameDefaults[] = {
     {&g_cfg.gameController, 1}, {&g_cfg.steerLinearity, 1}, {&g_cfg.steerSensitivity, 1},
     {&g_cfg.menuController, 1}, {&g_cfg.menuAxes, 1},
-    {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1}, {&g_cfg.engineBrakeFade, 1}, {&g_cfg.launchRevs, 0},
+    {&g_cfg.engineWear, 0}, {&g_cfg.revLimiter, 1}, {&g_cfg.engineBrakeFade, 1},
     {&g_cfg.damage, 0}, {&g_cfg.damageSmoke, 0}, {&g_cfg.poppedTires, 0},
     {&g_cfg.physics, 0}, {&s_tcMode, 1}, {&g_cfg.stability, 1}, {&g_cfg.driftAssist, 1},
     {&g_cfg.grip, 1}, {&g_cfg.gripBalance, 0}, {&g_cfg.suspFirmness, 1}, {&g_cfg.rollBalance, 0}, {&g_cfg.abs, 0}, {&g_cfg.offroadGrip, 1},
@@ -1907,7 +1906,6 @@ const struct {
     {&g_cfg.grind, "A missed shift crunches."},
     {&g_cfg.grindSound, "The crunch sound. Changing it plays it."},
     {&g_cfg.strength, "Clutch friction compared with the game's own. Lower slips longer."},
-    {&g_cfg.launchRevs, "Without a clutch pedal: pulling away in first or reverse, the clutch slips so the engine can rev up instead of bogging at idle, like a driver slipping the clutch. The more throttle, the higher it revs, up to this share of the way from idle to the redline at full throttle; it locks once the car catches up. 0% = the game's clutch, which locks at once."},
     {&g_cfg.biteStart, "Pedal travel where the clutch starts to grip as you let it out."},
     {&g_cfg.biteEnd, "Pedal travel where the clutch grips fully."},
     {&g_cfg.engineWear, "Over-revving heats the engine; it loses power and blows at full heat."},
