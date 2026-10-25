@@ -946,7 +946,11 @@ static double s_lastProbe;
 // everything of it seen) until the box has stopped growing for 2 s, then settles: from then on that
 // is its crop, it holds still, and it is saved ([VR] DashFound<Part>=left,top,right,bottom), so the
 // next start uses it at once. Until a part has settled, its configured crop applies. A settled
-// part found outside its crop for 5 s (another HUD layout) is collected and settles again.
+// part only moves again once it is found somewhere else for 5 s (another HUD layout: less than
+// half of it where its crop is); an icon appearing next to it (ABS, TC, nitrous) leaves it as it is.
+// A part is never taken bigger than its configured crop allows (FitsCrop): what is bigger has
+// other HUD pieces in it (a race's lap and time readouts beside a gauge, a banner across it) and is
+// left out, so a part can't swallow its neighbours and stay that way.
 static struct AutoCrop {
     float box[4];          // the settled crop
     bool settled;
@@ -962,7 +966,16 @@ static const char* VrIni() {
     return path;
 }
 
-// The crops settled in an earlier session.
+// Whether box `b` (left, top, right, bottom) is no bigger than element `i`'s configured crop
+// allows: a quarter more width and height than the crop (the parts sit a little differently with
+// another HUD layout, never much bigger).
+static bool FitsCrop(int i, const float* b) {
+    const float* c = g_cfg.dashCrop[i];
+    return b[2] - b[0] <= (c[2] - c[0]) * 1.25f + 0.01f && b[3] - b[1] <= (c[3] - c[1]) * 1.25f + 0.01f;
+}
+
+// The crops settled in an earlier session (one bigger than its crop allows is left out: found by
+// an earlier version that let a part grow over its neighbours).
 static void LoadFoundCrops() {
     static bool loaded;
     if (loaded) return;
@@ -972,8 +985,11 @@ static void LoadFoundCrops() {
         snprintf(key, sizeof(key), "DashFound%s", kDashElKey[i]);
         GetPrivateProfileStringA("VR", key, "", buf, sizeof(buf), VrIni());
         float* b = s_autoCrop[i].box;
-        if (sscanf(buf, "%f,%f,%f,%f", &b[0], &b[1], &b[2], &b[3]) == 4 && b[2] > b[0] && b[3] > b[1])
-            s_autoCrop[i].settled = true;
+        if (sscanf(buf, "%f,%f,%f,%f", &b[0], &b[1], &b[2], &b[3]) == 4 && b[2] > b[0] && b[3] > b[1]) {
+            s_autoCrop[i].settled = FitsCrop(i, b);
+            if (!s_autoCrop[i].settled)
+                Log("d3d9: in-car dashboard: the saved %s crop is too big for it, finding it again", kDashPartName[i]);
+        }
     }
 }
 
@@ -1056,17 +1072,20 @@ static void FindCrops(const uint8_t* cov) {
         if (!any[i]) continue;
         AutoCrop& a = s_autoCrop[i];
         const float* f = found[i];
+        if (!FitsCrop(i, f)) continue;     // other HUD pieces joined in: not this part alone
         if (a.settled && !a.collecting) {
-            // Inside its crop (a little over is the part animating): nothing to do.
-            const float tol = 0.02f;
-            bool inside = f[0] >= a.box[0] - tol && f[1] >= a.box[1] - tol && f[2] <= a.box[2] + tol && f[3] <= a.box[3] + tol;
-            if (inside) {
+            // Where its crop is (most of the smaller of the two boxes overlapping: a part animating,
+            // or with an icon beside it): nothing to do. Moved: found again.
+            float iw = std::min(f[2], a.box[2]) - std::max(f[0], a.box[0]), ih = std::min(f[3], a.box[3]) - std::max(f[1], a.box[1]);
+            float inter = iw > 0 && ih > 0 ? iw * ih : 0.0f;
+            float areaF = (f[2] - f[0]) * (f[3] - f[1]), areaS = (a.box[2] - a.box[0]) * (a.box[3] - a.box[1]);
+            if (inter >= 0.5f * std::min(areaF, areaS)) {
                 a.outsideSince = 0;
                 continue;
             }
             if (a.outsideSince == 0) a.outsideSince = now;
             if (now - a.outsideSince < 5.0) continue;
-            Log("d3d9: in-car dashboard: %s keeps showing outside its crop: finding it again", kDashPartName[i]);
+            Log("d3d9: in-car dashboard: %s keeps showing somewhere else: finding it again", kDashPartName[i]);
             a.outsideSince = 0;
             a.collecting = false;    // collected afresh below
         }
@@ -1076,7 +1095,10 @@ static void FindCrops(const uint8_t* cov) {
             a.collecting = true;
             a.candGrew = now;
         } else if (f[0] < c[0] || f[1] < c[1] || f[2] > c[2] || f[3] > c[3]) {
-            c[0] = std::min(c[0], f[0]), c[1] = std::min(c[1], f[1]), c[2] = std::max(c[2], f[2]), c[3] = std::max(c[3], f[3]);
+            float g[4] = {std::min(c[0], f[0]), std::min(c[1], f[1]), std::max(c[2], f[2]), std::max(c[3], f[3])};
+            // Grown past what the part can be (it moved, or something else was there): from this
+            // frame's box again.
+            memcpy(c, FitsCrop(i, g) ? g : f, sizeof(g));
             a.candGrew = now;
         }
         for (int k = 0; k < 4; k++) c[k] = std::max(0.0f, std::min(1.0f, c[k]));
