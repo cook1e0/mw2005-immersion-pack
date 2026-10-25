@@ -5,13 +5,18 @@ Needs speed.exe v1.3. The mods are .asi plugins loaded by Ultimate ASI Loader (d
 the same loader the widescreen fix and most other NFS mods use.
 
 Quick install: extract the whole zip into the folder with speed.exe (all three mods, the
-loader and the VR helper), start the game, press F4 while driving to set things up.
+loader, ThirteenAG's widescreen fix and the VR helper), start the game, press F4 while driving
+to set things up. Already have the widescreen fix set up? Skip
+scripts\NFSMostWanted.WidescreenFix.ini when extracting, to keep its settings.
 
 Or pick and choose:
 
 1. Copy dinput8.dll next to speed.exe (skip it if you already have it, e.g. from the
    widescreen fix), and create a "scripts" folder there if there is none.
-2. Copy the mods you want:
+2. Copy the widescreen fix: scripts\NFSMostWanted.WidescreenFix.asi, .tpk and .ini (skip the
+   .ini if you already have one). The VR mod needs it: it sets the game's physics rate to suit
+   the headset through the fix's SimRate setting.
+3. Copy the mods you want:
 
   VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
                    speed.exe
@@ -105,8 +110,11 @@ both copies are there, the old one runs). The old dinput8.dll is replaced by the
 .ini files where they are: on the first start each mod moves its own into scripts, replacing
 the default one from the zip.
 
-With the widescreen fix: all three mods run alongside it. If the game crashes right at start,
-set SkipIntro = 0 in scripts\NFSMostWanted.WidescreenFix.ini. The fix keeps the game's settings
+The widescreen fix (ThirteenAG; MIT licence in LICENSE-widescreen-fix.txt): the ini in this zip
+is the fix's own with SkipIntro = 0, since the intro videos crashed the game in the boot screens
+on our v1.3 exe. If the game crashes right at start with your own ini, set SkipIntro = 0 there.
+SimRate = -1 runs the game's physics at the monitor's refresh rate; after a second in the
+headset, the VR mod sets it to suit the headset (72 Hz -> 144) from the next start. The fix keeps the game's settings
 in its own registry key starting from defaults (640x480, low detail): set them again in the
 game's options. In VR set FixHUD = 0 there too: the headset shows the HUD and menus on a 4:3
 panel, the game's own layout; the fix's correction for the nearly square eye picture squeezes the

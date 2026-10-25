@@ -21,6 +21,7 @@ damage and more). Install any of them, or all three.
 
    | Mod | `scripts\` | Next to `speed.exe` |
    |---|---|---|
+   | Widescreen fix (needed by VR) | `NFSMostWanted.WidescreenFix.asi`, `.tpk`, `.ini` (keep your own `.ini` if you have one) | |
    | VR | `nfsmw_vr.asi`, `nfsmw_vr.ini` | `nfsmw_vr_host.exe`, `nfsmw_crashdump.exe` |
    | Force feedback | `nfsmw_ffb.asi`, `nfsmw_ffb.ini` | `ffbtool.exe` (optional: lists and tests wheels) |
    | Gameplay | `nfsmw_gameplay.asi`, `nfsmw_gameplay.ini`, `nfsmw_physics_presets.ini` | |
@@ -52,11 +53,14 @@ The VR mod also saves `nfsmw_crash.dmp` and `nfsmw_crash.txt` after an unhandled
 `nfsmw_crashdump.exe` is installed. Send both with the logs for diagnosis; see
 [crash diagnostics](vr/README.md#crash-diagnostics). Existing ini files enable this by default.
 
-**With the [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw):**
-all three mods run alongside it. Two things about the fix itself:
+**The [widescreen fix](https://github.com/ThirteenAG/WidescreenFixesPack/releases/tag/nfsmw)**
+(ThirteenAG, MIT) ships in the zip, because the VR mod sets the game's physics rate through its
+`SimRate` setting. With `SimRate = -1` the physics runs at the monitor's refresh rate. After a
+second in the headset, the VR mod changes it to a multiple of the headset's rate (72 Hz -> 144),
+and the new rate applies from the next start. About the fix itself:
 
-- If the game crashes right at start, set `SkipIntro = 0` in
-  `scripts\NFSMostWanted.WidescreenFix.ini` (it crashed in the boot screens on our v1.3 exe).
+- The ini in the zip is the fix's own with `SkipIntro = 0`: the intro videos crashed the game in
+  the boot screens on our v1.3 exe. Set the same in your own ini if the game crashes right at start.
 - It keeps the game's settings in its own registry key, starting from defaults (640x480, low
   detail): set the resolution and graphics again in the game's options.
 

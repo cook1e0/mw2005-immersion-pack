@@ -1,3 +1,14 @@
+### Unreleased
+
+- **The widescreen fix ships in the zip:** ThirteenAG's NFSMostWanted.WidescreenFix (`.asi`,
+  `.tpk`, and its ini with `SkipIntro = 0`). The VR mod sets the game's physics rate to suit the
+  headset only through the fix's `SimRate`, so without the fix the physics never followed the
+  headset. Keep your own `NFSMostWanted.WidescreenFix.ini` if you already have one.
+- **VR: OpenXR API layers load** (frame generation tools such as VectorXR or OFXR Bridge,
+  OpenXR Toolkit), as in other OpenXR games. Most are 64-bit only: set `[VR] Bridge=1` to run
+  them through `nfsmw_vr_host.exe`; `nfsmw_vr.log` names the ones left out. `ApiLayers=0` loads
+  none.
+
 ### v0.26.0: friction circle, working ABS, throttle from the start of the pedal
 
 - **Mod versions in F4:** the menu's title row shows the release the mods come from (e.g. v0.25.0).
