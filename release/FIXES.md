@@ -17,6 +17,22 @@
   and `UsePowerOversteer` are gone (from the presets too; the menu clears them from a car's
   section when it saves). 0 = the game's; above 1 (up to 3) the drive torque counts that many times
   over, an exaggeration for testing.
+- **ABS and traction control work under hard braking and wheelspin:** both compared each wheel's
+  speed with the road's, but read the road speed from the field the traffic cars' tyres keep it
+  in. In the player's tyres that field is a smoothed torque on the wheel, in the thousands under
+  hard braking, and ABS skipped every wheel past 200: the brakes locked and the car slid. They now
+  read the player tyre's own road speed. With `[Physics] LogPhysics=1` the log shows when they act.
+- **Rain grip only in the rain:** `[Physics] RainGrip` read the rain's intensity from a field that
+  isn't it (it read about 0.28 in the dry), so with the default 0.9 every tyre lost about 9% of its
+  grip in any weather. It now reads the intensity the game itself uses for the rain.
+- **Launch clutch** (`[Clutch] LaunchRevs=0.3`, F4 > Clutch, without a clutch pedal): pulling
+  away, the game locks its clutch 0.05 s after the throttle passes 10%, so the engine is held near
+  idle, where it has little torque, and the car crawls until the throttle is well in. Now the
+  clutch slips from a stop in first or reverse, as a driver slipping it would: the engine revs up
+  with the throttle (at full throttle to 30% of the way from idle to the redline, about 2400 rpm
+  in the Camaro), the car pulls on that, and the clutch locks once the car catches up. Off the
+  throttle it stays open, as the game's does. 0 = the game's clutch. With a clutch pedal bound the
+  pedal does this, as before.
 - **Throttle pulls from the start of the pedal** (`[Engine] EngineBrakingFade=0.1`, F4 > Engine):
   the game blends engine braking out in a straight line up to full throttle, so the car only
   pulled once the throttle passed 25-40% (by the car's own engine braking) and the start of the

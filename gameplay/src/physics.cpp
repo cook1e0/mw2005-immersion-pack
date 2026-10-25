@@ -162,11 +162,12 @@ constexpr int kTire_Traction = 0xEC;                // ... traction scale for th
 constexpr int kTire_Surface = 0x9C;                 // ... road surface: Attrib::Instance (layout at +8)
 constexpr int kSurf_Name = 0xDC;                    // simsurface layout: CollectionName (char*)
 constexpr int kSuspIface_Tires = 0x168;             // ISuspension (SuspensionRacer's) -> Tire* [4], front first
-constexpr int kTire_Radius = 0xC4, kTire_AngVel = 0xD0, kTire_SlipSpeed = 0xE8;
+constexpr int kTire_Radius = 0xC4, kTire_AngVel = 0xD0;
 // Tire: the ground's speed under the wheel along it at the last step (m/s), stored by
-// Tire::UpdateLoaded (0x69F065) from its argument whatever the wheel does; the slip speed at +0xE8
-// is forced to 0 in some states (0x69F1EB), so a locked wheel can't be told from it.
-constexpr int kTire_RoadSpeed = 0xF4;
+// SuspensionRacer::Tire::UpdateLoaded from its argument whatever the wheel does (0x69DB1C). (+0xF4
+// is that in the traffic cars' tyres, 0x69F065, but in SuspensionRacer's it is a smoothed net torque
+// on the wheel, 0x69E194: ABS and TC read it until v0.26.0, so they never acted under hard braking.)
+constexpr int kTire_RoadSpeed = 0xFC;
 // Tire: the wheel's slip along it this step (m/s), wheel speed (angular velocity * radius) less the
 // ground's, stored by UpdateLoaded (0x69DCB1) before the sliding friction.
 constexpr int kTire_Slip = 0xF0;
@@ -176,7 +177,10 @@ constexpr int kTire_GripUsed = 0x110;
 constexpr uintptr_t kCallDoDrifting = 0x6AA006;     // TuneWheelParams: call SuspensionRacer::DoDrifting(state)
 constexpr uintptr_t kDoDrifting = 0x6A9760;         // thiscall, 1 arg
 constexpr uintptr_t kPlayerRain = 0x9196B8;         // Rain* of the player view (eViews[1] + 0x68)
-constexpr int kRain_Intensity = 0x4C;
+// Rain: its intensity 0..1, as Rain::SetRainIntensity stores it (0x73CC9D) and the rain sound reads
+// it (0x4DD08B). (+0x4C until v0.26.0, not a rain field: in the dry it read 0.28 and RainGrip took
+// grip off for nothing.)
+constexpr int kRain_Intensity = 0x28C;
 constexpr uintptr_t kSlideFriction = 0x69DD22;      // UpdateLoaded: fmul [esi+0xEC] for the sliding friction
 constexpr int kTire_SlipAngle = 0x118;
 constexpr int kTire_Load = 0xD4;                    // ... load (N) for this step (0 off the ground)
@@ -560,9 +564,12 @@ float Circle(int i, uint8_t* tire, float m) {
     float budget = s_budget[i], radius = Field<float>(tire, kTire_Radius);
     if (!(budget > 0.0f) || !(radius > 0.0f)) return 1.0f;
     float slip = Field<float>(tire, kTire_Slip);
-    float fwd = Field<float>(tire, kTire_AngVel) * radius - slip;
+    float wheel = Field<float>(tire, kTire_AngVel) * radius, fwd = wheel - slip;
     float torque = Field<float>(tire, kTire_DriveTorque);
-    if (torque * fwd < 0.0f && fabsf(fwd) > 0.5f) return 1.0f;
+    // Only while the engine drives the wheel: the throttle on, and the torque turning the wheel the
+    // way it already turns (engine braking holds it back; a car sliding sideways or backwards can
+    // have the ground going the other way under a wheel the engine brakes).
+    if (s_gas < 0.05f || (torque * wheel < 0.0f && fabsf(wheel) > 0.5f)) return 1.0f;
     float k = g_cfg.frictionCircle;
     float u = fabsf(torque) / radius / budget * std::max(k, 1.0f);
     if (!(u > 0.02f)) return 1.0f;           // not driven, or NaN
@@ -865,7 +872,7 @@ void Aids(uint8_t* susp, uint8_t* iface, float dT) {
     s_aid.tcActive = s_aid.tcGas < 0.97f;
     if (s_aid.tcActive) s_aid.tcSince = Now();
     static double lastLog;
-    if (g_cfg.logInputs && (absNow || s_aid.tcActive) && Now() - lastLog > 0.5) {
+    if ((g_cfg.logInputs || g_cfg.logPhysics) && (absNow || s_aid.tcActive) && Now() - lastLog > 0.5) {
         lastLog = Now();
         Log("physics: aids: ABS %s (lock %.2f, brake x%.2f %.2f %.2f %.2f) TC %s (spin %.1f m/s, throttle x%.2f) speed %.1f",
             absNow ? "active" : "-", lockMax, s_aid.absMul[0], s_aid.absMul[1], s_aid.absMul[2], s_aid.absMul[3],
