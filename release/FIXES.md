@@ -1,3 +1,10 @@
+### v0.27.2: road rumble in the wheel
+
+- **Road rumble** (force feedback, `[FFB] SurfaceRumble`, F4 > Force feedback, off by default):
+  the game's own rumble for the road surface under the front tyres, at the surface's own
+  frequency: rumble strips, cobbles and the like. Grass, dirt and gravel stay with Offroad
+  vibration, so the two don't add up.
+
 ### v0.27.1: kerbs in the wheel, steadier dashboard crops
 
 - **Kerbs and bumps** (force feedback, `[FFB] Kerbs`, F4 > Force feedback, off by default): a
