@@ -1,3 +1,16 @@
+### v0.27.1: kerbs in the wheel, steadier dashboard crops
+
+- **Kerbs and bumps** (force feedback, `[FFB] Kerbs`, F4 > Force feedback, off by default): a
+  front wheel hit from below (a kerb, a bump, a pothole) kicks the wheel toward that side with a
+  short shake, from the front suspension compressing quickly (body roll and hills don't count).
+- **The dashboard's auto crop is off by default** (`[VR] DashAutoCrop=0`): it still found parts
+  wrong as the HUD changed (at a race start, or when icons appeared beside a gauge), and a wrong
+  crop stayed. The dashboard uses its configured crops again, made for the widescreen fix's
+  `FixHUD = 0`: if the dashboard's parts are cut wrong, set `FixHUD = 0` in
+  `scripts\NFSMostWanted.WidescreenFix.ini`. `DashAutoCrop=1` still turns it on, now steadier: a
+  part can't be found much bigger than its crop (a saved crop that is, is found again), and once
+  settled it only moves when it is found somewhere else, not when an icon appears beside it.
+
 ### v0.27.0: car character, real weight distribution, steering weight from load
 
 - **Car character** (`[Physics] Character`, 0..1, default 0.5, F4 > Physics): the game gives every

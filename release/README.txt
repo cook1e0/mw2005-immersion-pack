@@ -43,6 +43,12 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.27.0: replace scripts\nfsmw_vr.asi, nfsmw_ffb.asi and nfsmw_gameplay.asi (or
+extract the zip over your install; your ini files stay). The in-car dashboard's auto crop is now
+off: if your scripts\nfsmw_vr.ini has DashAutoCrop=1 (a fresh v0.27.0 install), set it to 0. If
+the dashboard's parts are then cut wrong, set FixHUD = 0 in scripts\NFSMostWanted.WidescreenFix.ini.
+The new Kerbs and bumps effect (F4 > Force feedback) starts off.
+
 Upgrading from v0.26.0: extract the zip over your install (your scripts\nfsmw_*.ini files stay:
 the release ships its settings as .ini.default). Physics presets are replaced by groups: every car
 starts on the shared physics settings and gets its own feel from the game's data (Car character,
