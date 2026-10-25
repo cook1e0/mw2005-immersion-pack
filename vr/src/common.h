@@ -42,6 +42,7 @@ struct Config {
     float hudHeight = -0.05f;      // vertical offset of the HUD panel (m)
     float hudRight = 0.0f;         // sideways offset of the HUD panel (m, + = right)
     int   bridge = -1;             // 64-bit OpenXR host (nfsmw_vr_host.exe): -1 auto, 0 never, 1 always
+    bool  apiLayers = true;        // load the implicit OpenXR API layers (frame generation, ...)
     bool  fakeHmd = false;         // debug: run the stereo path with a fake head when no runtime is present
     float fakeYaw = 0, fakePitch = 0; // debug: fake head orientation in degrees (+yaw = left, +pitch = up)
     float fakeIpd = 0.064f;        // debug: fake eye separation (m)

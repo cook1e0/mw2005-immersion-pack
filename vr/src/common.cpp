@@ -120,6 +120,7 @@ void LoadConfig() {
     char bridge[16] = "auto";
     GetPrivateProfileStringA("VR", "Bridge", bridge, bridge, sizeof(bridge), ini);
     c.bridge = _stricmp(bridge, "auto") == 0 ? -1 : atoi(bridge) != 0;
+    c.apiLayers = ReadInt(ini, "ApiLayers", c.apiLayers) != 0;
     c.fakeHmd = ReadInt(ini, "FakeHmd", c.fakeHmd) != 0;
     c.fakeYaw = ReadFloat(ini, "FakeYaw", c.fakeYaw);
     c.fakePitch = ReadFloat(ini, "FakePitch", c.fakePitch);

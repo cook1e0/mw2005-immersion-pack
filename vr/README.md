@@ -83,6 +83,17 @@ For a 64-bit-only manifest such as SteamVR's
 (`C:\Program Files (x86)\Steam\steamapps\common\SteamVR\steamxr_win64.json`), also set
 `Bridge=1`.
 
+### API layers (frame generation, OpenXR Toolkit)
+
+The mod loads the OpenXR API layers installed on the PC, as other OpenXR games do. These include
+frame generation tools such as [VectorXR](https://github.com/DienerTech/vectorxr) and
+[OFXR Bridge](https://github.com/djules75/OFXR-Bridge), and OpenXR Toolkit. Most of these layers
+are 64-bit only, so they load only in `nfsmw_vr_host.exe`. With a runtime that runs inside the game
+(Virtual Desktop, Meta Quest Link), set `Bridge=1` to use them. `nfsmw_vr.log` lists every
+64-bit-only layer that this leaves out, and `nfsmw_vr_host.log` lists the layers that loaded.
+Turn off the runtime's own smoothing (SteamVR Motion Smoothing, Virtual Desktop's Synchronous
+Spacewarp) while a frame generation tool is on. `ApiLayers=0` loads no layers.
+
 ## Controls
 
 | Key | Action |

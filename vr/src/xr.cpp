@@ -131,24 +131,36 @@ std::string FindRuntimeJson() {
     return {};
 }
 
-std::string ReadLibraryPath(const std::string& jsonPath) {
-    FILE* f = fopen(jsonPath.c_str(), "rb");
+std::string ReadText(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
     if (!f) return {};
     std::string text;
     char chunk[1024];
     size_t n;
     while ((n = fread(chunk, 1, sizeof(chunk), f)) > 0) text.append(chunk, n);
     fclose(f);
+    return text;
+}
 
-    size_t key = text.find("\"library_path\"");
-    if (key == std::string::npos) return {};
-    size_t q1 = text.find('"', text.find(':', key) + 1);
-    if (q1 == std::string::npos) return {};
+// The string value of the first "key" at or after `from` (enough for the flat manifests).
+std::string JsonString(const std::string& text, const char* key, size_t from = 0) {
+    size_t k = text.find(std::string("\"") + key + "\"", from);
+    if (k == std::string::npos) return {};
+    size_t colon = text.find(':', k);
+    if (colon == std::string::npos) return {};
+    size_t q1 = text.find_first_not_of(" \t\r\n", colon + 1);
+    if (q1 == std::string::npos || text[q1] != '"') return {};
     std::string value;
     for (size_t i = q1 + 1; i < text.size() && text[i] != '"'; i++) {
         if (text[i] == '\\' && i + 1 < text.size()) i++; // JSON escape: \\ -> '\'
         value += text[i];
     }
+    return value;
+}
+
+std::string ReadLibraryPath(const std::string& jsonPath, const std::string& text) {
+    std::string value = JsonString(text, "library_path");
+    if (value.empty()) return {};
     bool absolute = value.size() > 1 && (value[1] == ':' || (value[0] == '\\' && value[1] == '\\'));
     if (!absolute) {
         std::string dir = jsonPath.substr(0, jsonPath.find_last_of("\\/") + 1);
@@ -163,7 +175,7 @@ bool LoadRuntime() {
         Log("XR: no active OpenXR runtime registered");
         return false;
     }
-    std::string lib = ReadLibraryPath(json);
+    std::string lib = ReadLibraryPath(json, ReadText(json));
     Log("XR: runtime manifest %s -> %s", json.c_str(), lib.c_str());
     s.runtime = LoadLibraryA(lib.c_str());
     if (!s.runtime) {
@@ -196,6 +208,138 @@ bool LoadRuntime() {
     s_gipa(XR_NULL_HANDLE, "xrEnumerateInstanceExtensionProperties", (PFN_xrVoidFunction*)&xrEnumerateInstanceExtensionProperties);
     s_gipa(XR_NULL_HANDLE, "xrCreateInstance", (PFN_xrVoidFunction*)&xrCreateInstance);
     return xrEnumerateInstanceExtensionProperties && xrCreateInstance;
+}
+
+// ---------------------------------------------------------------------------
+// Implicit API layers (frame generation, OpenXR Toolkit, ...), loaded the way the Khronos loader
+// does: manifests listed under HKLM, then HKCU, ...\OpenXR\1\ApiLayers\Implicit with a value of 0,
+// minus those whose disable_environment variable is set or whose enable_environment one is not.
+// A 32-bit process sees the WOW6432Node keys, so the game loads only 32-bit layers; 64-bit-only
+// layers run in nfsmw_vr_host.exe ([VR] Bridge=1). [VR] ApiLayers=0 skips them all.
+// ---------------------------------------------------------------------------
+struct ApiLayer {
+    std::string name;
+    PFN_xrGetInstanceProcAddr gipa;
+    PFN_xrCreateApiLayerInstance create;
+};
+std::vector<ApiLayer> s_layers; // s_layers[0] is the one the mod calls
+PFN_xrCreateInstance s_runtimeCreateInstance;
+
+bool EnvSet(const std::string& name) {
+    return !name.empty() && GetEnvironmentVariableA(name.c_str(), nullptr, 0) > 0;
+}
+
+std::vector<std::string> ImplicitLayerManifests(REGSAM view) {
+    std::vector<std::string> out;
+    for (HKEY root : {HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER}) {
+        HKEY key;
+        if (RegOpenKeyExA(root, "SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit", 0, KEY_READ | view, &key) != ERROR_SUCCESS)
+            continue;
+        for (DWORD i = 0;; i++) {
+            char name[MAX_PATH * 2];
+            DWORD nameLen = sizeof(name), type = 0, value = 1, size = sizeof(value);
+            LONG r = RegEnumValueA(key, i, name, &nameLen, nullptr, &type, (BYTE*)&value, &size);
+            if (r == ERROR_NO_MORE_ITEMS) break;
+            if (r == ERROR_SUCCESS && type == REG_DWORD && value == 0) out.push_back(name);
+        }
+        RegCloseKey(key);
+    }
+    return out;
+}
+
+std::string LayerName(const std::string& manifest) {
+    size_t at = manifest.find("\"api_layer\"");
+    return at == std::string::npos ? std::string() : JsonString(manifest, "name", at);
+}
+
+void LoadApiLayers() {
+    s_layers.clear();
+    if (!g_cfg.apiLayers) {
+        Log("XR: API layers disabled (ApiLayers=0)");
+        return;
+    }
+    for (const std::string& json : ImplicitLayerManifests(0)) {
+        std::string text = ReadText(json);
+        size_t at = text.find("\"api_layer\"");
+        std::string name = LayerName(text);
+        if (name.empty()) {
+            Log("XR: API layer manifest %s unreadable, skipped", json.c_str());
+            continue;
+        }
+        std::string disableEnv = JsonString(text, "disable_environment", at);
+        std::string enableEnv = JsonString(text, "enable_environment", at);
+        if (EnvSet(disableEnv) || (!enableEnv.empty() && !EnvSet(enableEnv))) {
+            Log("XR: API layer %s off by its environment variable", name.c_str());
+            continue;
+        }
+        bool dup = false;
+        for (auto& l : s_layers) dup |= l.name == name;
+        if (dup) continue;
+
+        std::string lib = ReadLibraryPath(json, text);
+        HMODULE dll = LoadLibraryExA(lib.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+        if (!dll) {
+            DWORD err = GetLastError();
+            Log("XR: API layer %s: cannot load %s (%lu%s)", name.c_str(), lib.c_str(), err,
+                err == ERROR_BAD_EXE_FORMAT ? ", built for the other bitness" : "");
+            continue;
+        }
+        std::string fn = JsonString(text, "xrNegotiateLoaderApiLayerInterface", at);
+        auto negotiate = (PFN_xrNegotiateLoaderApiLayerInterface)GetProcAddress(
+            dll, fn.empty() ? "xrNegotiateLoaderApiLayerInterface" : fn.c_str());
+        XrNegotiateLoaderInfo info = {};
+        info.structType = XR_LOADER_INTERFACE_STRUCT_LOADER_INFO;
+        info.structVersion = XR_LOADER_INFO_STRUCT_VERSION;
+        info.structSize = sizeof(info);
+        info.minInterfaceVersion = 1;
+        info.maxInterfaceVersion = XR_CURRENT_LOADER_API_LAYER_VERSION;
+        info.minApiVersion = XR_MAKE_VERSION(1, 0, 0);
+        info.maxApiVersion = XR_MAKE_VERSION(1, 0x3ff, 0xfff);
+        XrNegotiateApiLayerRequest req = {};
+        req.structType = XR_LOADER_INTERFACE_STRUCT_API_LAYER_REQUEST;
+        req.structVersion = XR_API_LAYER_INFO_STRUCT_VERSION;
+        req.structSize = sizeof(req);
+        if (!negotiate || XR_FAILED(negotiate(&info, name.c_str(), &req)) || !req.getInstanceProcAddr ||
+            !req.createApiLayerInstance) {
+            Log("XR: API layer %s: negotiation failed, skipped", name.c_str());
+            FreeLibrary(dll);
+            continue;
+        }
+        s_layers.push_back({name, req.getInstanceProcAddr, req.createApiLayerInstance});
+        Log("XR: API layer %s (%s)", name.c_str(), lib.c_str());
+    }
+}
+
+// End of the layer chain: the runtime's own xrCreateInstance.
+XrResult XRAPI_CALL TerminatorCreateApiLayerInstance(const XrInstanceCreateInfo* info, const XrApiLayerCreateInfo*,
+                                                     XrInstance* instance) {
+    return s_runtimeCreateInstance(info, instance);
+}
+
+// Creates the instance through the layers; s_gipa then resolves through the outermost one.
+XrResult CreateInstance(const XrInstanceCreateInfo* ici, XrInstance* instance) {
+    if (s_layers.empty()) return xrCreateInstance(ici, instance);
+    s_runtimeCreateInstance = xrCreateInstance;
+    size_t n = s_layers.size();
+    std::vector<XrApiLayerNextInfo> next(n);
+    for (size_t i = 0; i < n; i++) {
+        XrApiLayerNextInfo& ni = next[i];
+        ni.structType = XR_LOADER_INTERFACE_STRUCT_API_LAYER_NEXT_INFO;
+        ni.structVersion = XR_API_LAYER_NEXT_INFO_STRUCT_VERSION;
+        ni.structSize = sizeof(ni);
+        strncpy(ni.layerName, s_layers[i].name.c_str(), sizeof(ni.layerName) - 1);
+        ni.nextGetInstanceProcAddr = i + 1 < n ? s_layers[i + 1].gipa : s_gipa;
+        ni.nextCreateApiLayerInstance = i + 1 < n ? s_layers[i + 1].create : TerminatorCreateApiLayerInstance;
+        ni.next = i + 1 < n ? &next[i + 1] : nullptr;
+    }
+    XrApiLayerCreateInfo lci = {};
+    lci.structType = XR_LOADER_INTERFACE_STRUCT_API_LAYER_CREATE_INFO;
+    lci.structVersion = XR_API_LAYER_CREATE_INFO_STRUCT_VERSION;
+    lci.structSize = sizeof(lci);
+    lci.nextInfo = next.data();
+    XrResult r = s_layers[0].create(ici, &lci, instance);
+    if (XR_SUCCEEDED(r)) s_gipa = s_layers[0].gipa;
+    return r;
 }
 
 bool LoadInstanceFunctions() {
@@ -455,7 +599,18 @@ bool WantBridge() {
     std::string rt64 = ReadActiveRuntime(KEY_WOW64_64KEY), rt32 = ReadActiveRuntime(KEY_WOW64_32KEY);
     Log("XR: active runtime: 64-bit \"%s\", 32-bit \"%s\"", rt64.c_str(), rt32.c_str());
     if (rt64.empty()) return false;
-    return rt32.empty() || _stricmp(DirOf(rt64).c_str(), DirOf(rt32).c_str()) != 0;
+    if (rt32.empty() || _stricmp(DirOf(rt64).c_str(), DirOf(rt32).c_str()) != 0) return true;
+    // Running in the game: say which 64-bit-only API layers that leaves out.
+    std::vector<std::string> names32;
+    for (auto& json : ImplicitLayerManifests(KEY_WOW64_32KEY)) names32.push_back(LayerName(ReadText(json)));
+    for (auto& json : ImplicitLayerManifests(KEY_WOW64_64KEY)) {
+        std::string name = LayerName(ReadText(json));
+        bool has32 = false;
+        for (auto& n : names32) has32 |= n == name;
+        if (!has32 && !name.empty())
+            Log("XR: API layer %s is 64-bit only; set Bridge=1 in nfsmw_vr.ini to use it", name.c_str());
+    }
+    return false;
 }
 
 bool BridgeWaitReply(DWORD timeoutMs) {
@@ -577,6 +732,7 @@ static bool InitRuntime(LUID d3d9Luid) {
         return false;
     }
 
+    LoadApiLayers();
     const char* enabled[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
     XrInstanceCreateInfo ici{XR_TYPE_INSTANCE_CREATE_INFO};
     strcpy(ici.applicationInfo.applicationName, "NFS Most Wanted VR");
@@ -585,7 +741,7 @@ static bool InitRuntime(LUID d3d9Luid) {
     ici.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     ici.enabledExtensionCount = 1;
     ici.enabledExtensionNames = enabled;
-    XrResult r = xrCreateInstance(&ici, &s.instance);
+    XrResult r = CreateInstance(&ici, &s.instance);
     if (XR_FAILED(r)) {
         Log("XR: xrCreateInstance failed (%d)", (int)r);
         return false;
