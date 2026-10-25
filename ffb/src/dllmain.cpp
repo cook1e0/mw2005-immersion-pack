@@ -50,7 +50,7 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"Landing", &g_cfg.landing},
         {"CarHits", &g_cfg.carHits},
         {"DamageHits", &g_cfg.damageHits}, {"DamageHitStrength", &g_cfg.damageHitStrength},
-        {"OffroadVibration", &g_cfg.offroadVibration},
+        {"OffroadVibration", &g_cfg.offroadVibration}, {"Kerbs", &g_cfg.kerbs},
         {"ParkingFriction", &g_cfg.parkingFriction},
         {"TyreScrub", &g_cfg.tyreScrub},
     };

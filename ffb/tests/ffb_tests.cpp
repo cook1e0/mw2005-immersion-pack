@@ -362,6 +362,23 @@ static void TestEffects() {
     EffectParams p;
     float dt = 0.0025f;
     double now = 100;
+    // Kerbs: a hit from below on the right front wheel kicks the wheel to the right, then dies
+    // away; off (the default) nothing.
+    {
+        Telemetry t = Car(20);
+        t.seq = 1;
+        t.bump[1] = 1.0f;
+        Effects off, on;
+        EffectParams k = p;
+        assert(NearZero(off.Step(t, 1.0f, now, dt, p).kerb));
+        k.kerbs = 1.0f;
+        float first = on.Step(t, 1.0f, now, dt, k).kerb;
+        assert(first > 0.2f);
+        t.bump[1] = 0.0f;
+        float later = 0;
+        for (int i = 0; i < 200; i++) later = on.Step(t, 1.0f, now + (i + 1) * dt, dt, k).kerb;   // 0.5 s
+        assert(fabsf(later) < 0.01f);
+    }
     // Engine: a vibration (both ways) that stops without revs.
     {
         Effects fx;

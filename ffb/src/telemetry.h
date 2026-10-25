@@ -50,6 +50,9 @@ struct Telemetry {
     // Front wheels off the road ([0] left, [1] right): the surface's own name is grass, dirt, mud,
     // gravel, sand and the like (not asphalt, concrete, cobbles, metal, wood, rumble strips).
     bool  offroad[2];
+    // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
+    // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
+    float bump[2];
 
     // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
     // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.

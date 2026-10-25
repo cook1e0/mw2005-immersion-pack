@@ -294,6 +294,7 @@ constexpr struct {
     {MOD_FFB, "TyreScrub", 0.15f},
     {MOD_FFB, "Caster", 0.2f}, {MOD_FFB, "CarWeight", 0.5f}, {MOD_FFB, "LoadSensitivity", 1.0f},
     {MOD_FFB, "FrontGripLoss", 0.6f},
+    {MOD_FFB, "Kerbs", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK,
@@ -320,6 +321,7 @@ enum {
     FFB_TYRESCRUB,
     FFB_CASTER, FFB_CARWEIGHT, FFB_LOADSENSITIVITY,
     FFB_FRONTGRIPLOSS,
+    FFB_KERBS,
     EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
@@ -334,6 +336,7 @@ static_assert(KeyIs(kExt[FFB_PARKINGFRICTION].key, "ParkingFriction"), "kExt out
 static_assert(KeyIs(kExt[FFB_TYRESCRUB].key, "TyreScrub"), "kExt out of order at FFB_TYRESCRUB");
 static_assert(KeyIs(kExt[FFB_CASTER].key, "Caster"), "kExt out of order at FFB_CASTER");
 static_assert(KeyIs(kExt[FFB_FRONTGRIPLOSS].key, "FrontGripLoss"), "kExt out of order at FFB_FRONTGRIPLOSS");
+static_assert(KeyIs(kExt[FFB_KERBS].key, "Kerbs"), "kExt out of order at FFB_KERBS");
 static_assert(KeyIs(kExt[VR_ANISOTROPIC].key, "Anisotropic"), "kExt out of order at VR_ANISOTROPIC");
 static_assert(KeyIs(kExt[VR_SHADOWRES].key, "ShadowRes"), "kExt out of order at VR_SHADOWRES");
 static_assert(KeyIs(kExt[VR_SHAREDSHADOWS].key, "SharedShadows"), "kExt out of order at VR_SHAREDSHADOWS");
@@ -648,6 +651,7 @@ const Item kItems[] = {
     {NUMBER, "Landing", "FFB", "Landing", &s_ext[FFB_LANDING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Vehicle hits", "FFB", "CarHits", &s_ext[FFB_CARHITS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Offroad vibration", "FFB", "OffroadVibration", &s_ext[FFB_OFFROAD], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Kerbs and bumps", "FFB", "Kerbs", &s_ext[FFB_KERBS], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Tyre scrub", "FFB", "TyreScrub", &s_ext[FFB_TYRESCRUB], 0.0f, 0.5f, 0.05f, 100, "%.0f%%", 0},
     RESET_,
 
@@ -2105,6 +2109,7 @@ const struct {
     {&s_ext[VR_HIDEARMS], "Leaves out the driver model's arms and hands in the cockpit: they don't follow your hands or the wheel."},
     {&s_ext[VR_WHEELOVERHUD], "On: the car's steering wheel is drawn in front of the HUD while driving. In the pause menu, other menus and this menu the HUD is on top again."},
     {&s_ext[FFB_OFFROAD], "The wheel vibrates while the front wheels are off the road: grass, dirt, mud, gravel, sand. Stronger with both wheels off and with speed."},
+    {&s_ext[FFB_KERBS], "A kick and a short shake when a front wheel is hit from below: kerbs, bumps, potholes, a kerb on one side kicking the wheel toward that side. From the front suspension compressing quickly, so body roll and hills don't count. 0% = off (the default)."},
     {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_PARKINGFRICTION], "Stationary friction: the tyres scrubbing on the road when the car stands still, so the wheel is heavy to turn when parked. Full at a standstill, gone by 18 km/h."},

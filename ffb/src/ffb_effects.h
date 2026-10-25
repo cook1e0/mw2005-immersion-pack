@@ -2,6 +2,8 @@
 // don't come from the tyres' grip.
 //
 //   engine    a vibration at the engine's firing frequency, mostly felt standing still
+//   kerbs     a kick when one front wheel is hit from below (kerbs, bumps, potholes) toward that
+//             side, and a short shake with it (off by default)
 //   crashes   a jolt when the car hits something: walls and props such as benches, sign posts and
 //             fences; sideways from the side that was hit, then a short shake. An impact that
 //             damages the car (as the gameplay mod counts them: Telemetry::damageSeq) raises the
@@ -30,14 +32,15 @@ struct EffectParams {
     float offroad = 0.4f;
     float carHits = 0.8f;
     float tyreScrub = 0.2f;  // vibration while any tyre is past its grip limit
+    float kerbs = 0.0f;      // kick and shake when a front wheel is hit from below (kerbs, bumps)
 };
 
 struct EffectParts {
     float engine = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
-    float scrub = 0;
+    float scrub = 0, kerb = 0;
     float carHitLevel = 0;
     float crashLevel = 0;           // the crash jolt's strength, only for an impact that damaged the car
-    float Sum() const { return engine + crash + scrape + breakable + offroad + landing + carHit + scrub; }
+    float Sum() const { return engine + crash + scrape + breakable + offroad + landing + carHit + scrub + kerb; }
 };
 
 // How a jolt runs: a half-sine push toward its side lasting `push` s, under a shake of `shake`
@@ -66,7 +69,9 @@ public:
     // `drive` 0 (menus) .. 1 (driving), as for the model.
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
-    double enginePhase_ = 0, roughPhase_[2] = {0, 0}, scrubPhase_ = 0;
+    double enginePhase_ = 0, roughPhase_[2] = {0, 0}, scrubPhase_ = 0, kerbPhase_ = 0;
+    uint32_t lastSeq_ = 0;          // the telemetry sample the kerbs last read (one per physics step)
+    float kerbKick_ = 0, kerbShake_ = 0;
     uint32_t lastHitSeq_ = 0, lastBreakSeq_ = 0, lastCarHitSeq_ = 0;
     bool haveHitSeq_ = false;
     float offroadLevel_ = 0, bump_ = 0, bumpWait_ = 0;

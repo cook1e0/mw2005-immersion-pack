@@ -41,6 +41,26 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
         e.engine = amp * (float)sin(enginePhase_) * drive;
     }
 
+    // --- kerbs and bumps: a front wheel's suspension compressing quickly (the slow part, roll and
+    // pitch, taken out): a kick toward the side hit harder and a short shake, read once per
+    // physics step ---
+    if (t.seq != lastSeq_) {
+        lastSeq_ = t.seq;
+        if (t.valid && p.kerbs > 0.0f) {
+            const float ref = 0.5f;   // m/s of quick compression that is a solid hit
+            float gate = Smoothstep(1.0f, 5.0f, speed);
+            float kick = p.kerbs * 0.6f * tanhf((t.bump[1] - t.bump[0]) / ref) * gate;
+            if (fabsf(kick) > fabsf(kerbKick_)) kerbKick_ = kick;
+            float hit = fmaxf(fabsf(t.bump[0]), fabsf(t.bump[1]));
+            float shake = p.kerbs * 0.4f * tanhf(fmaxf(hit - 0.15f, 0.0f) / ref) * gate;
+            if (shake > kerbShake_) kerbShake_ = shake;
+        }
+    }
+    kerbKick_ *= expf(-dt / 0.05f);
+    kerbShake_ *= expf(-dt / 0.08f);
+    kerbPhase_ = Advance(kerbPhase_, 30.0f, dt);
+    e.kerb = (kerbKick_ + kerbShake_ * (float)sin(kerbPhase_)) * drive;
+
     // --- tyre scrub: a fine vibration once any tyre is past its grip limit ---
     if (t.valid && t.tireStateValid && p.tyreScrub > 0.0f && t.wheelsOnGround > 0 && speed > 3.0f) {
         float grip = 1.0f;
