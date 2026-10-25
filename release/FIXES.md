@@ -1,4 +1,4 @@
-### Unreleased
+### v0.26.0: friction circle, launch clutch, working ABS, throttle from the start of the pedal
 
 - **Mod versions in F4:** the menu's title row shows the release the mods come from (e.g. v0.25.0).
   When the gameplay, force feedback and VR mods are from different releases it shows each one, so a

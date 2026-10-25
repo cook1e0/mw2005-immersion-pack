@@ -34,6 +34,14 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.25.0: replace scripts\nfsmw_gameplay.asi, nfsmw_ffb.asi and nfsmw_vr.asi (F4
+now shows each mod's release, and flags a half-updated install). Your ini files keep working: the
+new settings start at their defaults (FrictionCircle=1 under [Physics], EngineBrakingFade=0.1 under
+[Engine], LaunchRevs=0.3 under [Clutch]). PowerOversteer, SlideOversteer and UsePowerOversteer are
+gone: the friction circle replaces them, and the old keys are ignored. ABS and traction control now
+act under hard braking and wheelspin, and RainGrip only in the rain, so cars grip a little more in
+the dry. See FIXES.md.
+
 Upgrading from v0.24.0: replace scripts\nfsmw_gameplay.asi. Your ini files keep working. The new
 tyre model is on for every car (LoadSensitivity=0.2, PastPeakGrip=0.85 under [Physics]; 0 and 1
 give the game's tyres back). Suspension firmness and Roll balance are in F4 > Physics, per car.
