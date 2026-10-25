@@ -38,7 +38,10 @@ struct Config {
     float aligning = 1.0f;          // the front tyres' self-aligning torque
     float gripPeakDeg = 7.0f;       // front slip angle where the wheel is heaviest
     float driftAlign = 0.3f;        // pull toward the direction of travel past the grip limit
-    float loadSensitivity = 0.5f;   // how much front tyre load changes the aligning torque
+    float loadSensitivity = 1.0f;   // how much the front tyres' load (braking, throttle, crests) changes the weight
+    float carWeight = 0.5f;         // how much the car's own front axle load changes the weight
+    float caster = 0.2f;            // steering geometry's pull, heavier with front load
+    float frontGripLoss = 0.6f;     // how light the wheel goes when the front tyres lose traction (0..1)
     float tyreScrub = 0.15f;         // vibration while any tyre slides (0 = off)
     float centering = 0.2f;         // spring toward centre while parked or slow
     float damping = 0.15f;           // weight against fast wheel movement

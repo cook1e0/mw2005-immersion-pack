@@ -203,6 +203,74 @@ static void TestModel() {
         float movingFriction = b.Compute(Car(30), Wheel(0.1f, 1.0f), p, 1.0f, 0.0025f).friction;
         assert(f.friction < movingFriction);
     }
+    // Braking moves load onto the front tyres (their static load learned at 40 km/h): the wheel
+    // gets heavier, and the caster spring pulls it to the centre with the car going straight.
+    // Full throttle takes load off: lighter.
+    {
+        Model a;
+        for (int i = 0; i < 4000; i++) a.Compute(Car(11), Wheel(0.0f), p, 1.0f, 0.0025f);
+        Telemetry braking = Car(30), coasting = Car(30), throttle = Car(30);
+        braking.frontLoad = 10000;
+        throttle.frontLoad = 6500;
+        ForceParts b = a.Compute(braking, Wheel(0.05f), p, 1.0f, 0.0025f);
+        ForceParts c = a.Compute(coasting, Wheel(0.05f), p, 1.0f, 0.0025f);
+        ForceParts g = a.Compute(throttle, Wheel(0.05f), p, 1.0f, 0.0025f);
+        assert(b.caster < c.caster && c.caster < g.caster && g.caster < 0.0f);
+        assert(b.aligning < c.aligning && c.aligning < g.aligning);
+        assert(NearZero(a.Compute(braking, Wheel(0.0f), p, 1.0f, 0.0025f).caster));
+    }
+    // Front grip loss: the front tyres past their limit (wheelspin, understeer, a lock-up) make the
+    // wheel lighter, by FrontGripLoss at half traction; 0 leaves it as it was.
+    {
+        Telemetry grip = Car(30), spin = Car(30);
+        grip.tireStateValid = spin.tireStateValid = true;
+        for (int i = 0; i < 4; i++) grip.tireOnGround[i] = spin.tireOnGround[i] = true, grip.tireGrip[i] = spin.tireGrip[i] = 1.0f;
+        spin.tireGrip[0] = 0.4f;
+        Model a, b, c;
+        ForceParts g, s, off;
+        ModelParams none = p;
+        none.frontGripLoss = 0.0f;
+        for (int i = 0; i < 100; i++) {
+            g = a.Compute(grip, Wheel(0.05f), p, 1.0f, 0.0025f);
+            s = b.Compute(spin, Wheel(0.05f), p, 1.0f, 0.0025f);
+            off = c.Compute(spin, Wheel(0.05f), none, 1.0f, 0.0025f);
+        }
+        assert(g.aligning < 0.0f && g.caster < 0.0f);
+        assert(fabsf(s.aligning - g.aligning * (1.0f - p.frontGripLoss)) < 0.01f);
+        assert(fabsf(s.caster - g.caster * (1.0f - p.frontGripLoss)) < 0.01f);
+        assert(fabsf(off.aligning - g.aligning) < 1e-4f);
+        // The grip back: the weight returns over ~0.3 s, not at once (no snap to the centre).
+        ForceParts back;
+        for (int i = 0; i < 20; i++) back = b.Compute(grip, Wheel(0.05f), p, 1.0f, 0.0025f);   // 50 ms
+        assert(back.aligning > 0.5f * (s.aligning + g.aligning));   // (negative: lighter than halfway)
+        for (int i = 0; i < 800; i++) back = b.Compute(grip, Wheel(0.05f), p, 1.0f, 0.0025f);  // 2 s more
+        assert(fabsf(back.aligning - g.aligning) < 0.01f);
+    }
+    // Downforce building up over 20 s at speed (front load +50%) leaves the weight much as it was:
+    // the usual load takes it in; braking on top still adds weight.
+    {
+        Model a;
+        float before = a.Compute(Car(30), Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        Telemetry fast = Car(30);
+        for (int i = 0; i < 8000; i++) {
+            fast.frontLoad = 8000.0f + 4000.0f * i / 8000.0f;
+            a.Compute(fast, Wheel(0.05f), p, 1.0f, 0.0025f);
+        }
+        float after = a.Compute(fast, Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        assert(after > before * 1.1f);
+        fast.frontLoad = 15000;
+        assert(a.Compute(fast, Wheel(0.05f), p, 1.0f, 0.0025f).aligning < after * 1.15f);
+    }
+    // A car with more weight on its front axle steers heavier than a light-nosed one.
+    {
+        Model heavy, light;
+        Telemetry h = Car(11), l = Car(11);
+        h.frontLoad = 10000;
+        l.frontLoad = 5000;
+        float fh = heavy.Compute(h, Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        float fl = light.Compute(l, Wheel(0.05f), p, 1.0f, 0.0025f).aligning;
+        assert(fh < fl && fl < 0.0f);
+    }
     // Front wheels off the ground: no aligning torque.
     Telemetry air = Car(30);
     air.frontOnGround = 0;

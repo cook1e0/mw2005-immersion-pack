@@ -6,6 +6,9 @@ namespace ffb {
 
 namespace {
 const float kPi = 3.14159265f;
+// Both front tyres' static load (N) of the median player car (1530 kg, 52% front): CarWeight
+// makes a car whose front axle carries more steer heavier, one with less lighter.
+const float kNominalFrontLoad = 7800.0f;
 }
 
 float FrontTravel(const Telemetry& t) {
@@ -37,13 +40,21 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
 
     // --- self-aligning torque -------------------------------------------------------------
     if (t.valid && t.frontOnGround > 0 && w.known) {
-        // The front tyres' usual load, learned slowly while driving with both on the ground.
-        if (t.frontOnGround == 2 && speed > 3.0f && t.frontLoad > 0) {
+        // Two references for the front tyres' load, learned with both on the ground. The static
+        // one, slowly and only below 55 km/h where downforce adds little, is the car's weight on
+        // its front axle (the gameplay mod's real weight distribution included): CarWeight. The
+        // usual one, over a few seconds at any speed, takes in the downforce as speed builds (the
+        // game's is far more than a road car's), so the weight follows what changes quickly:
+        // braking, throttle, crests and dips.
+        if (t.frontOnGround == 2 && t.frontLoad > 0) {
             if (loadRef_ <= 0) loadRef_ = t.frontLoad;
-            loadRef_ += (t.frontLoad - loadRef_) * Clampf(dt / 5.0f, 0.0f, 1.0f);
+            if (dynRef_ <= 0) dynRef_ = t.frontLoad;
+            if (speed > 3.0f && speed < 15.0f) loadRef_ += (t.frontLoad - loadRef_) * Clampf(dt / 8.0f, 0.0f, 1.0f);
+            if (speed > 3.0f) dynRef_ += (t.frontLoad - dynRef_) * Clampf(dt / 5.0f, 0.0f, 1.0f);
         }
-        float loadRatio = loadRef_ > 0 ? t.frontLoad / loadRef_ : 0.5f * t.frontOnGround;
-        float load = Clampf(1.0f + p.loadSensitivity * (loadRatio - 1.0f), 0.3f, 1.6f);
+        float loadRatio = dynRef_ > 0 ? t.frontLoad / dynRef_ : 0.5f * t.frontOnGround;
+        float car = loadRef_ > 0 ? powf(Clampf(loadRef_ / kNominalFrontLoad, 0.3f, 2.0f), p.carWeight) : 1.0f;
+        float load = car * Clampf(1.0f + p.loadSensitivity * (loadRatio - 1.0f), 0.3f, 1.6f);
         // Brush-model shape: rises to 1 at the grip peak, then falls away (the wheel goes light
         // as the front lets go); a smaller pull toward the travel direction stays in a slide.
         float x = FrontSlipAngle(t, w, p, roadLock_) / (Clampf(p.gripPeakDeg, 1.0f, 30.0f) * kPi / 180.0f);
@@ -52,6 +63,28 @@ ForceParts Model::Compute(const Telemetry& t, const WheelState& w, const ModelPa
         float speedGain = Smoothstep(0.5f, 6.0f, speed);
         if (t.vLong < -0.5f) speedGain *= 0.3f;
         f.aligning = -p.aligning * shape * load * speedGain * drive;
+        // Caster: the tyres' side force times the steering's mechanical trail. The side force
+        // rises with the slip angle to the grip peak and grows with the load; past the peak it
+        // eases off, by 3 times it to 70% (a sliding tyre's side force), not falling away like the
+        // tyres' own pull.
+        float slide = 1.0f - 0.3f * Smoothstep(1.0f, 3.0f, fabsf(x));
+        f.caster = -p.caster * tanhf(x) * slide * load * speedGain * drive;
+
+        // Front grip loss: the front tyres' traction as the game has it (1 = gripping, lower = past
+        // the friction limit: spinning, sliding wide, locked). The weaker one counts; at half
+        // traction or less the wheel keeps 1 - FrontGripLoss of its weight. A front drive car
+        // spinning its wheels, a car pushing wide, a locked front: the wheel goes light within
+        // ~50 ms, and its weight comes back over ~0.3 s as the tyres grip again (all at once it
+        // snapped the wheel back to the centre).
+        float grip = 1.0f;
+        if (t.tireStateValid)
+            for (int i = 0; i < 2; ++i)
+                if (t.tireOnGround[i]) grip = fminf(grip, Clampf(t.tireGrip[i], 0.0f, 1.0f));
+        float tau = grip < frontGrip_ ? 0.05f : 0.3f;
+        frontGrip_ += (grip - frontGrip_) * Clampf(dt / tau, 0.0f, 1.0f);
+        gripLight_ = 1.0f - Clampf(p.frontGripLoss, 0.0f, 1.0f) * Smoothstep(0.0f, 0.5f, 1.0f - frontGrip_);
+        f.aligning *= gripLight_;
+        f.caster *= gripLight_;
     }
 
     if (!w.known) return f;

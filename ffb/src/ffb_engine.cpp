@@ -75,6 +75,9 @@ public:
         p.gripPeakDeg = c.gripPeakDeg;
         p.driftAlign = c.driftAlign;
         p.loadSensitivity = c.loadSensitivity;
+        p.carWeight = c.carWeight;
+        p.caster = c.caster;
+        p.frontGripLoss = c.frontGripLoss;
         p.centering = c.centering;
         p.damping = c.damping;
         p.friction = c.friction;
@@ -104,7 +107,7 @@ public:
         // (The effects shake the wheel on purpose: the guard doesn't watch it while they do.)
         s.guard = c.oscillationGuard ? guard_.Step(fabsf(fx) > 0.03f ? 0.0f : w.vel, dt) : 0.0f;
         if (guard_.tripped) Log("ffb: wheel oscillating - damping raised until it settles");
-        float steering = s.aligningSmoothed + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
+        float steering = s.aligningSmoothed + s.parts.caster + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
         s.raw = steering * c.gain * (1.0f - 0.5f * s.guard) + s.parts.softLock;
 
         // No clipping: peaks are compressed above the knee, never cut flat, then scaled to MaxForce.
@@ -133,6 +136,9 @@ public:
     float Drive() const { return drive_; }
     float WheelVel() const { return wheelVel_; }
     float RoadLock() const { return model_.RoadLock(); }
+    float LoadRef() const { return model_.LoadRef(); }
+    float FrontGrip() const { return model_.FrontGrip(); }
+    float GripLight() const { return model_.GripLight(); }
 
 private:
     Model model_;
@@ -212,11 +218,11 @@ DWORD WINAPI FfbThread(LPVOID) {
         if (g_cfg.logTelemetry && now - logTime > 0.1) {
             logTime = now;
             Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) travel=%.2f "
-                "rpm=%.0f | align=%.3f(%.3f) centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
+                "rpm=%.0f loadRef=%.0f gripF=%.2f light=%.2f | align=%.3f(%.3f) caster=%.3f centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
                 "fx: eng=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f scrub=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
                 engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
-                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm,
-                s.parts.aligning, s.aligningSmoothed, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
+                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm, engine.LoadRef(), engine.FrontGrip(), engine.GripLight(),
+                s.parts.aligning, s.aligningSmoothed, s.parts.caster, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
                 s.effects.engine, s.effects.crash, s.effects.scrape, s.effects.breakable,
                 s.effects.carHit, s.effects.scrub, s.hitPriority, s.guard, s.raw, s.out);
         }

@@ -38,6 +38,8 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
     if (!name) return nullptr;
     static const struct { const char* key; float* value; } kSettings[] = {
         {"Gain", &g_cfg.gain}, {"MaxForce", &g_cfg.maxForce}, {"Aligning", &g_cfg.aligning},
+        {"Caster", &g_cfg.caster}, {"CarWeight", &g_cfg.carWeight}, {"LoadSensitivity", &g_cfg.loadSensitivity},
+        {"FrontGripLoss", &g_cfg.frontGripLoss},
         {"Centering", &g_cfg.centering}, {"Damping", &g_cfg.damping}, {"Friction", &g_cfg.friction},
         {"SoftLock", &g_cfg.softLock}, {"SlewRate", &g_cfg.slewRate}, {"SmoothingHz", &g_cfg.smoothingHz},
         {"Reverse", &g_cfg.reverse}, {"Device", &g_cfg.device}, {"SoftLockAt", &g_cfg.softLockAt},

@@ -37,7 +37,8 @@ static bool FileExists(const char* path) { return GetFileAttributesA(path) != IN
 // Finds one of the mods' .ini files. While this DLL is in scripts\, one next to speed.exe (where
 // they were before v0.10.0) holds the player's settings and wins over the default one a release
 // zip puts in scripts\; with migrate it is moved over that one. Otherwise: next to this DLL, else
-// in scripts\, else (missing) next to this DLL.
+// in scripts\, else (missing) next to this DLL. A missing one is made from <name>.default next to
+// this DLL: a release ships its settings that way, so unpacking it never overwrites anyone's.
 void ConfigFile(const char* name, char* out, bool migrate) {
     char other[MAX_PATH];
     snprintf(out, MAX_PATH, "%s%s", ModDir(), name);
@@ -52,7 +53,12 @@ void ConfigFile(const char* name, char* out, bool migrate) {
     }
     if (FileExists(out)) return;
     snprintf(other, MAX_PATH, "%sscripts\\%s", GameDir(), name);
-    if (FileExists(other)) strcpy(out, other);
+    if (FileExists(other)) {
+        strcpy(out, other);
+        return;
+    }
+    snprintf(other, MAX_PATH, "%s.default", out);
+    if (FileExists(other) && CopyFileA(other, out, TRUE)) Log("settings: %s made from %s.default", name, name);
 }
 
 double Now() {
@@ -116,6 +122,9 @@ void LoadConfig() {
     c.gripPeakDeg = Clamp(ReadFloat(s, "GripPeakAngle", c.gripPeakDeg), 1.0f, 30.0f);
     c.driftAlign = Clamp(ReadFloat(s, "DriftAlign", c.driftAlign), 0.0f, 2.0f);
     c.loadSensitivity = Clamp(ReadFloat(s, "LoadSensitivity", c.loadSensitivity), 0.0f, 2.0f);
+    c.carWeight = Clamp(ReadFloat(s, "CarWeight", c.carWeight), 0.0f, 1.0f);
+    c.caster = Clamp(ReadFloat(s, "Caster", c.caster), 0.0f, 2.0f);
+    c.frontGripLoss = Clamp(ReadFloat(s, "FrontGripLoss", c.frontGripLoss), 0.0f, 1.0f);
     c.tyreScrub = Clamp(ReadFloat(s, "TyreScrub", c.tyreScrub), 0.0f, 0.5f);
     c.centering = Clamp(ReadFloat(s, "Centering", c.centering), 0.0f, 2.0f);
     c.damping = Clamp(ReadFloat(s, "Damping", c.damping), 0.0f, 2.0f);
@@ -145,11 +154,11 @@ void LoadConfig() {
     c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, s_gameplayIni) ? 1.0f : 0.0f;
     c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, s_gameplayIni) ? 1.0f : 0.0f;
     Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d | aligning=%.2f "
-        "peak=%.1f drift=%.2f load=%.2f scrub=%.2f centering=%.2f "
+        "peak=%.1f drift=%.2f load=%.2f griploss=%.2f scrub=%.2f centering=%.2f "
         "damping=%.2f friction=%.2f/%.2f softlock=%.2f menu=%.2f | engine=%.2f crashes=%.2f "
         "scrapes=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
         c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.aligning,
-        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.tyreScrub,
+        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.frontGripLoss, c.tyreScrub,
         c.centering, c.damping, c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.engineRumble,
         c.crashes, c.scrapes,
         (int)c.device, c.forceSign, c.reverse > 0.5f,
