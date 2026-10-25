@@ -3,10 +3,12 @@
 # ffb/build.sh and gameplay/build.sh first).
 # Usage: ./package.sh <Ultimate ASI Loader x86 dinput8.dll> <version, e.g. v0.11.0> <widescreen fix folder>
 # The widescreen fix folder is NFSMostWanted.WidescreenFix.zip from ThirteenAG/WidescreenFixesPack's
-# "nfsmw" release, extracted; its .asi and .tpk ship, with release/NFSMostWanted.WidescreenFix.ini.
+# "nfsmw" release, extracted; its .asi and .tpk ship, with release/NFSMostWanted.WidescreenFix.ini
+# as its .ini.default (the gameplay and VR mods make the fix's ini from it when there is none).
 # (The VR mod sets the game's physics rate through that fix's SimRate.)
-# NFSMW_SETTINGS=<folder with nfsmw_*.ini> packages those settings (F4 menu, bindings, seats,
-# physics presets)
+# The mods' settings ship as scripts\<name>.ini.default: each mod makes its .ini from that on
+# its first start, so unpacking a release over an install never overwrites anyone's settings.
+# NFSMW_SETTINGS=<folder with nfsmw_*.ini> packages those settings (F4 menu, bindings, seats)
 # instead of the defaults, e.g. a game's scripts folder, so unpacking keeps that setup.
 # NFSMW_NO_SETTINGS=1 leaves every .ini out (the widescreen fix's too): an update that keeps the
 # settings already installed.
@@ -38,18 +40,20 @@ cp vr/bin/nfsmw_vr_host.exe vr/bin/nfsmw_crashdump.exe ffb/build/ffbtool.exe "$O
 if [ -n "$NFSMW_NO_SETTINGS" ]; then
     echo "settings: none (an update: the installed .ini files stay)"
 else
-    cp vr/nfsmw_vr.ini vr/nfsmw_vr_edits.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini gameplay/nfsmw_physics_presets.ini "$OUT/scripts/"
-    cp release/NFSMostWanted.WidescreenFix.ini "$OUT/scripts/"
+    for ini in vr/nfsmw_vr.ini vr/nfsmw_vr_edits.ini ffb/nfsmw_ffb.ini gameplay/nfsmw_gameplay.ini; do
+        cp "$ini" "$OUT/scripts/$(basename "$ini").default"
+    done
+    cp release/NFSMostWanted.WidescreenFix.ini "$OUT/scripts/NFSMostWanted.WidescreenFix.ini.default"
 fi
 if [ -n "$NFSMW_SETTINGS" ] && [ -z "$NFSMW_NO_SETTINGS" ]; then
-    for ini in nfsmw_vr.ini nfsmw_vr_edits.ini nfsmw_ffb.ini nfsmw_gameplay.ini nfsmw_physics_presets.ini; do
+    for ini in nfsmw_vr.ini nfsmw_vr_edits.ini nfsmw_ffb.ini nfsmw_gameplay.ini; do
         if [ -f "$NFSMW_SETTINGS/$ini" ]; then
-            cp "$NFSMW_SETTINGS/$ini" "$OUT/scripts/$ini"
+            cp "$NFSMW_SETTINGS/$ini" "$OUT/scripts/$ini.default"
             echo "settings: $ini from $NFSMW_SETTINGS"
         fi
     done
 fi
-cp release/README.txt release/FIXES.md release/LICENSE-asi-loader.txt release/LICENSE-widescreen-fix.txt LICENSE "$OUT/"
+cp release/README.txt release/FIXES.md gameplay/TUNING.md release/LICENSE-asi-loader.txt release/LICENSE-widescreen-fix.txt LICENSE "$OUT/"
 cp gameplay/third_party/imgui/LICENSE.txt "$OUT/LICENSE-imgui.txt"
 PS=pwsh; command -v pwsh >/dev/null || PS=powershell
 $PS -NoProfile -Command "Compress-Archive -Path '$OUT/*' -DestinationPath '$ZIP'"

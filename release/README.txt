@@ -6,30 +6,34 @@ the same loader the widescreen fix and most other NFS mods use.
 
 Quick install: extract the whole zip into the folder with speed.exe (all three mods, the
 loader, ThirteenAG's widescreen fix and the VR helper), start the game, press F4 while driving
-to set things up. Already have the widescreen fix set up? Skip
-scripts\NFSMostWanted.WidescreenFix.ini when extracting, to keep its settings.
+to set things up. Updating? Extract it over your install the same way: the settings ship as
+.ini.default files (the mods' and the widescreen fix's), and an .ini is made from one only when
+there is none, so your settings stay, the widescreen fix's too. (On a fresh install the widescreen
+fix may run on its own defaults the very first start: its .ini is there from the second.)
 
 Or pick and choose:
 
 1. Copy dinput8.dll next to speed.exe (skip it if you already have it, e.g. from the
    widescreen fix), and create a "scripts" folder there if there is none.
-2. Copy the widescreen fix: scripts\NFSMostWanted.WidescreenFix.asi, .tpk and .ini (skip the
-   .ini if you already have one). The VR mod needs it: it sets the game's physics rate to suit
+2. Copy the widescreen fix: scripts\NFSMostWanted.WidescreenFix.asi and .tpk, and, if you have no
+   NFSMostWanted.WidescreenFix.ini yet, the .ini.default (the gameplay or VR mod makes the .ini from
+   it). The VR mod needs it: it sets the game's physics rate to suit
    the headset through the fix's SimRate setting.
 3. Copy the mods you want:
 
-  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
+  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini.default, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
                    speed.exe
                    (Virtual Desktop, SteamVR or Meta Quest Link; for SteamVR set it as the
                    OpenXR runtime in SteamVR's settings and run Room Setup once)
-  Force feedback   scripts\nfsmw_ffb.asi + scripts\nfsmw_ffb.ini
+  Force feedback   scripts\nfsmw_ffb.asi + scripts\nfsmw_ffb.ini.default
                    (ffbtool.exe, next to speed.exe, lists / tests wheels)
-  Gameplay         scripts\nfsmw_gameplay.asi + scripts\nfsmw_gameplay.ini + scripts\nfsmw_physics_presets.ini
+  Gameplay         scripts\nfsmw_gameplay.asi + scripts\nfsmw_gameplay.ini.default
                    F4 while driving: bind wheel and pedals under Controls, an H-shifter
-                   under Gear bindings
+                   under Gear bindings. TUNING.md explains the physics settings.
 
 Each mod works on its own or together with the others. To uninstall, delete its .asi.
-Settings are in the .ini files in scripts; each mod writes a .log next to speed.exe.
+Settings are in the .ini files in scripts (made from the .ini.default ones on the first start;
+delete an .ini to go back to the defaults); each mod writes a .log next to speed.exe.
 
 Crash capture: install nfsmw_crashdump.exe next to speed.exe. After an unhandled game crash,
 send nfsmw_crash.dmp + nfsmw_crash.txt and the nfsmw_*.log files from the game folder.
@@ -38,6 +42,19 @@ nothing. The latest crash replaces the previous dump/report; copy logs before re
 Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
+
+Upgrading from v0.26.0: extract the zip over your install (your scripts\nfsmw_*.ini files stay:
+the release ships its settings as .ini.default). Physics presets are replaced by groups: every car
+starts on the shared physics settings and gets its own feel from the game's data (Car character,
+50%) and its real weight distribution; F4 > Physics > Settings from puts a car in a group or gives
+it its own values. The premade groups (Muscle, Tuner FWD / AWD / RWD, Exotic RWD / AWD, and empty
+FWD, RWD, AWD) are added to your ini on the first start. Cars with their own settings keep them.
+Cars that followed a preset drive on their group (their old [Car.<name>] sections are removed), and
+scripts\nfsmw_physics_presets.ini is no longer read. Your [Physics] Grip and Downforce were only
+used by cars without a preset, so set them to the new defaults: Grip=0.75 and Downforce=0.7 under
+[Physics] in scripts\nfsmw_gameplay.ini (or in F4 > Physics). For the new steering weight, set
+LoadSensitivity=1.0 under [FFB] in scripts\nfsmw_ffb.ini (Caster and CarWeight start at their
+defaults). See FIXES.md and TUNING.md.
 
 Upgrading from v0.25.0: replace scripts\nfsmw_gameplay.asi, nfsmw_ffb.asi and nfsmw_vr.asi (F4
 now shows each mod's release, and flags a half-updated install). Your ini files keep working: the

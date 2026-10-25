@@ -1,4 +1,75 @@
-### Unreleased
+### v0.27.0: car character, real weight distribution, steering weight from load
+
+- **Car character** (`[Physics] Character`, 0..1, default 0.5, F4 > Physics): the game gives every
+  car its own springs, anti-roll bars, grip and torque but keeps them close together, so a Camaro
+  and a Carrera GT drove much alike. Each car's stock values (read from the game's car data at the
+  first drive, so performance parts don't count) are now spread from the 38 player cars' median:
+  soft cars (GTO, Monaro, Camaro) roll and dive more, stiff ones (Carrera GT, C6.R, Elise) get
+  flatter; cars with less grip than most lose some more (none gets more); cars with a lot of
+  torque for their weight and grip step out more under power (Throttle takes side grip up to
+  1.6x: C6.R, Camaro, SL65, Viper); the anti-roll bars' front/rear split moves further from even.
+  0 = the game's values. Downforce stays with the Downforce slider.
+- **Real weight distribution** (`[Physics] RealWeight`, on by default, F4 > Physics): the game
+  puts 51-55% of every car's weight on the front wheels, the 911s and mid-engined cars too. Each
+  car now has its real car's (a 911 38% front, the Lamborghinis and Carrera GT 42%, front drive
+  hatchbacks 62%); the game places the centre of gravity from it every physics step. Rear-heavy
+  cars get a little more rear grip, as their wider real rear tyres would.
+- **Groups replace the physics presets.** Presets gave whole classes the same values (and
+  several cars the wrong drivetrain's), and their grip went on top of each car's own, so the
+  supercars got the most. Now every car starts on one shared set of settings, and Character and
+  real weight make each car its own. **Settings from** (F4 > Physics) picks where a car's per-car
+  sliders come from: Shared, a group, or this car's own. A group is a named set of values for the
+  cars in it, made and edited on the new **Groups** page: the groups on the left (New, Rename,
+  Delete), the picked group's cars as checkboxes and its values as sliders on the right, so a
+  group can be tuned from any car. Changing a slider in a group's car changes it for the whole
+  group (a preset car used to break off into its own copy). The page is laid out freely and
+  still works with the menu keys or a wheel's d-pad (VR): Up/Down moves between its controls.
+  Groups come premade: Muscle, Tuner FWD / AWD / RWD and Exotic RWD / AWD with every player car
+  in one, and empty FWD, RWD and AWD for tuning by drive alone; they drive as the shared settings
+  until a value is changed in one. Settings from is
+  a drop-down.
+  In the ini: `[Group.<name>]` with the values and `Cars=camaro,gto,...`. A car's own settings
+  (`[Car.<name>]`) are kept as they are. The car sections that only followed a preset (a
+  `Preset=` line with a copy of its values, some naming the wrong drive, such as the A3 as front
+  drive) are removed on the first start, and the presets file is no longer read or shipped. New defaults: Grip 0.75, Downforce 0.7.
+- **F4 > Physics shows the car:** a This car row (drive, weight, front weight, power), and next
+  to each slider that Character or real weight changes, what this car actually gets
+  (Grip `0.750x   this car 0.720x`).
+- **Steering weight follows the front tyres' load** (force feedback): braking makes the wheel
+  heavier and full throttle lighter, also driving straight, through a new caster pull
+  (`[FFB] Caster`, 0.2, F4 > Force feedback > Steering geometry) on top of the tyres' own, and
+  `LoadSensitivity` now 1.0 (Weight transfer). Cars with more weight on the front axle steer
+  heavier, rear-engined ones lighter (`[FFB] CarWeight`, 0.5, Car's front weight). The slow
+  build-up of downforce at speed doesn't add weight (the game's is far more than a road car's).
+- **The wheel goes light when the front loses grip** (force feedback, `[FFB] FrontGripLoss`, 0.6,
+  F4 > Force feedback > Light when the front loses grip): a front drive car spinning its wheels,
+  the front pushing wide and locked front wheels under braking make the wheel light, as they do in
+  a real car; its weight comes back over about 0.3 s as the tyres grip again, so the wheel
+  doesn't snap to the centre. The caster pull also eases off once the front
+  slides instead of holding its weight. Existing installs get it without an ini line.
+- **Share groups and car setups as files:** F4 > Physics > Groups > Share. **Export group** saves
+  a group (every value and its cars) and **Export this car** a car's own settings to
+  `scripts\profiles\`; **Import...** lists the files there and loads one (a group replaces the one
+  with its name, after a second press, and its cars move into it).
+- **No hole in the dashboard on a flat screen:** without a headset, the seat view showed an empty
+  space where the in-car display goes (the display was only set up for the headset's eyes). Now the
+  display is there, empty, and the HUD stays on the screen as usual.
+- **The dashboard finds the HUD's parts itself** (`[VR] DashAutoCrop=1`): each part (minimap,
+  speedometer, cop radar, pursuit info, leaderboard) is cut from where it actually is on the HUD,
+  near its configured crop. The crops were made for the widescreen fix's `FixHUD = 0`; with
+  `FixHUD = 1` (what the zip's widescreen fix ini has) the parts sat elsewhere and the display came
+  out empty or cut. A part switches to where it was found once, after it has been seen whole for
+  2 s, then holds still; it is remembered (`DashFound<Part>` in `nfsmw_vr.ini`), so the next start
+  has it from the first frame. `nfsmw_vr.log` says where each part was found. `DashAutoCrop=0` uses
+  the crops as they are.
+- **Unpacking a release keeps your settings:** the mods' ini files ship as
+  `scripts\nfsmw_*.ini.default`, and each mod makes its `.ini` from that only when there is none.
+  Extract a new release over an install and nothing you set is lost; delete an `.ini` to go back
+  to the defaults. The widescreen fix's `NFSMostWanted.WidescreenFix.ini` ships the same way (the
+  gameplay and VR mods make it), so unpacking no longer resets its HUD and SimRate settings, which
+  broke the in-car dashboard's HUD crops for one player. An ini from before groups gets the premade groups on the first start.
+- **TUNING.md** in the zip explains how each car gets its feel and what to change when one
+  feels wrong.
 
 - **The widescreen fix ships in the zip:** ThirteenAG's NFSMostWanted.WidescreenFix (`.asi`,
   `.tpk`, and its ini with `SkipIntro = 0`). The VR mod sets the game's physics rate to suit the
