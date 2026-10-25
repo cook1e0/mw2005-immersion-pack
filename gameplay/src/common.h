@@ -165,25 +165,26 @@ struct Config {
     float tractionControl = 0.0f;  // traction control strength
     float stability = 0.0f;        // yaw control and drift stabiliser strength
     float driftAssist = 0.0f;       // how much rear grip is lowered in a slide
-    float grip = 0.7875f;           // overall tire grip
-    float gripBalance = 0.1905f;      // front tyres' grip 1 + this, rear 1 - this (above 0: oversteer)
+    float grip = 0.75f;             // overall tire grip
+    float character = 0.5f;         // each car's own springs, bars, grip, aero and torque spread from the others' (cars.h)
+    bool  realWeight = true;        // the real car's front / rear weight instead of the game's 51-55% front
+    float gripBalance = 0.0f;       // front tyres' grip 1 + this, rear 1 - this (above 0: oversteer)
     bool  abs = true;               // ABS: a locking wheel's brake is eased off and reapplied
     bool  tc = false;               // traction control: 100% the game's own, plus throttle trimmed to the
                                     // driven wheels' slip, with launch control from a standstill
     float offroadGrip = 0.95f;      // tyre grip on grass, dirt, mud, gravel, sand
-    float slideGrip = 1.0f;        // a sliding tyre's friction compared with its peak grip
     float rainGrip = 0.9f;          // tyre grip in the rain
-    float speedGripLoss = 0.0f;     // side grip lost at 300 km/h, with the square of the speed (to compare with aero)
-    float downforce = 1.0f;         // times the game's own aerodynamic downforce (below 0: lift), per car
-    bool  useAero = true;           // high speed: Downforce applies (true) or SpeedGripLoss (false), never both
+    float downforce = 0.7f;         // times the game's own aerodynamic downforce (below 0: lift), per car
+    bool  downforceSquared = true;  // the downforce grows with the square of the speed (as real aero), not linearly
+    float downforceMatch = 250.0f;  // km/h where the squared downforce equals the game's (times Downforce)
     float loadSensitivity = 0.2f;   // a tyre's grip limit grows with load^(1 - this), around its static load (0 = the game's)
-    float pastPeakGrip = 0.85f;     // side grip a tyre keeps sliding well past its peak slip angle (1 = the game's flat curve)
+    float tyreSlideGrip = 0.85f;    // side grip of a tyre sliding well past its peak, compared with the peak (1 = the game's tyres), per car
+    float tyrePeakAngle = 8.0f;     // slip angle (degrees) where the side grip peaks; it falls to TyreSlideGrip by 3 times it
     float rollBalance = 0.0f;       // anti-roll bar stiffness moved to the front (+, understeer) or rear (-), per car
     float suspFirmness = 1.0f;      // springs and anti-roll bars times this, dampers by its square root (per car)
     float wallBounce = 0.0f;        // share of the game's wall rebound the player's car keeps (0 = none)
-    bool  downforceSquared = false; // the downforce grows with the square of the speed (as real aero), not linearly
-    float downforceMatch = 250.0f;  // km/h where the squared downforce equals the game's (times Downforce)
     int   logPhysics = 0;           // 1: a physics line every second while driving (aero, grip factors)
+    float slideWheelspin = 0.5f;    // driven wheels past the limit spin up: the game's tie to the road ^(1 + 15 * this) (0 = the game's)
     float frictionCircle = 1.0f;    // a driven tyre's side force kept within the grip its drive torque leaves (0 = off, above 1 exaggerated)
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's

@@ -15,7 +15,7 @@ done
 git -c core.autocrlf=true update-index -q --refresh >/dev/null 2>&1 || true
 VERSION=$(git -c core.autocrlf=true describe --tags --always --dirty 2>/dev/null || echo dev)
 g++ $FLAGS $IMGUI -DMOD_VERSION=\"$VERSION\" -shared -o build/dsound.dll \
-    src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/hud.cpp src/physics.cpp src/vfx.cpp src/traffic.cpp src/ui.cpp src/controls.cpp src/flow.cpp src/inisave.cpp src/iconpack.cpp \
+    src/dllmain.cpp src/common.cpp src/devices.cpp src/input.cpp src/game.cpp src/hud.cpp src/physics.cpp src/cars.cpp src/vfx.cpp src/traffic.cpp src/ui.cpp src/controls.cpp src/flow.cpp src/inisave.cpp src/iconpack.cpp \
     build/imgui/imgui.o build/imgui/imgui_draw.o build/imgui/imgui_tables.o build/imgui/imgui_widgets.o \
     src/dsound.def -ldxguid -lwinmm -lgdi32 -lpsapi -Wl,--enable-stdcall-fixup -Wl,--kill-at -s
 echo "built build/dsound.dll"
@@ -26,11 +26,9 @@ if [ "$1" = "install" ]; then
     if [ -f "$GAME/scripts/nfsmw_gameplay.asi" ]; then
         cp build/dsound.dll "$GAME/scripts/nfsmw_gameplay.asi"
         [ -f "$GAME/scripts/nfsmw_gameplay.ini" ] || [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/scripts/"
-        [ -f "$GAME/scripts/nfsmw_physics_presets.ini" ] || [ -f "$GAME/nfsmw_physics_presets.ini" ] || cp nfsmw_physics_presets.ini "$GAME/scripts/"
     else
         cp build/dsound.dll "$GAME/"
         [ -f "$GAME/nfsmw_gameplay.ini" ] || cp nfsmw_gameplay.ini "$GAME/"
-        [ -f "$GAME/nfsmw_physics_presets.ini" ] || cp nfsmw_physics_presets.ini "$GAME/"
     fi
     echo "installed to $GAME"
 fi

@@ -39,7 +39,8 @@ static bool FileExists(const char* path) { return GetFileAttributesA(path) != IN
 // Finds one of the mods' .ini files. While this DLL is in scripts\, one next to speed.exe (where
 // they were before v0.10.0) holds the player's settings and wins over the default one a release
 // zip puts in scripts\; with migrate it is moved over that one. Otherwise: next to this DLL, else
-// in scripts\, else (missing) next to this DLL.
+// in scripts\, else (missing) next to this DLL. A missing one is made from <name>.default next to
+// this DLL: a release ships its settings that way, so unpacking it never overwrites anyone's.
 void ConfigFile(const char* name, char* out, bool migrate) {
     char other[MAX_PATH];
     snprintf(out, MAX_PATH, "%s%s", ModDir(), name);
@@ -54,7 +55,12 @@ void ConfigFile(const char* name, char* out, bool migrate) {
     }
     if (FileExists(out)) return;
     snprintf(other, MAX_PATH, "%sscripts\\%s", GameDir(), name);
-    if (FileExists(other)) strcpy(out, other);
+    if (FileExists(other)) {
+        strcpy(out, other);
+        return;
+    }
+    snprintf(other, MAX_PATH, "%s.default", out);
+    if (FileExists(other) && CopyFileA(other, out, TRUE)) Log("settings: %s made from %s.default", name, name);
 }
 
 const char* IniPath() {
@@ -131,6 +137,11 @@ static int ReadInt(const char* sec, const char* key, int def) {
 }
 
 void LoadConfig() {
+    // The widescreen fix's ini ships as NFSMostWanted.WidescreenFix.ini.default too (so unpacking
+    // a release never overwrites anyone's); made from it here if missing. The fix loads before
+    // this mod, so on a fresh install it may have run on its own defaults this once.
+    char wsfix[MAX_PATH];
+    ConfigFile("NFSMostWanted.WidescreenFix.ini", wsfix, false);
     Config& c = g_cfg;
     c.enabled = ReadInt("General", "Enabled", 1) != 0;
     c.toggle = ReadStr("General", "Toggle", "");
@@ -260,19 +271,20 @@ void LoadConfig() {
     c.abs = ReadInt("Physics", "ABS", c.abs) != 0;
     c.tc = ReadInt("Physics", "TC", 0) != 0;
     c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
-    c.slideGrip = Clamp(ReadFloat("Physics", "SlideGrip", c.slideGrip), 0.4f, 1.0f);
     c.rainGrip = Clamp(ReadFloat("Physics", "RainGrip", c.rainGrip), 0.5f, 1.0f);
-    c.speedGripLoss = Clamp(ReadFloat("Physics", "SpeedGripLoss", c.speedGripLoss), 0.0f, 0.9f);
     c.downforce = Clamp(ReadFloat("Physics", "Downforce", c.downforce), -0.25f, 2.0f);
-    c.logPhysics = ReadInt("Physics", "LogPhysics", 0);
-    c.useAero = ReadInt("Physics", "UseAero", c.useAero) != 0;
     c.downforceSquared = ReadInt("Physics", "DownforceSquared", c.downforceSquared) != 0;
+    c.downforceMatch = Clamp(ReadFloat("Physics", "DownforceMatchSpeed", c.downforceMatch), 50.0f, 400.0f);
+    c.logPhysics = ReadInt("Physics", "LogPhysics", 0);
     c.wallBounce = Clamp(ReadFloat("Physics", "WallBounce", c.wallBounce), 0.0f, 1.0f);
     c.loadSensitivity = Clamp(ReadFloat("Physics", "LoadSensitivity", c.loadSensitivity), 0.0f, 0.5f);
-    c.pastPeakGrip = Clamp(ReadFloat("Physics", "PastPeakGrip", c.pastPeakGrip), 0.5f, 1.0f);
+    c.tyreSlideGrip = Clamp(ReadFloat("Physics", "TyreSlideGrip", c.tyreSlideGrip), 0.5f, 1.0f);
+    c.tyrePeakAngle = Clamp(ReadFloat("Physics", "TyrePeakAngle", c.tyrePeakAngle), 3.0f, 20.0f);
     c.suspFirmness = Clamp(ReadFloat("Physics", "SuspensionFirmness", c.suspFirmness), 0.5f, 2.0f);
     c.rollBalance = Clamp(ReadFloat("Physics", "RollBalance", c.rollBalance), -0.5f, 0.5f);
-    c.downforceMatch = Clamp(ReadFloat("Physics", "DownforceMatchSpeed", c.downforceMatch), 50.0f, 400.0f);
+    c.character = Clamp(ReadFloat("Physics", "Character", c.character), 0.0f, 1.0f);
+    c.realWeight = ReadInt("Physics", "RealWeight", c.realWeight) != 0;
+    c.slideWheelspin = Clamp(ReadFloat("Physics", "WheelspinInSlides", c.slideWheelspin), 0.0f, 1.0f);
     c.frictionCircle = Clamp(ReadFloat("Physics", "FrictionCircle", c.frictionCircle), 0.0f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
