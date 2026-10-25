@@ -192,8 +192,9 @@ static bool EnsureEyeTargets(int w, int h, D3DMULTISAMPLE_TYPE ms, DWORD msQuali
         Log("d3d9: creating HUD render target failed - HUD will stay in the right eye");
     s_eyeW = w;
     s_eyeH = h;
-    s_eyeOk = Xr_SetSharedTextures(handles[0], handles[1], handles[2], w, h);
-    Log("d3d9: eye targets %dx%d (%s)", w, h, s_eyeOk ? "shared with XR" : "XR attach failed");
+    // On a flat screen (no VR) there is no headset to share them with.
+    s_eyeOk = s_xr && Xr_SetSharedTextures(handles[0], handles[1], handles[2], w, h);
+    Log("d3d9: eye targets %dx%d (%s)", w, h, s_eyeOk ? "shared with XR" : s_xr ? "XR attach failed" : "flat screen");
     return s_eyeOk;
 }
 
@@ -941,6 +942,158 @@ static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_EL_COUNT];
 static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_EL_COUNT];
 static double s_lastProbe;
+// Each element's crop as found on the HUD (DashAutoCrop). A part is collected (the box around
+// everything of it seen) until the box has stopped growing for 2 s, then settles: from then on that
+// is its crop, it holds still, and it is saved ([VR] DashFound<Part>=left,top,right,bottom), so the
+// next start uses it at once. Until a part has settled, its configured crop applies. A settled
+// part found outside its crop for 5 s (another HUD layout) is collected and settles again.
+static struct AutoCrop {
+    float box[4];          // the settled crop
+    bool settled;
+    float cand[4];         // being collected
+    bool collecting;
+    double candGrew;       // when the collected box last grew
+    double outsideSince;   // a settled part first seen outside its crop (0 = inside)
+} s_autoCrop[DASH_EL_COUNT];
+
+static const char* VrIni() {
+    static char path[MAX_PATH];
+    if (!path[0]) ConfigFile("nfsmw_vr.ini", path, false);
+    return path;
+}
+
+// The crops settled in an earlier session.
+static void LoadFoundCrops() {
+    static bool loaded;
+    if (loaded) return;
+    loaded = true;
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
+        char key[32], buf[96];
+        snprintf(key, sizeof(key), "DashFound%s", kDashElKey[i]);
+        GetPrivateProfileStringA("VR", key, "", buf, sizeof(buf), VrIni());
+        float* b = s_autoCrop[i].box;
+        if (sscanf(buf, "%f,%f,%f,%f", &b[0], &b[1], &b[2], &b[3]) == 4 && b[2] > b[0] && b[3] > b[1])
+            s_autoCrop[i].settled = true;
+    }
+}
+
+// The crop element `i` uses now: its settled one, else the configured one.
+static const float* Crop(int i) {
+    if (!g_cfg.dashAutoCrop) return g_cfg.dashCrop[i];
+    LoadFoundCrops();
+    return s_autoCrop[i].settled ? s_autoCrop[i].box : g_cfg.dashCrop[i];
+}
+
+// Finds the HUD's parts in the probe's coverage (kProbe x kProbe cells, 1 = HUD there): pieces of
+// the HUD (cells joined across a one-cell gap, so a gauge and its text are one piece) go to the
+// element whose configured crop's centre is nearest, among those whose crop, widened, has the
+// piece's centre in it; each element's part is the box around its pieces (a cell's margin).
+// The messages in the middle come and go with different shapes: they keep their configured crop.
+static void FindCrops(const uint8_t* cov) {
+    static uint8_t grown[kProbe * kProbe];
+    static int16_t label[kProbe * kProbe];
+    static int stack[kProbe * kProbe];
+    int total = 0;
+    for (int y = 0; y < kProbe; y++)
+        for (int x = 0; x < kProbe; x++) {
+            uint8_t v = 0;
+            for (int dy = -1; dy <= 1 && !v; dy++)
+                for (int dx = -1; dx <= 1 && !v; dx++) {
+                    int xx = x + dx, yy = y + dy;
+                    if (xx >= 0 && yy >= 0 && xx < kProbe && yy < kProbe) v = cov[yy * kProbe + xx];
+                }
+            grown[y * kProbe + x] = v;
+            total += cov[y * kProbe + x];
+        }
+    // Something over most of the screen (a menu, a fade, the pursuit's tint): not the HUD's parts.
+    if (total > kProbe * kProbe / 3) return;
+    memset(label, -1, sizeof(label));
+    float found[DASH_EL_COUNT][4];
+    bool any[DASH_EL_COUNT] = {};
+    int pieces = 0;
+    for (int start = 0; start < kProbe * kProbe; start++) {
+        if (!grown[start] || label[start] >= 0) continue;
+        int top = 0, n = 0, x0 = kProbe, y0 = kProbe, x1 = -1, y1 = -1;
+        stack[top++] = start;
+        label[start] = (int16_t)pieces;
+        while (top) {
+            int at = stack[--top], x = at % kProbe, y = at / kProbe;
+            if (cov[at]) {
+                n++;
+                x0 = std::min(x0, x), y0 = std::min(y0, y), x1 = std::max(x1, x), y1 = std::max(y1, y);
+            }
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++) {
+                    int xx = x + dx, yy = y + dy;
+                    if (xx < 0 || yy < 0 || xx >= kProbe || yy >= kProbe) continue;
+                    int nb = yy * kProbe + xx;
+                    if (grown[nb] && label[nb] < 0) label[nb] = (int16_t)pieces, stack[top++] = nb;
+                }
+        }
+        pieces++;
+        if (n < 3) continue;
+        float b[4] = {(x0 - 1) / (float)kProbe, (y0 - 1) / (float)kProbe, (x1 + 2) / (float)kProbe, (y1 + 2) / (float)kProbe};
+        float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+        int best = -1;
+        float bestD = 1e9f;
+        for (int i = 0; i < DASH_EL_COUNT; i++) {
+            if (i == DASH_EL_MSG) continue;
+            const float* c = g_cfg.dashCrop[i];
+            if (cx < c[0] - 0.15f || cx > c[2] + 0.15f || cy < c[1] - 0.08f || cy > c[3] + 0.08f) continue;
+            float dx = cx - (c[0] + c[2]) / 2, dy = cy - (c[1] + c[3]) / 2, d = dx * dx + dy * dy;
+            if (d < bestD) bestD = d, best = i;
+        }
+        // A piece in the messages' crop (the middle of the screen) stays out of the others'.
+        const float* m = g_cfg.dashCrop[DASH_EL_MSG];
+        if (best < 0 || (cx > m[0] && cx < m[2] && cy > m[1] && cy < m[3])) continue;
+        float* f = found[best];
+        if (!any[best]) memcpy(f, b, sizeof(b)), any[best] = true;
+        else f[0] = std::min(f[0], b[0]), f[1] = std::min(f[1], b[1]), f[2] = std::max(f[2], b[2]), f[3] = std::max(f[3], b[3]);
+    }
+    LoadFoundCrops();
+    double now = D3D_ProfNow();
+    for (int i = 0; i < DASH_EL_COUNT; i++) {
+        if (!any[i]) continue;
+        AutoCrop& a = s_autoCrop[i];
+        const float* f = found[i];
+        if (a.settled && !a.collecting) {
+            // Inside its crop (a little over is the part animating): nothing to do.
+            const float tol = 0.02f;
+            bool inside = f[0] >= a.box[0] - tol && f[1] >= a.box[1] - tol && f[2] <= a.box[2] + tol && f[3] <= a.box[3] + tol;
+            if (inside) {
+                a.outsideSince = 0;
+                continue;
+            }
+            if (a.outsideSince == 0) a.outsideSince = now;
+            if (now - a.outsideSince < 5.0) continue;
+            Log("d3d9: in-car dashboard: %s keeps showing outside its crop: finding it again", kDashPartName[i]);
+            a.outsideSince = 0;
+            a.collecting = false;    // collected afresh below
+        }
+        float* c = a.cand;
+        if (!a.collecting) {
+            memcpy(c, f, sizeof(float) * 4);
+            a.collecting = true;
+            a.candGrew = now;
+        } else if (f[0] < c[0] || f[1] < c[1] || f[2] > c[2] || f[3] > c[3]) {
+            c[0] = std::min(c[0], f[0]), c[1] = std::min(c[1], f[1]), c[2] = std::max(c[2], f[2]), c[3] = std::max(c[3], f[3]);
+            a.candGrew = now;
+        }
+        for (int k = 0; k < 4; k++) c[k] = std::max(0.0f, std::min(1.0f, c[k]));
+        if (now - a.candGrew < 2.0) continue;
+        // Settled: its crop from now on, and saved for the next start.
+        memcpy(a.box, c, sizeof(float) * 4);
+        a.settled = true;
+        a.collecting = false;
+        const float* cfg = g_cfg.dashCrop[i];
+        Log("d3d9: in-car dashboard: %s found at %.3f %.3f %.3f %.3f (configured %.3f %.3f %.3f %.3f)", kDashPartName[i],
+            c[0], c[1], c[2], c[3], cfg[0], cfg[1], cfg[2], cfg[3]);
+        char key[32], val[96];
+        snprintf(key, sizeof(key), "DashFound%s", kDashElKey[i]);
+        snprintf(val, sizeof(val), "%.4f,%.4f,%.4f,%.4f", c[0], c[1], c[2], c[3]);
+        WritePrivateProfileStringA("VR", key, val, VrIni());
+    }
+}
 static struct {
     bool on;
     D3DMATRIX view, proj;
@@ -1525,9 +1678,10 @@ static bool ProbeHud() {
         if (covered < kProbe * kProbe * 4 / 10) break;
         threshold = pass == 0 ? 100 : 180;
     }
+    if (g_cfg.dashAutoCrop) FindCrops(cov);
     double now = D3D_ProfNow();
     for (int i = 0; i < DASH_EL_COUNT; i++) {
-        const float* c = g_cfg.dashCrop[i];
+        const float* c = Crop(i);
         int x0 = std::max(0, (int)(c[0] * kProbe)), y0 = std::max(0, (int)(c[1] * kProbe));
         int x1 = std::min(kProbe, (int)ceilf(c[2] * kProbe)), y1 = std::min(kProbe, (int)ceilf(c[3] * kProbe));
         int n = 0;
@@ -1562,7 +1716,7 @@ static void OutlineCrops() {
     LONG t = std::max(2L, (LONG)(s_eyeH / 400));
     for (int i = 0; i < DASH_EL_COUNT; i++) {
         DashBox d;
-        const float* c = g_cfg.dashCrop[i];
+        const float* c = Crop(i);
         d.x0 = c[0]; d.y0 = c[1]; d.x1 = c[2]; d.y1 = c[3];
         RECT r = HudRect(d);
         if (r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
@@ -1617,10 +1771,10 @@ static void ComposeDash() {
         // Where a smaller element's crop reaches into this one, that part is the smaller element's
         // only: cut out here. (The minimap's and the speedometer's crops reach into the pursuit info
         // box; their pieces of it met in the middle of the display as a second, squashed copy.)
-        const float* ci = g_cfg.dashCrop[i];
+        const float* ci = Crop(i);
         float areaI = (ci[2] - ci[0]) * (ci[3] - ci[1]);
         for (int j = 0; j < DASH_EL_COUNT; j++) {
-            const float* cj = g_cfg.dashCrop[j];
+            const float* cj = Crop(j);
             float areaJ = (cj[2] - cj[0]) * (cj[3] - cj[1]);
             if (j == i || areaJ <= 0 || areaJ > areaI || (areaJ == areaI && j > i)) continue;
             DashBox b = {cj[0], cj[1], cj[2], cj[3], 0, true};
@@ -1642,6 +1796,15 @@ static void ComposeDash() {
     AutoLayout();
     // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the display.
     s_dev->ColorFill(s_eyeSurf[2], nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
+}
+
+// The flat screen (no headset): the display was drawn with the interior as in an eye, but empty
+// (the HUD stays on the screen); its frame's state reset as ComposeDash does in the headset.
+void D3D_EndFlatDash() {
+    s_dashThisFrame = false;
+    s_dashEye.on = false;
+    s_colorEye = false;
+    for (DashEl& e : s_el) e.ok = false;
 }
 
 // True for a return address inside speed.exe (as opposed to another mod's DLL).

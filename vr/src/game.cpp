@@ -918,7 +918,20 @@ void __cdecl hkRenderScene() {
                 seat = true;
             }
         }
+        // The in-car dashboard's display on the flat screen too, set up like an eye's (the display,
+        // the black triangles over the car's gauges) so the cluster isn't a hole, but empty: the
+        // HUD stays on the screen.
+        bool dash = seat && g_cfg.dash > 0.5f && DrivingUnpaused();
+        if (dash) {
+            Cockpit_BeginEye();
+            BeginDash(view, true);
+        }
         oRenderScene();
+        if (dash) {
+            D3D_EndDashEye();
+            Cockpit_EndEye();
+            D3D_EndFlatDash();
+        }
         if (seat) {
             memcpy(cam, saved, sizeof(saved));
             oViewSetup(At<void*>(view, kViewPlatInfo), nullptr, view,

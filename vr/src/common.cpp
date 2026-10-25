@@ -38,7 +38,8 @@ static bool FileExists(const char* path) { return GetFileAttributesA(path) != IN
 // Finds one of the mods' .ini files. While this DLL is in scripts\, one next to speed.exe (where
 // they were before v0.10.0) holds the player's settings and wins over the default one a release
 // zip puts in scripts\; with migrate it is moved over that one. Otherwise: next to this DLL, else
-// in scripts\, else (missing) next to this DLL.
+// in scripts\, else (missing) next to this DLL. A missing one is made from <name>.default next to
+// this DLL: a release ships its settings that way, so unpacking it never overwrites anyone's.
 void ConfigFile(const char* name, char* out, bool migrate) {
     char other[MAX_PATH];
     snprintf(out, MAX_PATH, "%s%s", ModDir(), name);
@@ -53,7 +54,12 @@ void ConfigFile(const char* name, char* out, bool migrate) {
     }
     if (FileExists(out)) return;
     snprintf(other, MAX_PATH, "%sscripts\\%s", GameDir(), name);
-    if (FileExists(other)) strcpy(out, other);
+    if (FileExists(other)) {
+        strcpy(out, other);
+        return;
+    }
+    snprintf(other, MAX_PATH, "%s.default", out);
+    if (FileExists(other) && CopyFileA(other, out, TRUE)) Log("settings: %s made from %s.default", name, name);
 }
 
 void LogInit(const char* fileName) {
@@ -92,6 +98,11 @@ static int ReadInt(const char* ini, const char* key, int def) {
 }
 
 void LoadConfig() {
+    // The widescreen fix's ini ships as NFSMostWanted.WidescreenFix.ini.default too (so unpacking
+    // a release never overwrites anyone's); made from it here if missing. The fix loads before
+    // this mod, so on a fresh install it may have run on its own defaults this once.
+    char wsfix[MAX_PATH];
+    ConfigFile("NFSMostWanted.WidescreenFix.ini", wsfix, false);
     char ini[MAX_PATH];
     ConfigFile("nfsmw_vr.ini", ini, true);
     Config& c = g_cfg;
@@ -179,6 +190,7 @@ void LoadConfig() {
             c.dashCrop[i][k] = ReadFloat(ini, key, c.dashCrop[i][k]);
         }
     }
+    c.dashAutoCrop = ReadInt(ini, "DashAutoCrop", c.dashAutoCrop) != 0;
     c.headSize = ReadFloat(ini, "HeadSize", c.headSize);
     c.steeringWheel = ReadInt(ini, "SteeringWheel", c.steeringWheel) != 0;
     c.screenRain = ReadInt(ini, "ScreenRain", c.screenRain) != 0;

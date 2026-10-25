@@ -87,6 +87,10 @@ struct Config {
                             {0.350f, 0.7025f, 0.6625f, 0.900f}, // pursuit info
                             {0.635f, 0.000f, 0.950f, 0.430f},   // leaderboard / bounty
                             {0.355f, 0.2925f, 0.6325f, 0.5325f}}; // messages
+    // The crops above found on the HUD itself: each element's crop is where its part of the HUD
+    // actually is, near the crop above (so another HUD layout, the widescreen fix's FixHUD on or a
+    // HudAspectRatioConstraint, still fits). 0 = the crops above as they are.
+    bool  dashAutoCrop = true;
     float dashBox = 0.55f;           // the display: a gray screen with an orange outline the elements sit on, its opacity (0 = none)
     unsigned dashColor = 0x3C3F44u;       // the display's colour (DashColor, hex RRGGBB): the game's HUD gray
     float dashGlass = 0.05f;              // the glass sheen over the display and its elements: its opacity (0 = none)

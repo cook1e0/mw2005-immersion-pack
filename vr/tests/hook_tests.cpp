@@ -11,6 +11,7 @@ void D3D_EyeRenderProfile(int, double) {}
 void D3D_ResetForNextEye() {}
 void D3D_CaptureEye(int) {}
 void D3D_BeginHudPhase() {}
+void D3D_EndFlatDash() {}
 void D3D_DropDraws(bool) {}
 void D3D_ProfUpdateDone() {}
 bool Xr_Available() { return false; }

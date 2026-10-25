@@ -106,7 +106,7 @@ Spacewarp) while a frame generation tool is on. `ApiLayers=0` loads no layers.
 | Numpad 9 / 3 | Seat up / down |
 | Numpad 5 | Seat back to the driver's head |
 
-In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car. This also works on a flat screen without a headset.
+In the bumper and hood cameras you sit in the driver's seat, with the car's own dashboard, wheel and the driver's hands in front of you; the driver's head is left out. Seat adjustments are saved per car. This also works on a flat screen without a headset (the in-car dashboard's display is there, empty: the HUD stays on the screen).
 
 With the gameplay mod, **F4 > VR** has **Recenter view** (same as F8), **HUD size**, **HUD distance**,
 **HUD height** and **Near clip plane**, and **F4 > Controls > Recenter VR view** binds the recenter to

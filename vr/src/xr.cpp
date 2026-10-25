@@ -981,6 +981,7 @@ bool Xr_SetSharedTextures(HANDLE eye0, HANDLE eye1, HANDLE hud, int width, int h
         return BridgeCall(kBridgeSetTextures) && b.shm->result;
     }
 #endif
+    if (!s.dev) return false;      // no headset session (a flat screen): nothing to share them with
     for (int i = 0; i < 3; i++) {
         if (s.eyeSrv[i]) s.eyeSrv[i]->Release();
         if (s.eyeTex[i]) s.eyeTex[i]->Release();
