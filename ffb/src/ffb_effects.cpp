@@ -61,6 +61,14 @@ EffectParts Effects::Step(const Telemetry& t, float drive, double now, float dt,
     kerbPhase_ = Advance(kerbPhase_, 30.0f, dt);
     e.kerb = (kerbKick_ + kerbShake_ * (float)sin(kerbPhase_)) * drive;
 
+    // --- road surface rumble at the game's own frequency for the surface ---
+    if (t.valid && t.frontOnGround > 0 && t.surfaceRumble > 0.0f && p.surface > 0.0f) {
+        float hz = Clampf(t.surfaceHz > 0.0f ? t.surfaceHz : 25.0f, 8.0f, 60.0f);
+        surfacePhase_ = Advance(surfacePhase_, hz, dt);
+        float amp = p.surface * 0.5f * Clampf(t.surfaceRumble * 1.5f, 0.0f, 1.0f) * Smoothstep(1.0f, 8.0f, speed);
+        e.surface = amp * (float)sin(surfacePhase_) * drive;
+    }
+
     // --- tyre scrub: a fine vibration once any tyre is past its grip limit ---
     if (t.valid && t.tireStateValid && p.tyreScrub > 0.0f && t.wheelsOnGround > 0 && speed > 3.0f) {
         float grip = 1.0f;

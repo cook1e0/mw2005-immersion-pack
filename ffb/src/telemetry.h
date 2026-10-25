@@ -53,6 +53,10 @@ struct Telemetry {
     // Front suspension, [0] = left, [1] = right: compression speed with the slow part (body roll,
     // pitch, hills) taken out, m/s, + = compressing. Kerbs and bumps show up here.
     float bump[2];
+    // Road surface under the front tyres (not off-road ones: OffroadVibration has those): the
+    // game's own rumble for it (0..1: rumble strips, cobbles...) and its frequency in Hz.
+    float surfaceRumble;
+    float surfaceHz;
 
     // Collisions, from the game's collision reports for the player car (LocalPlayer::OnCollision).
     // A hit counts up hitSeq; contact sliding along something stays fresh in scrapeTime.

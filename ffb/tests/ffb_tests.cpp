@@ -379,6 +379,22 @@ static void TestEffects() {
         for (int i = 0; i < 200; i++) later = on.Step(t, 1.0f, now + (i + 1) * dt, dt, k).kerb;   // 0.5 s
         assert(fabsf(later) < 0.01f);
     }
+    // Road rumble: the surface's own rumble, at speed; off (the default) nothing.
+    {
+        Telemetry t = Car(20);
+        t.frontOnGround = 2;
+        t.surfaceRumble = 0.6f;
+        t.surfaceHz = 30.0f;
+        Effects off, on;
+        EffectParams r = p;
+        r.surface = 1.0f;
+        float peak = 0;
+        for (int i = 0; i < 100; i++) {
+            assert(NearZero(off.Step(t, 1.0f, now + i * dt, dt, p).surface));
+            peak = fmaxf(peak, fabsf(on.Step(t, 1.0f, now + i * dt, dt, r).surface));
+        }
+        assert(peak > 0.2f);
+    }
     // Engine: a vibration (both ways) that stops without revs.
     {
         Effects fx;

@@ -44,6 +44,7 @@ enum { kGetRPM = 0x04, kGetRedline = 0x08, kGetMinRPM = 0x10 };   // EngineRacer
 // simsurface (layout pointer at +8) with its name.
 enum {
     kRacerDriftState = 0xB8, kRacerDriftValue = 0xBC, kRacerTires = 0x168, kRacerSteerInput = 0xE4, kTireSlipAngle = 0x118, kTireSurface = 0x9C, kInstLayout = 0x08, kSurfName = 0xDC,
+    kSurfEffectFrequency = 0xF8, kSurfEffectIntensity = 0xFA,
 };
 // Sim::Collision::Info
 enum {
@@ -400,6 +401,12 @@ void Sample(void* player) {
                     strncpy(lastName[i], name, sizeof(lastName[i]) - 1);
                     Log("surface: front %s wheel on %s", i ? "right" : "left", lastName[i]);
                 }
+            }
+            // The game's own rumble for the surface (its controller rumble), the stronger front tyre's.
+            float rumbleNow = t.offroad[i] ? 0.0f : *(uint8_t*)(layout + kSurfEffectIntensity) / 255.0f;
+            if (rumbleNow > t.surfaceRumble) {
+                t.surfaceRumble = rumbleNow;
+                t.surfaceHz = *(uint16_t*)(layout + kSurfEffectFrequency);
             }
         }
     }

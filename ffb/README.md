@@ -33,6 +33,7 @@ In game, pick your wheel as the controller. The in-game force feedback option do
 | Engine | a vibration at the engine's firing frequency, strongest standing still (`EngineRumble`) |
 | Crashes | the game's collision reports for the player car: walls and props (benches, sign posts); a jolt sideways from the side hit, then a short shake. An impact that damages the car (the gameplay mod counts them) makes the jolt harder for a harder hit and ducks the other short effects (`Crashes`) |
 | Kerbs and bumps | a front wheel's suspension compressing quickly: a kick toward that side and a short shake (`Kerbs`, off by default) |
+| Road surface | the game's own rumble for the road surface under the front tyres, at its own frequency: rumble strips, cobbles (`SurfaceRumble`, off by default; off-road surfaces are the off-road effect's) |
 | Wall scrapes | contact sliding along a wall: grinding and a pull toward it (`Scrapes`) |
 | Off-road | the surface's own name under each front tyre (grass, dirt, mud, gravel, sand...): an uneven rumble with random bumps, half with one wheel off, growing with speed (`OffroadVibration`) |
 | Landing | a hard kick and a short shake when the car lands after a jump, stronger the longer it flew (`Landing`) |

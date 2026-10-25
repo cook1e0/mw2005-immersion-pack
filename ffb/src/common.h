@@ -64,6 +64,7 @@ struct Config {
     float damageHitStrength = 0.0f;
     float offroadVibration = 0.4f;  // rumble on grass, dirt, mud, gravel
     float kerbs = 0.0f;             // kick and shake when a front wheel is hit from below (kerbs, bumps; 0 = off)
+    float surfaceRumble = 0.0f;     // the game's rumble for the road surface (rumble strips, cobbles; 0 = off)
 
     // Wheel
     float device = 0;               // FFB device by Windows' order (joy.cpl), -1 = the first the game opens

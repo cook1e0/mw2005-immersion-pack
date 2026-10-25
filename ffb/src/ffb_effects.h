@@ -4,6 +4,9 @@
 //   engine    a vibration at the engine's firing frequency, mostly felt standing still
 //   kerbs     a kick when one front wheel is hit from below (kerbs, bumps, potholes) toward that
 //             side, and a short shake with it (off by default)
+//   surface   the game's own rumble for the road surface under the front tyres, at its own
+//             frequency (rumble strips, cobbles; off-road surfaces are the off-road effect's; off
+//             by default)
 //   crashes   a jolt when the car hits something: walls and props such as benches, sign posts and
 //             fences; sideways from the side that was hit, then a short shake. An impact that
 //             damages the car (as the gameplay mod counts them: Telemetry::damageSeq) raises the
@@ -33,14 +36,15 @@ struct EffectParams {
     float carHits = 0.8f;
     float tyreScrub = 0.2f;  // vibration while any tyre is past its grip limit
     float kerbs = 0.0f;      // kick and shake when a front wheel is hit from below (kerbs, bumps)
+    float surface = 0.0f;    // the game's own rumble for the road surface (rumble strips, cobbles)
 };
 
 struct EffectParts {
     float engine = 0, crash = 0, scrape = 0, breakable = 0, offroad = 0, landing = 0, carHit = 0;
-    float scrub = 0, kerb = 0;
+    float scrub = 0, kerb = 0, surface = 0;
     float carHitLevel = 0;
     float crashLevel = 0;           // the crash jolt's strength, only for an impact that damaged the car
-    float Sum() const { return engine + crash + scrape + breakable + offroad + landing + carHit + scrub + kerb; }
+    float Sum() const { return engine + crash + scrape + breakable + offroad + landing + carHit + scrub + kerb + surface; }
 };
 
 // How a jolt runs: a half-sine push toward its side lasting `push` s, under a shake of `shake`
@@ -69,7 +73,7 @@ public:
     // `drive` 0 (menus) .. 1 (driving), as for the model.
     EffectParts Step(const Telemetry& t, float drive, double now, float dt, const EffectParams& p);
 private:
-    double enginePhase_ = 0, roughPhase_[2] = {0, 0}, scrubPhase_ = 0, kerbPhase_ = 0;
+    double enginePhase_ = 0, roughPhase_[2] = {0, 0}, scrubPhase_ = 0, kerbPhase_ = 0, surfacePhase_ = 0;
     uint32_t lastSeq_ = 0;          // the telemetry sample the kerbs last read (one per physics step)
     float kerbKick_ = 0, kerbShake_ = 0;
     uint32_t lastHitSeq_ = 0, lastBreakSeq_ = 0, lastCarHitSeq_ = 0;
