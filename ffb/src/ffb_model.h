@@ -19,6 +19,8 @@
 //   friction   resistance to turning the wheel, tyre scrub when parked: a stiction spring to an
 //              anchor the wheel drags along (position based: no flipping, no lag, no wobble)
 //   softLock   the end stop at the game's steering lock
+//   rearSlide  seat of pants: a pull toward the countersteer once the rear axle slides sideways
+//              past normal cornering, stronger as the rear tyres lose traction (0 = off)
 #pragma once
 #include "telemetry.h"
 
@@ -47,11 +49,12 @@ struct ModelParams {
     float lockShare = 1.0f;         // wheel position of the game's full steering lock (0.05..1)
     float maxRoadAngleDeg = 45.0f;  // front wheel angle at the steering lock until the game steers
     float menuCentering = 0.2f;     // spring in menus, pause and cutscenes
+    float rearSlide = 0.0f;         // pull toward the countersteer when the rear slides (0 = off)
 };
 
 struct ForceParts {
-    float aligning = 0, caster = 0, centering = 0, damping = 0, friction = 0, softLock = 0;
-    float Sum() const { return aligning + caster + centering + damping + friction + softLock; }
+    float aligning = 0, caster = 0, centering = 0, damping = 0, friction = 0, softLock = 0, rearSlide = 0;
+    float Sum() const { return aligning + caster + centering + damping + friction + softLock + rearSlide; }
 };
 
 // Where the front axle travels, radians from the car's nose (+ = right).
@@ -67,13 +70,18 @@ public:
     float LoadRef() const { return loadRef_; }
     float RoadLock() const { return roadLock_; }
     float FrontGrip() const { return frontGrip_; }   // the front tyres' traction, smoothed (1 = gripping)
+    float GripBase() const { return gripBase_; }     // their usual traction, which grip loss counts from
     float GripLight() const { return gripLight_; }   // the weight kept for it (1 = all)
 private:
     float loadRef_ = 0;            // the front tyres' static load, learned while driving slowly
     float dynRef_ = 0;             // their usual load over the last few seconds (downforce included)
     float roadLock_ = 0;           // degrees of front wheel angle at the steering lock, the game's
     float frontGrip_ = 1;          // the front tyres' traction (the game's), smoothed
+    float gripBase_ = 0.9f;        // their usual traction while well within grip (the game's isn't 1)
     float gripLight_ = 1;          // what frontGripLoss leaves of the weight
+    float rearGrip_ = 1;           // the rear tyres' traction (the game's), smoothed
+    float rearPull_ = 0;           // the rear slide's pull, from the last tick with both rear wheels down
+    float rearContact_ = 1;        // how much of it is felt: fades while a rear wheel is in the air
     float anchor_ = 0;             // friction: where the stiction spring holds the wheel
     bool anchorSet_ = false;
 };

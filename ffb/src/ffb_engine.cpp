@@ -1,7 +1,8 @@
 // The FFB loop, at [FFB] UpdateHz (400 by default):
 //
-//   1. the latest car sample (telemetry, about 60 Hz) and the wheel's position and speed
-//   2. the force model: aligning torque, centring, damping, friction, soft lock; and the effects:
+//   1. the latest car sample (telemetry, about 60 Hz), its steering angles carried on to now at
+//      the rate they last changed, and the wheel's position and speed
+//   2. the force model: aligning torque, rear slide, centring, damping, friction, soft lock; and the effects:
 //      engine, crashes, scrapes, breakables, landings, vehicle hits, off-road, tyre scrub
 //   3. the safety chain:
 //        the aligning torque (driven by the game's physics steps) through a low-pass
@@ -27,7 +28,7 @@ namespace ffb {
 struct Step {
     ForceParts parts;
     EffectParts effects;
-    float aligningSmoothed = 0, guard = 0, raw = 0, limited = 0, out = 0;
+    float aligningSmoothed = 0, rearSmoothed = 0, guard = 0, raw = 0, limited = 0, out = 0;
     float hitPriority = 0;          // how far a vehicle hit or damaging crash ducks the other effects (0..1)
 };
 
@@ -85,7 +86,8 @@ public:
         p.softLock = c.softLock;
         p.lockShare = c.softLockAt;
         p.menuCentering = c.menuCentering;
-        s.parts = model_.Compute(t, w, p, drive_, dt);
+        p.rearSlide = c.rearSlide;
+        s.parts = model_.Compute(Predict(t, now), w, p, drive_, dt);
 
         EffectParams ep;
         ep.engine = c.engineRumble;
@@ -104,12 +106,13 @@ public:
         // The aligning torque follows the game's physics steps: smooth it. The other parts follow
         // the wheel itself at full rate.
         s.aligningSmoothed = alignFilter_.Step(s.parts.aligning, dt, c.smoothingHz);
+        s.rearSmoothed = rearFilter_.Step(s.parts.rearSlide, dt, c.smoothingHz);
 
         // A wheel shaking by itself: up to triple the damping and half the gain until it settles.
         // (The effects shake the wheel on purpose: the guard doesn't watch it while they do.)
         s.guard = c.oscillationGuard ? guard_.Step(fabsf(fx) > 0.03f ? 0.0f : w.vel, dt) : 0.0f;
         if (guard_.tripped) Log("ffb: wheel oscillating - damping raised until it settles");
-        float steering = s.aligningSmoothed + s.parts.caster + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
+        float steering = s.aligningSmoothed + s.rearSmoothed + s.parts.caster + s.parts.centering + s.parts.damping * (1.0f + 2.0f * s.guard) + s.parts.friction;
         s.raw = steering * c.gain * (1.0f - 0.5f * s.guard) + s.parts.softLock;
 
         // No clipping: peaks are compressed above the knee, never cut flat, then scaled to MaxForce.
@@ -119,11 +122,53 @@ public:
         float total = slewed + SoftLimit(fx * c.gain, c.limitKnee) * c.maxForce;
         s.out = isfinite(total) ? Clampf(total * fade, -c.maxForce, c.maxForce) : 0.0f;
         if (!isfinite(slewed)) slew_.Reset(0);
+        // Minimum force: a gear or belt wheel doesn't move at all below a few percent of its torque
+        // (its own friction), so light forces, the wheel going light and the force changing sides
+        // are lost in a dead zone. Every force is lifted above it, scaled so MaxForce stays the
+        // top, and eased in over the first 2% so the change of side stays smooth.
+        float minForce = Clampf(c.minForce, 0.0f, 0.5f * c.maxForce);
+        if (minForce > 0.0f) {
+            float a = fabsf(s.out);
+            s.out = Sign(s.out) * (minForce * Clampf(a / 0.02f, 0.0f, 1.0f) + a * (1.0f - minForce / c.maxForce));
+        }
 
         // Statistics for the log: how often the soft limiter is working.
         ticks_++;
         if (fabsf(s.raw) > c.limitKnee) limiting_++;
         return s;
+    }
+
+    // The car sample carried on to `now`: the front wheels' angle and the front tyres' slip angles
+    // (where the front axle travels) at the rate they changed between the last two samples, for up
+    // to one sample's time. The game steps its physics at about 60 Hz; held still in between, the
+    // tyres' pull moved in steps and needed more smoothing, and with it more lag.
+    Telemetry Predict(const Telemetry& t, double now) {
+        if (t.seq != pred_.seq) {
+            double gap = t.time - pred_.time;
+            bool continuous = pred_.seq && t.seq == pred_.seq + 1 && gap > 0.002 && gap < 0.1 && t.valid &&
+                              t.frontSlipKnown && pred_.slipKnown && t.frontEachKnown == pred_.eachKnown;
+            auto rate = [&](float cur, float prev) {
+                return continuous ? Clampf(cur - prev, -8.0f, 8.0f) / (float)gap : 0.0f;
+            };
+            pred_.steerRate = rate(t.steerDeg, pred_.steer);
+            pred_.slipRate = rate(t.frontSlipDeg, pred_.slip);
+            for (int i = 0; i < 2; ++i) pred_.eachRate[i] = rate(t.frontSlipEachDeg[i], pred_.each[i]);
+            pred_.horizon = continuous ? fminf((float)gap, 0.033f) : 0.0f;
+            pred_.seq = t.seq;
+            pred_.time = t.time;
+            pred_.steer = t.steerDeg;
+            pred_.slip = t.frontSlipDeg;
+            pred_.each[0] = t.frontSlipEachDeg[0];
+            pred_.each[1] = t.frontSlipEachDeg[1];
+            pred_.slipKnown = t.frontSlipKnown;
+            pred_.eachKnown = t.frontEachKnown;
+        }
+        Telemetry p = t;
+        float h = Clampf((float)(now - t.time), 0.0f, pred_.horizon);
+        p.steerDeg += pred_.steerRate * h;
+        p.frontSlipDeg += pred_.slipRate * h;
+        for (int i = 0; i < 2; ++i) p.frontSlipEachDeg[i] += pred_.eachRate[i] * h;
+        return p;
     }
 
     // Called when no force can be sent (no device, focus lost): start from zero next time.
@@ -140,14 +185,22 @@ public:
     float RoadLock() const { return model_.RoadLock(); }
     float LoadRef() const { return model_.LoadRef(); }
     float FrontGrip() const { return model_.FrontGrip(); }
+    float GripBase() const { return model_.GripBase(); }
     float GripLight() const { return model_.GripLight(); }
 
 private:
     Model model_;
     Effects effects_;
-    LowPass2 alignFilter_, velFilter_, velSmoothFilter_;
+    LowPass2 alignFilter_, rearFilter_, velFilter_, velSmoothFilter_;
     SlewLimiter slew_;
     OscillationGuard guard_;
+    struct {
+        uint32_t seq = 0;
+        double time = 0;
+        float steer = 0, slip = 0, each[2] = {}, horizon = 0;
+        float steerRate = 0, slipRate = 0, eachRate[2] = {};
+        bool slipKnown = false, eachKnown = false;
+    } pred_;
     float drive_ = 0, lastPos_ = 0, velRaw_ = 0, wheelVel_ = 0;
     bool haveWheel_ = false;
     int ticks_ = 0, limiting_ = 0;
@@ -219,12 +272,13 @@ DWORD WINAPI FfbThread(LPVOID) {
 
         if (g_cfg.logTelemetry && now - logTime > 0.1) {
             logTime = now;
-            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f yaw=%.2f loadF=%.0f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) travel=%.2f "
-                "rpm=%.0f loadRef=%.0f gripF=%.2f light=%.2f | align=%.3f(%.3f) caster=%.3f centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
+            Log("tel: drv=%.2f v=%.1f vlong=%.1f vlatF=%.2f vlatR=%.2f yaw=%.2f loadF=%.0f(%.0f/%.0f) slipF=%.1f/%.1f onF=%d wheel=%.3f/%.2f roadlock=%.1f(%.1f/%.1f) travel=%.2f "
+                "rpm=%.0f loadRef=%.0f gripF=%.2f(%.2f) light=%.2f | align=%.3f(%.3f) rear=%.3f caster=%.3f centre=%.3f damp=%.3f fric=%.3f lock=%.3f "
                 "fx: eng=%.3f crash=%.3f scrape=%.3f break=%.3f car=%.3f scrub=%.3f kerb=%.3f road=%.3f priority=%.2f | guard=%.2f raw=%.3f out=%.3f",
-                engine.Drive(), t.speed, t.vLong, t.vLatFront, t.yawRate, t.frontLoad, t.frontOnGround, pos, engine.WheelVel(),
-                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm, engine.LoadRef(), engine.FrontGrip(), engine.GripLight(),
-                s.parts.aligning, s.aligningSmoothed, s.parts.caster, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
+                engine.Drive(), t.speed, t.vLong, t.vLatFront, t.vLatRear, t.yawRate, t.frontLoad,
+                t.frontLoadEach[0], t.frontLoadEach[1], t.frontSlipEachDeg[0], t.frontSlipEachDeg[1], t.frontOnGround, pos, engine.WheelVel(),
+                engine.RoadLock(), t.lockDeg, t.steerDeg, ffb::FrontTravel(t) * 57.29578f, t.rpm, engine.LoadRef(), engine.FrontGrip(), engine.GripBase(), engine.GripLight(),
+                s.parts.aligning, s.aligningSmoothed, s.rearSmoothed, s.parts.caster, s.parts.centering, s.parts.damping, s.parts.friction, s.parts.softLock,
                 s.effects.engine, s.effects.crash, s.effects.scrape, s.effects.breakable,
                 s.effects.carHit, s.effects.scrub, s.effects.kerb, s.effects.surface, s.hitPriority, s.guard, s.raw, s.out);
         }

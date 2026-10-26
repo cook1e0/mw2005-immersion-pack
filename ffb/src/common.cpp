@@ -118,6 +118,7 @@ void LoadConfig() {
     c.slewRate = Clamp(ReadFloat(s, "SlewRate", c.slewRate), 1.0f, 200.0f);
     c.smoothingHz = Clamp(ReadFloat(s, "SmoothingHz", c.smoothingHz), 2.0f, 100.0f);
     c.oscillationGuard = ReadInt(s, "OscillationGuard", c.oscillationGuard) != 0;
+    c.minForce = Clamp(ReadFloat(s, "MinForce", c.minForce), 0.0f, 0.3f);
     c.aligning = Clamp(ReadFloat(s, "Aligning", c.aligning), 0.0f, 3.0f);
     c.gripPeakDeg = Clamp(ReadFloat(s, "GripPeakAngle", c.gripPeakDeg), 1.0f, 30.0f);
     c.driftAlign = Clamp(ReadFloat(s, "DriftAlign", c.driftAlign), 0.0f, 2.0f);
@@ -125,6 +126,7 @@ void LoadConfig() {
     c.carWeight = Clamp(ReadFloat(s, "CarWeight", c.carWeight), 0.0f, 1.0f);
     c.caster = Clamp(ReadFloat(s, "Caster", c.caster), 0.0f, 2.0f);
     c.frontGripLoss = Clamp(ReadFloat(s, "FrontGripLoss", c.frontGripLoss), 0.0f, 1.0f);
+    c.rearSlide = Clamp(ReadFloat(s, "RearSlide", c.rearSlide), 0.0f, 1.0f);
     c.tyreScrub = Clamp(ReadFloat(s, "TyreScrub", c.tyreScrub), 0.0f, 0.5f);
     c.centering = Clamp(ReadFloat(s, "Centering", c.centering), 0.0f, 2.0f);
     c.damping = Clamp(ReadFloat(s, "Damping", c.damping), 0.0f, 2.0f);
@@ -155,12 +157,12 @@ void LoadConfig() {
     c.gameController = GetPrivateProfileIntA("Controls", "GameController", 1, s_gameplayIni) ? 1.0f : 0.0f;
     c.menuController = GetPrivateProfileIntA("Controls", "MenuController", 1, s_gameplayIni) ? 1.0f : 0.0f;
     c.menuAxes = GetPrivateProfileIntA("Controls", "MenuAxes", 0, s_gameplayIni) ? 1.0f : 0.0f;
-    Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d | aligning=%.2f "
-        "peak=%.1f drift=%.2f load=%.2f griploss=%.2f scrub=%.2f centering=%.2f "
+    Log("config: enabled=%d native=%d gain=%.2f max=%.2f knee=%.2f slew=%.0f/s smooth=%.0fHz guard=%d min=%.2f | aligning=%.2f "
+        "peak=%.1f drift=%.2f load=%.2f griploss=%.2f rear=%.2f scrub=%.2f centering=%.2f "
         "damping=%.2f friction=%.2f/%.2f softlock=%.2f menu=%.2f | engine=%.2f crashes=%.2f "
         "scrapes=%.2f | device=%d sign=%d reverse=%d dir=%d restart=%d axis=%d hz=%d game controller input %s",
-        c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.aligning,
-        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.frontGripLoss, c.tyreScrub,
+        c.enabled, c.nativeFfb, c.gain, c.maxForce, c.limitKnee, c.slewRate, c.smoothingHz, c.oscillationGuard, c.minForce, c.aligning,
+        c.gripPeakDeg, c.driftAlign, c.loadSensitivity, c.frontGripLoss, c.rearSlide, c.tyreScrub,
         c.centering, c.damping, c.friction, c.parkingFriction, c.softLock, c.menuCentering, c.engineRumble,
         c.crashes, c.scrapes,
         (int)c.device, c.forceSign, c.reverse > 0.5f,

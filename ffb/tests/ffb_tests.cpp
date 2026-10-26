@@ -246,6 +246,32 @@ static void TestModel() {
         for (int i = 0; i < 800; i++) back = b.Compute(grip, Wheel(0.05f), p, 1.0f, 0.0025f);  // 2 s more
         assert(fabsf(back.aligning - g.aligning) < 0.01f);
     }
+    // The game's traction is about 0.85 while the tyres grip: grip loss counts from the car's own
+    // usual value, so cruising like that leaves the weight alone; a short dip (0.1 s) barely moves
+    // it; a real drop well below the usual makes it light.
+    {
+        Telemetry cruise = Car(40);
+        cruise.tireStateValid = true;
+        for (int i = 0; i < 4; i++) cruise.tireOnGround[i] = true, cruise.tireGrip[i] = 0.85f;
+        Telemetry full = cruise;
+        for (int i = 0; i < 4; i++) full.tireGrip[i] = 1.0f;
+        Model a, ref;
+        ForceParts c, r;
+        for (int i = 0; i < 4000; i++) {                                         // 10 s cruising
+            c = a.Compute(cruise, Wheel(0.01f), p, 1.0f, 0.0025f);
+            r = ref.Compute(full, Wheel(0.01f), p, 1.0f, 0.0025f);
+        }
+        assert(fabsf(c.aligning - r.aligning) < 1e-4f && a.GripLight() > 0.999f);
+        Telemetry dip = cruise;
+        dip.tireGrip[0] = 0.6f;
+        for (int i = 0; i < 40; i++) a.Compute(dip, Wheel(0.01f), p, 1.0f, 0.0025f);   // 0.1 s
+        assert(a.GripLight() > 0.85f);
+        for (int i = 0; i < 400; i++) a.Compute(cruise, Wheel(0.01f), p, 1.0f, 0.0025f);
+        Telemetry slide = cruise;
+        slide.tireGrip[0] = slide.tireGrip[1] = 0.5f;
+        for (int i = 0; i < 400; i++) a.Compute(slide, Wheel(0.01f), p, 1.0f, 0.0025f);  // 1 s
+        assert(fabsf(a.GripLight() - (1.0f - p.frontGripLoss)) < 0.01f);
+    }
     // Downforce building up over 20 s at speed (front load +50%) leaves the weight much as it was:
     // the usual load takes it in; braking on top still adds weight.
     {
@@ -734,6 +760,190 @@ static void TestEngine() {
         if (i > 400) { lo = std::min(lo, o); hi = std::max(hi, o); }
     }
     assert(hi > 0.1f && lo < -0.1f);
+
+    // Minimum force: a small force is lifted to at least MinForce, the largest stays MaxForce,
+    // zero stays zero, and the sides keep their sign.
+    {
+        g_cfg = Config();
+        g_cfg.minForce = 0.08f;
+        g_cfg.centering = g_cfg.friction = g_cfg.parkingFriction = g_cfg.damping = 0.0f;
+        g_cfg.engineRumble = 0.0f;
+        Engine none, small, left;
+        Telemetry slow = Car(20);
+        float zero = 0, right = 0, l = 0;
+        for (int i = 0; i < 800; i++) {
+            now += 0.0025;
+            slow.time = now;
+            zero = none.Update(slow, true, 0.0f, now, 0.0025f, 0.0).out;
+            right = small.Update(slow, true, -0.003f, now, 0.0025f, 0.0).out;
+            l = left.Update(slow, true, 0.003f, now, 0.0025f, 0.0).out;
+        }
+        assert(NearZero(zero));
+        assert(right > g_cfg.minForce * 0.5f && right < g_cfg.minForce + 0.05f);
+        assert(fabsf(l + right) < 1e-4f);
+        g_cfg.gain = 3.0f;
+        g_cfg.aligning = 3.0f;
+        Engine big;
+        Telemetry fast = Car(40);
+        float o = 0;
+        for (int i = 0; i < 800; i++) {
+            now += 0.0025;
+            fast.time = now;
+            o = big.Update(fast, true, 0.6f, now, 0.0025f, 0.0).out;
+            assert(fabsf(o) <= g_cfg.maxForce + 1e-5f);
+        }
+        assert(o < -0.5f * g_cfg.maxForce);
+    }
+
+    // Between the game's 60 Hz samples the steering angles carry on at their last rate: a slide
+    // building up gives a force that moves on every update, not only on each sample, and it
+    // stays where the samples say when they stop changing.
+    {
+        g_cfg = Config();
+        Engine pred;
+        Telemetry c = Car(30);
+        c.seq = 1;
+        c.time = now;
+        int steps = 0, moved = 0, still = 0;
+        float last = 0;
+        for (int i = 0; i < 400; i++) {
+            now += 0.0025;
+            if (now - c.time >= 1.0 / 60.0 - 1e-9) {
+                c.seq++;
+                c.time = now;
+                if (c.seq < 40) c.frontSlipDeg += 0.25f;      // the front axle sliding wider
+            }
+            float a = pred.Update(c, true, 0.0f, now, 0.0025f, 0.0).parts.aligning;
+            if (c.seq > 5 && c.seq < 38) {
+                steps++;
+                if (fabsf(a - last) > 1e-6f) moved++;
+            }
+            if (c.seq > 42 && fabsf(a - last) > 1e-6f) still++;
+            last = a;
+        }
+        assert(moved > steps * 0.9f);
+        assert(still == 0);
+    }
+}
+
+// Each front tyre with its own load and slip angle.
+static Telemetry Corner(float speed, float loadLeft, float loadRight, float slipLeft = 0, float slipRight = 0) {
+    Telemetry t = Car(speed, 0.5f * (slipLeft + slipRight));
+    t.frontEachKnown = true;
+    t.frontLoadEach[0] = loadLeft;
+    t.frontLoadEach[1] = loadRight;
+    t.frontLoad = loadLeft + loadRight;
+    t.frontSlipEachDeg[0] = slipLeft;
+    t.frontSlipEachDeg[1] = slipRight;
+    return t;
+}
+
+static void TestTyreLoads() {
+    ModelParams p;
+    float peak = p.gripPeakDeg / 45.0f;     // the wheel position at the grip peak (45 degree lock)
+    // Both tyres alike: the same as the axle as one.
+    for (float pos : {0.2f * peak, peak, 3.0f * peak}) {
+        Model a, b;
+        ForceParts one = a.Compute(Car(30), Wheel(pos), p, 1.0f, 0.0025f);
+        ForceParts two = b.Compute(Corner(30, 4000, 4000), Wheel(pos), p, 1.0f, 0.0025f);
+        assert(fabsf(one.aligning - two.aligning) < 1e-4f && fabsf(one.caster - two.caster) < 1e-4f);
+    }
+    // In a corner (70% of the load on the outside tyre): about the same weight while far from the
+    // limit, lighter near it (the inside tyre lets go first). LoadSensitivity 0 ignores the split.
+    {
+        Model a, b, c, d;
+        float evenLow = a.Compute(Corner(30, 4000, 4000), Wheel(0.2f * peak), p, 1.0f, 0.0025f).aligning;
+        float splitLow = b.Compute(Corner(30, 2400, 5600), Wheel(0.2f * peak), p, 1.0f, 0.0025f).aligning;
+        assert(fabsf(splitLow - evenLow) < 0.05f * fabsf(evenLow));
+        float even = c.Compute(Corner(30, 4000, 4000), Wheel(peak), p, 1.0f, 0.0025f).aligning;
+        float split = d.Compute(Corner(30, 2400, 5600), Wheel(peak), p, 1.0f, 0.0025f).aligning;
+        assert(even < 0.0f && split > even * 0.97f && split < even * 0.7f);
+        ModelParams flat = p;
+        flat.loadSensitivity = 0.0f;
+        Model e;
+        assert(fabsf(e.Compute(Corner(30, 2400, 5600), Wheel(peak), flat, 1.0f, 0.0025f).aligning - even) < 1e-4f);
+    }
+    // The tyres' own slip angles: one past its peak and one short of it pull less together than
+    // both at the peak.
+    {
+        Model a, b;
+        float both = a.Compute(Corner(30, 4000, 4000, -7, -7), Wheel(0.0f), p, 1.0f, 0.0025f).aligning;
+        float apart = b.Compute(Corner(30, 4000, 4000, -3, -11), Wheel(0.0f), p, 1.0f, 0.0025f).aligning;
+        assert(both < 0.0f && apart > both);
+    }
+}
+
+// The rear axle sliding sideways at `slipDeg` (+ = the rear moving right).
+static Telemetry RearSlide(float speed, float slipDeg, float rearGrip = 1.0f) {
+    Telemetry t = Car(speed);
+    for (int i = 0; i < 4; i++) t.tireOnGround[i] = true, t.tireGrip[i] = 1.0f;
+    t.tireStateValid = true;
+    t.tireGrip[2] = t.tireGrip[3] = rearGrip;
+    t.vLatRear = speed * tanf(slipDeg * 3.14159265f / 180.0f);
+    return t;
+}
+
+static void TestRearSlide() {
+    ModelParams p;
+    p.rearSlide = 0.5f;
+    auto rear = [&](const Telemetry& t, const ModelParams& q) {
+        Model m;
+        ForceParts f;
+        for (int i = 0; i < 200; i++) f = m.Compute(t, Wheel(0.0f), q, 1.0f, 0.0025f);
+        return f.rearSlide;
+    };
+    // The tail out to the right: the wheel is pulled right (into the countersteer); to the left, left.
+    float right = rear(RearSlide(25, 12), p), left = rear(RearSlide(25, -12), p);
+    assert(right > 0.15f && fabsf(right + left) < 1e-5f);
+    // Normal cornering (2 degrees at the rear): nothing. It grows with the slide, up to the setting.
+    assert(NearZero(rear(RearSlide(25, 2), p)));
+    assert(rear(RearSlide(25, 6), p) < right && right < rear(RearSlide(25, 20), p));
+    assert(rear(RearSlide(25, 30, 0.0f), p) <= p.rearSlide + 1e-5f);
+    // The rear tyres losing traction make it stronger.
+    assert(rear(RearSlide(25, 12, 0.3f), p) > right * 1.2f);
+    // Off by default, at a crawl, in reverse, with a rear wheel in the air: none.
+    assert(NearZero(rear(RearSlide(25, 12), ModelParams())));
+    assert(NearZero(rear(RearSlide(3, 12), p)));
+    Telemetry back = RearSlide(25, 12);
+    back.vLong = -25;
+    assert(NearZero(rear(back, p)));
+    Telemetry air = RearSlide(25, 12);
+    air.tireOnGround[3] = false;
+    assert(NearZero(rear(air, p)));
+    // A rear wheel leaving the ground mid-slide: the pull fades out over 0.2 s, not at once, and
+    // comes back over 0.1 s once the wheel is down again.
+    {
+        Model m;
+        Telemetry down = RearSlide(25, 12), up = down;
+        up.tireOnGround[2] = false;
+        float full = 0, f = 0;
+        for (int i = 0; i < 200; i++) full = m.Compute(down, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        f = m.Compute(up, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        assert(f > full * 0.95f);                                   // no step
+        for (int i = 1; i < 40; i++) f = m.Compute(up, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        assert(f > full * 0.4f && f < full * 0.6f);                 // half way after 0.1 s
+        for (int i = 0; i < 44; i++) f = m.Compute(up, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        assert(NearZero(f));                                        // gone after 0.2 s
+        f = m.Compute(down, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        assert(f > 0.0f && f < full * 0.1f);                        // back down: no step either
+        for (int i = 1; i < 40; i++) f = m.Compute(down, Wheel(0.0f), p, 1.0f, 0.0025f).rearSlide;
+        assert(fabsf(f - full) < 1e-4f);                            // all back after 0.1 s
+    }
+    // Through the engine: in the force sent, toward the countersteer.
+    g_cfg = Config();
+    g_cfg.rearSlide = 0.5f;
+    g_cfg.aligning = g_cfg.caster = g_cfg.damping = g_cfg.friction = g_cfg.engineRumble = 0.0f;
+    Engine e;
+    double now = 100;
+    Telemetry t = RearSlide(25, 12);
+    float out = 0;
+    for (int i = 0; i < 800; i++) {
+        now += 0.0025;
+        t.time = now;
+        out = e.Update(t, true, 0.0f, now, 0.0025f, 0.0).out;
+    }
+    assert(out > 0.05f);
+    g_cfg = Config();
 }
 
 // --- device ----------------------------------------------------------------------------------
@@ -835,6 +1045,8 @@ int main() {
     InitializeCriticalSection(&g_diLock);
     TestFilters();
     TestModel();
+    TestTyreLoads();
+    TestRearSlide();
     TestEngine();
     TestDevice();
     puts("FFB filter, model, engine and device tests passed");

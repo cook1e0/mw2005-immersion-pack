@@ -54,6 +54,8 @@ extern "C" float* __cdecl NfsmwFfb_Setting(const char* name) {
         {"SurfaceRumble", &g_cfg.surfaceRumble},
         {"ParkingFriction", &g_cfg.parkingFriction},
         {"TyreScrub", &g_cfg.tyreScrub},
+        {"MinForce", &g_cfg.minForce},
+        {"RearSlide", &g_cfg.rearSlide},
     };
     for (auto& s : kSettings)
         if (!strcmp(name, s.key)) return s.value;

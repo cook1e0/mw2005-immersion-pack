@@ -288,7 +288,9 @@ void Sample(void* player) {
         t.tireOnGround[i] = onGround[i];
         if (i < 2 && onGround[i]) {
             t.frontOnGround++;
-            t.frontLoad += VCallI<float>(susp, kGetWheelLoad, i);
+            float load = VCallI<float>(susp, kGetWheelLoad, i);
+            t.frontLoadEach[i] = isfinite(load) && load > 0.0f ? load : 0.0f;
+            t.frontLoad += load;
         }
     }
     t.wheelsOnGround = VCall0<int>(susp, kGetNumWheelsOnGround);
@@ -382,11 +384,13 @@ void Sample(void* player) {
             if (!onGround[i] || !Plausible(tire)) continue;
             float s = *(const float*)(tire + kTireSlipAngle) * 360.0f;
             if (!(s > -90.0f && s < 90.0f)) continue;
+            t.frontSlipEachDeg[i] = s;
             slipSum += s;
             slipN++;
         }
         t.frontSlipKnown = slipN > 0;
         t.frontSlipDeg = slipN > 0 ? slipSum / slipN : 0.0f;
+        t.frontEachKnown = slipN == 2 && t.frontLoadEach[0] > 0.0f && t.frontLoadEach[1] > 0.0f;
         for (int i = 0; i < 2; ++i) {
             uintptr_t tire = *(uintptr_t*)((char*)susp + kRacerTires + i * 4);
             if (!onGround[i] || !Plausible(tire)) continue;

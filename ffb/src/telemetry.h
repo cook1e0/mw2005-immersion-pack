@@ -36,6 +36,11 @@ struct Telemetry {
     // and all. Only when frontSlipKnown.
     float frontSlipDeg;
     bool  frontSlipKnown;
+    // Each front tyre's own slip angle ([0] left, [1] right, degrees, same sign) and load (N), when
+    // both are on the ground and known: in a corner the outside tyre carries more of the load.
+    float frontSlipEachDeg[2];
+    float frontLoadEach[2];
+    bool  frontEachKnown;
 
     float rpm;             // engine
     float rpmNorm;         // 0 idle .. 1 redline

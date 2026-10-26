@@ -31,8 +31,9 @@ struct Config {
     float maxForce = 0.85f;          // ceiling of the torque sent, share of the wheel's maximum
     float limitKnee = 0.7f;         // above this share of MaxForce the soft limiter compresses peaks
     float slewRate = 20.0f;         // fastest torque change, full scale per second
-    float smoothingHz = 25.0f;      // low-pass of the forces from the game's physics (about 60 Hz steps)
+    float smoothingHz = 40.0f;      // low-pass of the forces from the game's physics (about 60 Hz steps)
     bool  oscillationGuard = true;  // calm the wheel when it starts shaking by itself
+    float minForce = 0.0f;          // the least force sent once there is any (gear wheels' dead zone; 0 = off)
 
     // Steering forces
     float aligning = 1.0f;          // the front tyres' self-aligning torque
@@ -42,6 +43,7 @@ struct Config {
     float carWeight = 0.5f;         // how much the car's own front axle load changes the weight
     float caster = 0.2f;            // steering geometry's pull, heavier with front load
     float frontGripLoss = 0.6f;     // how light the wheel goes when the front tyres lose traction (0..1)
+    float rearSlide = 0.0f;         // pull toward the countersteer when the rear slides (seat of pants, 0 = off)
     float tyreScrub = 0.15f;         // vibration while any tyre slides (0 = off)
     float centering = 0.2f;         // spring toward centre while parked or slow
     float damping = 0.15f;           // weight against fast wheel movement

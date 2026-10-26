@@ -296,6 +296,8 @@ constexpr struct {
     {MOD_FFB, "FrontGripLoss", 0.6f},
     {MOD_FFB, "Kerbs", 0.0f},
     {MOD_FFB, "SurfaceRumble", 0.0f},
+    {MOD_FFB, "MinForce", 0.0f},
+    {MOD_FFB, "RearSlide", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK,
@@ -324,6 +326,8 @@ enum {
     FFB_FRONTGRIPLOSS,
     FFB_KERBS,
     FFB_SURFACE,
+    FFB_MINFORCE,
+    FFB_REARSLIDE,
     EXT_COUNT
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
@@ -340,6 +344,8 @@ static_assert(KeyIs(kExt[FFB_CASTER].key, "Caster"), "kExt out of order at FFB_C
 static_assert(KeyIs(kExt[FFB_FRONTGRIPLOSS].key, "FrontGripLoss"), "kExt out of order at FFB_FRONTGRIPLOSS");
 static_assert(KeyIs(kExt[FFB_KERBS].key, "Kerbs"), "kExt out of order at FFB_KERBS");
 static_assert(KeyIs(kExt[FFB_SURFACE].key, "SurfaceRumble"), "kExt out of order at FFB_SURFACE");
+static_assert(KeyIs(kExt[FFB_MINFORCE].key, "MinForce"), "kExt out of order at FFB_MINFORCE");
+static_assert(KeyIs(kExt[FFB_REARSLIDE].key, "RearSlide"), "kExt out of order at FFB_REARSLIDE");
 static_assert(KeyIs(kExt[VR_ANISOTROPIC].key, "Anisotropic"), "kExt out of order at VR_ANISOTROPIC");
 static_assert(KeyIs(kExt[VR_SHADOWRES].key, "ShadowRes"), "kExt out of order at VR_SHADOWRES");
 static_assert(KeyIs(kExt[VR_SHAREDSHADOWS].key, "SharedShadows"), "kExt out of order at VR_SHAREDSHADOWS");
@@ -635,11 +641,13 @@ const Item kItems[] = {
     {ACTION, "Restart wheel force feedback", nullptr, "RestartFfb", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Reverse force direction", "FFB", "Reverse", &s_ext[FFB_INVERT], 0.0f, 1.0f, 1.0f, 1, "%.0f", BF_ONOFF},
     {NUMBER, "Strength", "FFB", "Gain", &s_ext[FFB_GAIN], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Minimum force", "FFB", "MinForce", &s_ext[FFB_MINFORCE], 0.0f, 0.3f, 0.01f, 100, "%.0f%%", 0},
     HEADER_("STEERING FEEL"),
     {NUMBER, "Tyre feel", "FFB", "Aligning", &s_ext[FFB_ALIGNING], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Weight transfer", "FFB", "LoadSensitivity", &s_ext[FFB_LOADSENSITIVITY], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Steering geometry (caster)", "FFB", "Caster", &s_ext[FFB_CASTER], 0.0f, 2.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Light when the front loses grip", "FFB", "FrontGripLoss", &s_ext[FFB_FRONTGRIPLOSS], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Rear slide feel", "FFB", "RearSlide", &s_ext[FFB_REARSLIDE], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Car's front weight", "FFB", "CarWeight", &s_ext[FFB_CARWEIGHT], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Slow-speed centring", "FFB", "Centering", &s_ext[FFB_CENTERING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
     {NUMBER, "Damping", "FFB", "Damping", &s_ext[FFB_DAMPING], 0.0f, 1.5f, 0.05f, 100, "%.0f%%", 0},
@@ -1365,7 +1373,7 @@ const struct {
 const void* const kKeptOnReset[] = {
     &g_cfg.wheelRotation, &g_cfg.steeringLock, &g_cfg.steerDeadzone, &g_cfg.pedalDeadzone,
     &g_cfg.gameController, &g_cfg.menuController, &g_cfg.menuAxes,
-    &s_ext[FFB_DEVICE], &s_ext[FFB_INVERT], &s_ext[FFB_GAIN],
+    &s_ext[FFB_DEVICE], &s_ext[FFB_INVERT], &s_ext[FFB_GAIN], &s_ext[FFB_MINFORCE],
 };
 
 bool KeptOnReset(const Item& it) {
@@ -2095,6 +2103,7 @@ const struct {
     {&g_cfg.menuController, "Off: disable all controller input in the game's menus. Driving and this F4 menu keep their bindings. Needs the updated force feedback mod."},
     {&g_cfg.menuAxes, "Off: pedals and steering cannot scroll the game's menus; buttons and the d-pad still work. Driving is unaffected. Needs the updated force feedback mod."},
     {&s_ext[FFB_GAIN], "Overall force feedback strength."},
+    {&s_ext[FFB_MINFORCE], "The least force sent once there is any. Gear and belt wheels (Logitech G29, G920, G923, Thrustmaster) don't move at all below a few percent of their force, so light forces, the wheel going light and the moment the force changes sides are lost: 5-10% for those. 0% = off, for direct drive (the default)."},
     {&s_ext[FFB_ALIGNING], "Weight from the front tyres: heavy while they grip, light past the limit, pulling into the countersteer in a slide."},
     {&s_ext[FFB_CENTERING], "Spring back to centre while parked or slow. It fades out by 20 km/h, where the tyres' own weight takes over."},
     {&s_ext[FFB_ENGINE], "Engine vibration, at the engine's revs. Mostly felt standing still."},
@@ -2118,10 +2127,11 @@ const struct {
     {&s_ext[FFB_CARHITS], "A hard kick and a short shake when you hit another vehicle (traffic, cops, racers), toward the side you were pushed, full strength from 150 km/h. Only vehicles: the game tells them apart by their own object type."},
     {&s_ext[FFB_LANDING], "A hard kick and a short shake in the wheel when the car lands after a jump, stronger the longer it was in the air."},
     {&s_ext[FFB_PARKINGFRICTION], "Stationary friction: the tyres scrubbing on the road when the car stands still, so the wheel is heavy to turn when parked. Full at a standstill, gone by 18 km/h."},
-    {&s_ext[FFB_LOADSENSITIVITY], "How much the load on the front tyres changes the weight of the wheel: braking moves weight forward and makes it heavier, full throttle lifts the nose and makes it lighter, crests go light and dips and downforce heavy. 100% = in step with the load."},
+    {&s_ext[FFB_LOADSENSITIVITY], "How much the load on the front tyres changes the weight of the wheel: braking moves weight forward and makes it heavier, full throttle lifts the nose and makes it lighter, crests go light and dips and downforce heavy. Each front tyre counts with its own load too: in a corner the outside tyre does most of the work and the inside one lets go first, and through a quick left-right the weight swings from one to the other. 100% = in step with the load."},
     {&s_ext[FFB_CASTER], "The steering geometry's pull back to straight ahead, from the tyres' side force. It grows with the front tyres' load, so the wheel gets heavier as you brake and lighter on the throttle, and unlike the tyres' own pull it only eases off a little when the front slides. 0 = only the tyres' own pull."},
-    {&s_ext[FFB_FRONTGRIPLOSS], "How light the wheel goes when the front tyres lose traction: a front drive car spinning its wheels out of a corner, the front pushing wide, locked front wheels under braking. The tyres' pull and the steering geometry's both drop; at 60% the wheel keeps 40% of its weight once the front tyres are well past their limit, and its weight comes back over about 0.3 s as they grip again (no snap to the centre). 0% = only the tyres' own falloff past the grip peak."},
+    {&s_ext[FFB_FRONTGRIPLOSS], "How light the wheel goes when the front tyres lose traction: a front drive car spinning its wheels out of a corner, the front pushing wide, locked front wheels under braking. Counted from the car's own usual traction, so normal driving is left alone. The tyres' pull and the steering geometry's both drop; at 60% the wheel keeps 40% of its weight once the front tyres are well past their limit, and its weight comes back over about 0.3 s as they grip again (no snap to the centre). 0% = only the tyres' own falloff past the grip peak."},
     {&s_ext[FFB_CARWEIGHT], "How much the car's own weight on its front wheels sets the weight of the wheel, against a typical car: front-heavy and big cars steer heavier, rear-engined and light ones lighter (a 911 or an Elise with real weight distribution on). 0 = every car the same."},
+    {&s_ext[FFB_REARSLIDE], "Seat of pants: a pull toward the countersteer once the rear of the car slides sideways past normal cornering, stronger as the rear tyres lose traction. In a real car you feel the rear go before the steering tells you; this puts that in the wheel. From 15 km/h, not in reverse. 20-40% to start; 0% = off (the default)."},
     {&s_ext[FFB_TYRESCRUB], "A fine vibration once any tyre is past its grip limit, rising with how far past it is and with speed (0 = off)."},
     {&s_ext[VR_HUDPERCAR], "On: each car model remembers its own floating HUD size, distance, height and left / right position, like the seat. A model you haven't set yet starts from the mod's built-in defaults, not from the last car you used. The in-car dashboard display's size and position are always per car model, whatever this says; the element layout and the HUD crops are the same for every car."},
     {&s_ext[VR_DASH], "On: from the driver's seat the HUD's minimap, speedometer, cop radar, pursuit info and leaderboard move onto the car's gauge cluster (place each in Adjust dashboard; black out the car's own gauges with the Triangle editor). The floating HUD is hidden meanwhile, except messages (busted, totaled, locations), which stay in front of your eyes. Back to normal in the pause menu and this menu."},
