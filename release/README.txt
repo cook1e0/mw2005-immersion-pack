@@ -21,7 +21,7 @@ Or pick and choose:
    the headset through the fix's SimRate setting.
 3. Copy the mods you want:
 
-  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr.ini.default, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
+  VR               scripts\nfsmw_vr.asi + scripts\nfsmw_vr*.ini.default, and nfsmw_vr_host.exe plus nfsmw_crashdump.exe next to
                    speed.exe
                    (Virtual Desktop, SteamVR or Meta Quest Link; for SteamVR set it as the
                    OpenXR runtime in SteamVR's settings and run Room Setup once)
@@ -42,6 +42,14 @@ nothing. The latest crash replaces the previous dump/report; copy logs before re
 Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
+
+Upgrading from v0.27.2: replace scripts\nfsmw_vr.asi, nfsmw_ffb.asi and nfsmw_gameplay.asi (or
+extract the zip over your install; your ini files stay). The VR mod moves the seat, HUD, dashboard,
+mirror and wheel settings out of scripts\nfsmw_vr.ini into nfsmw_vr_seat.ini, nfsmw_vr_hud.ini,
+nfsmw_vr_dash.ini, nfsmw_vr_mirror.ini and nfsmw_vr_wheel.ini on its first start. The new
+Minimum force and Rear slide feel (F4 > Force feedback) start off: with a Logitech G29/G920/G923
+or a Thrustmaster wheel, set Minimum force to 5-10%. For the less laggy steering force, set
+SmoothingHz=40 in scripts\nfsmw_ffb.ini (your ini keeps the old 25).
 
 Upgrading from v0.27.1: replace scripts\nfsmw_ffb.asi and nfsmw_gameplay.asi (or extract the zip
 over your install; your ini files stay). The new Road rumble effect (F4 > Force feedback) starts off.

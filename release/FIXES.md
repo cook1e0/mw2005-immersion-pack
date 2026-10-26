@@ -1,3 +1,32 @@
+### v0.28.0: losing grip in the wheel, gear wheels, VR settings per file
+
+- **Minimum force** (force feedback, `[FFB] MinForce`, F4 > Force feedback, off by default): gear
+  and belt wheels (Logitech G29/G920/G923, Thrustmaster) don't move below a few percent of their
+  force, so light forces, the wheel going light and the moment the force changes sides were lost.
+  Every force is now lifted above that, scaled so `MaxForce` stays the top: 5-10% for those
+  wheels, 0 for direct drive.
+- **Rear slide feel** (force feedback, `[FFB] RearSlide`, F4 > Force feedback, off by default):
+  seat of pants. Once the rear slides sideways past normal cornering (from about 3 degrees, full
+  by 15), the wheel pulls toward the countersteer, stronger as the rear tyres lose traction: the
+  rear going reaches your hands before the front tyres tell you. From 15 km/h, not in reverse;
+  with a rear wheel in the air it fades out over 0.2 s. 20-40% to start.
+- **Each front tyre on its own**: the steering weight comes from each front tyre's own load and
+  slip angle. In a corner the outside tyre does most of the work and the inside one lets go
+  first, so the wheel starts going light a little before the limit, and through a quick
+  left-right the weight swings from one tyre to the other. Weight transfer (`LoadSensitivity`)
+  sets how much; 0% is as before.
+- **Light when the front loses grip counts from the car's own usual traction**: the game's
+  traction is about 0.85-1 while the tyres grip, not 1, so the wheel was lighter more than half
+  the time in normal driving and a real slide stood out little. Normal driving now keeps the
+  full weight; a short dip (under 0.15 s) doesn't move the wheel.
+- **Less lag**: the steering angles carry on between the game's physics steps, so the tyre force
+  follows without steps and needs less smoothing (`SmoothingHz` default 40, was 25).
+- **VR per-car settings in a file per category**: seat, HUD, dashboard (with the shared layout),
+  mirror offset and steering wheel pivot now live in `nfsmw_vr_seat.ini`, `nfsmw_vr_hud.ini`,
+  `nfsmw_vr_dash.ini`, `nfsmw_vr_mirror.ini` and `nfsmw_vr_wheel.ini` next to `nfsmw_vr.ini`, so
+  each can be shared or replaced on its own (cockpit mods). The first start moves the old
+  sections out of `nfsmw_vr.ini`.
+
 ### v0.27.2: road rumble in the wheel
 
 - **Road rumble** (force feedback, `[FFB] SurfaceRumble`, F4 > Force feedback, off by default):
