@@ -43,6 +43,12 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
+Upgrading from v0.28.0: replace scripts
+fsmw_vr.asi and nfsmw_gameplay.asi (or extract the zip
+over your install; your ini files stay). The new telemetry panel starts off: Right Shift while
+driving shows it, F4 > Telemetry sets it up. The VR mod is needed for it to stay visible in VR
+with the in-car display on, so update both.
+
 Upgrading from v0.27.2: replace scripts\nfsmw_vr.asi, nfsmw_ffb.asi and nfsmw_gameplay.asi (or
 extract the zip over your install; your ini files stay). The VR mod moves the seat, HUD, dashboard,
 mirror and wheel settings out of scripts\nfsmw_vr.ini into nfsmw_vr_seat.ini, nfsmw_vr_hud.ini,

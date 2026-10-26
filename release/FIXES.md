@@ -1,3 +1,14 @@
+### v0.29.0: telemetry panel
+
+- **Telemetry panel** (gameplay, F4 > Telemetry, off by default; Right Shift shows / hides it,
+  `[Controls] ToggleTelemetry`): the G-force circle with a trail, each tyre's grip (green working,
+  amber near the limit, red sliding), the suspension's travel and the downforce, from the game's
+  own physics rather than estimates. The circle's ring is the grip the four tyres have right now
+  over the car's weight, so it grows with downforce. Size, place, opacity, smoothing, trail and
+  each block are in the menu.
+- **In VR the panel stays on the HUD panel with the in-car display on**: the VR mod draws it after
+  the display has taken its parts of the HUD, so the display never crops it.
+
 ### v0.28.0: losing grip in the wheel, gear wheels, VR settings per file
 
 - **Minimum force** (force feedback, `[FFB] MinForce`, F4 > Force feedback, off by default): gear
