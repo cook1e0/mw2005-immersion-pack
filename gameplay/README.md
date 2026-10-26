@@ -107,6 +107,7 @@ All in `nfsmw_gameplay.ini` (commented). The ones you are most likely to change:
 | `[Controls] GameController` | 0 = the game ignores the controllers while driving; bind them here instead. In its menus `MenuController` / `MenuAxes` decide |
 | `[Controls] MenuController / MenuAxes` | game menus only: buttons/d-pad on by default; analog axes off to prevent pedal scrolling (needs FFB mod) |
 | `[Controls] RecenterVr` | recenters the VR view (the VR mod's F8), from any key or button |
+| `[Telemetry] Show` / `[Controls] ToggleTelemetry` | the telemetry panel while driving (G-force circle, tyre grip, suspension travel, downforce), and its show/hide binding (Right Shift); F4 > Telemetry places and sizes it |
 | `[UI] Menu / MenuUp / ...` | tuning menu bindings |
 | `[General] LogInputs` | log stick position and clutch travel to `nfsmw_gameplay.log` |
 
@@ -149,6 +150,11 @@ code doesn't match.
   `[UI] ClassicMenu=1` brings back the old flat menu.
 - The tuning menu is drawn after the game's HUD (eDisplayFrame, 0x6E75A7) as untextured quads with
   a GDI-rasterised font, so the VR mod puts it on its HUD panel.
+- The telemetry panel reads the player's car at each of its suspension steps (Chassis::State in
+  `DoAerodynamics`, each tyre's load, side force, drive and brake torque, grip limit and kept share,
+  `ISuspension::GetCompression`), whatever the physics settings. With the VR mod it is drawn by the
+  VR mod (`NfsmwVr_SetOverlay`) after the HUD phase, so the in-car display doesn't crop or clear
+  it; while the menu is open, and without the VR mod, it is drawn with the HUD.
 - Input comes from a separate non-exclusive DirectInput instance (the system `dinput8.dll`, never a
   proxy in the game folder) polled at ~500 Hz on its own thread.
 

@@ -13,3 +13,4 @@ EXPORTS
     NfsmwVr_Setting=Proxy_NfsmwVr_Setting
     NfsmwVr_Recenter=Proxy_NfsmwVr_Recenter
     NfsmwVr_Version=Proxy_NfsmwVr_Version
+    NfsmwVr_SetOverlay=Proxy_NfsmwVr_SetOverlay

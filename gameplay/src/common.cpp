@@ -174,6 +174,7 @@ void LoadConfig() {
     c.recenterVr = ReadStr("Controls", "RecenterVr", "");
     c.toggleAbs = ReadStr("Controls", "ToggleAbs", "");
     c.toggleTc = ReadStr("Controls", "ToggleTc", "");
+    c.toggleTelemetry = ReadStr("Controls", "ToggleTelemetry", c.toggleTelemetry.c_str());
     for (int i = 0; i < 7; i++) c.seat[i] = ReadStr("Controls", kSeatKeys[i], "");
     c.wheelRotation = Clamp(ReadFloat("Controls", "WheelRotation", c.wheelRotation), 90.0f, 1800.0f);
     c.steeringLock = Clamp(ReadFloat("Controls", "SteeringLock", c.steeringLock), 30.0f, 1800.0f);
@@ -289,6 +290,18 @@ void LoadConfig() {
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);
     c.gravityAll = ReadInt("Physics", "GravityAllCars", 0) != 0;
     c.maxSpin = Clamp(ReadFloat("Physics", "MaxSpin", c.maxSpin), 0.0f, 30.0f);
+
+    c.telemetry = ReadInt("Telemetry", "Show", c.telemetry) != 0;
+    c.telX = Clamp(ReadFloat("Telemetry", "X", c.telX), 0.0f, 1.0f);
+    c.telY = Clamp(ReadFloat("Telemetry", "Y", c.telY), 0.0f, 1.0f);
+    c.telSize = Clamp(ReadFloat("Telemetry", "Size", c.telSize), 0.3f, 2.5f);
+    c.telOpacity = Clamp(ReadFloat("Telemetry", "Opacity", c.telOpacity), 0.1f, 1.0f);
+    c.telSmooth = Clamp(ReadFloat("Telemetry", "Smoothing", c.telSmooth), 0.0f, 1.0f);
+    c.telTrail = Clamp(ReadFloat("Telemetry", "Trail", c.telTrail), 0.0f, 2.0f);
+    c.telShowG = ReadInt("Telemetry", "GForce", c.telShowG) != 0;
+    c.telShowTyres = ReadInt("Telemetry", "Tyres", c.telShowTyres) != 0;
+    c.telShowSusp = ReadInt("Telemetry", "Suspension", c.telShowSusp) != 0;
+    c.telShowAero = ReadInt("Telemetry", "Downforce", c.telShowAero) != 0;
 
     c.gauge = ReadInt("UI", "Gauge", 0) != 0;
     c.gaugeX = Clamp(ReadFloat("UI", "GaugeX", c.gaugeX), 0.0f, 1.0f);

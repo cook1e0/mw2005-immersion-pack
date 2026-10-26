@@ -1,6 +1,7 @@
 // Physics sliders for the player's car: driving aids, grip, torque split, gravity.
 #pragma once
 #include <string>
+#include <stdint.h>
 #include <vector>
 
 struct IniWrite;
@@ -18,6 +19,31 @@ void Physics_DropCar();
 float Physics_PlayerSpeed();
 // The throttle the game's chassis took at the player's last physics step (0..1).
 float Physics_GasInput();
+// The player's car at its last suspension step, for the telemetry panel. Taken whatever the physics
+// settings. Game thread. The world is the sim's (y up); wheels front left, front right, rear left,
+// rear right.
+struct CarSample {
+    uint32_t step = 0;          // counts the player's suspension steps
+    float dt = 0.0f;            // the last step's length (s)
+    bool body = false;          // the body below came with the last step
+    float right[3] = {}, up[3] = {}, fwd[3] = {};   // the car's axes
+    float vel[3] = {};          // m/s
+    float mass = 0.0f;          // kg
+    float weightFront = 0.5f;   // FRONT_WEIGHT_BIAS: the front axle's share of the weight at rest
+    float downforce = 0.0f;     // N, as applied (below 0: lift)
+    float aeroFront = 0.5f;     // AERO_CG: the front axle's share of it
+    bool wheels = false;        // the wheels below came with the last step
+    struct Wheel {
+        bool onGround = false;
+        float compression = 0.0f;   // ISuspension::GetCompression
+        float load = 0.0f;          // N
+        float side = 0.0f;          // the tyre's side force (N)
+        float along = 0.0f;         // its force along the wheel, (drive + brake torque) / radius (N)
+        float grip = 0.0f;          // its grip limit (N), 0 = not known
+        float kept = 1.0f;          // the share of its force it kept: below 1 it was over the limit
+    } wheel[4];
+};
+const CarSample& Physics_Sample();
 // Traction control: the share of the throttle to send now (1 = all of it; 1 with TC off).
 float Physics_TcThrottle();
 // ABS / traction control working right now (for the HUD icons). Game thread.

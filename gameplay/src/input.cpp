@@ -7,7 +7,7 @@ static CRITICAL_SECTION s_lock;
 static InputSnapshot s_snap;
 static volatile LONG s_started;
 
-static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_recenter, s_toggleAbs, s_toggleTc, s_nav[4];
+static std::vector<Binding> s_clutch, s_gear[kMaxGears + 1], s_neutral, s_toggle, s_up, s_down, s_blow, s_repair, s_hit, s_pop, s_menu, s_recenter, s_toggleAbs, s_toggleTc, s_toggleTel, s_nav[4];
 static std::vector<Binding> s_steer, s_pedal[2], s_button[BTN_COUNT], s_seat[SEAT_COUNT];
 static JoyDevice s_joy[kMaxJoys];
 static bool s_joyWanted[kMaxJoys];
@@ -65,6 +65,7 @@ static void ParseAll() {
     parse("RecenterVr", g_cfg.recenterVr, s_recenter);
     parse("ToggleAbs", g_cfg.toggleAbs, s_toggleAbs);
     parse("ToggleTc", g_cfg.toggleTc, s_toggleTc);
+    parse("ToggleTelemetry", g_cfg.toggleTelemetry, s_toggleTel);
     parse("MenuUp", g_cfg.menuUp, s_nav[0]);
     parse("MenuDown", g_cfg.menuDown, s_nav[1]);
     parse("MenuLeft", g_cfg.menuLeft, s_nav[2]);
@@ -313,7 +314,7 @@ static DWORD WINAPI InputThread(LPVOID) {
     float digital = 0.0f;       // ramped clutch from buttons / keys
     int latched = -1;
     bool prevGearDown[kMaxGears + 1] = {};
-    bool prevNeutral = false, prevToggle = false, prevUp = false, prevDown = false, prevBlow = false, prevRepair = false, prevHit = false, prevPop = false, prevMenu = false, prevRecenter = false, prevAbs = false, prevTc = false;
+    bool prevNeutral = false, prevToggle = false, prevUp = false, prevDown = false, prevBlow = false, prevRepair = false, prevHit = false, prevPop = false, prevMenu = false, prevRecenter = false, prevAbs = false, prevTc = false, prevTel = false;
     Repeater nav[4];
     double last = Now(), lastScan = last, lastLog = 0;
     int logGear = -2;
@@ -435,6 +436,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         bool menuDown = AnyDown(s_menu, focus);
         bool recenterDown = AnyDown(s_recenter, focus);
         bool absDown = AnyDown(s_toggleAbs, focus), tcDown = AnyDown(s_toggleTc, focus);
+        bool telDown = AnyDown(s_toggleTel, focus);
         uint32_t navPresses[4];
         for (int i = 0; i < 4; i++) navPresses[i] = nav[i].Update(AnyDown(s_nav[i], focus), now);
 
@@ -482,6 +484,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         if (recenterDown && !prevRecenter) s_snap.recenters++;
         if (absDown && !prevAbs) s_snap.absToggles++;
         if (tcDown && !prevTc) s_snap.tcToggles++;
+        if (telDown && !prevTel) s_snap.telemetryToggles++;
         for (int i = 0; i < 4; i++) s_snap.menuNav[i] += navPresses[i];
         LeaveCriticalSection(&s_lock);
         prevToggle = toggleDown;
@@ -495,6 +498,7 @@ static DWORD WINAPI InputThread(LPVOID) {
         prevRecenter = recenterDown;
         prevAbs = absDown;
         prevTc = tcDown;
+        prevTel = telDown;
 
         if (g_cfg.logInputs && now - lastLog > 0.1 && (stick != logGear || fabsf(pedal - logPedal) > 0.05f)) {
             lastLog = now;

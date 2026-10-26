@@ -2264,6 +2264,44 @@ static HWND s_wnd;
 static UINT s_bbW, s_bbH;
 static void FitWindow(HWND wnd, UINT w, UINT h);
 
+// --- the gameplay mod's overlay (its telemetry panel) --------------------------------------------
+// Drawn here rather than with the HUD: in the headset the in-car display takes its crops of the HUD
+// at the end of the HUD phase and clears the HUD layer (ComposeDash), so a panel drawn with the HUD
+// would vanish or turn up on the display. Painted onto the HUD layer after that, it stays in front
+// of the eyes with the rest of the HUD (and goes behind the steering wheel with it, as the layer
+// does). Flat frames and no headset: the back buffer.
+typedef int(__cdecl* OverlayShown_t)();
+typedef int(__cdecl* OverlayDraw_t)(IDirect3DDevice9* dev, int w, int h);
+static OverlayShown_t s_overlayShown;
+static OverlayDraw_t s_overlayDraw;
+
+// Onto `target`, with no depth buffer bound: the HUD layer can be larger than the game's.
+static void DrawOverlay(IDirect3DSurface9* target) {
+    if (!s_overlayDraw || !s_dev || !target || !s_overlayShown()) return;
+    D3DSURFACE_DESC desc;
+    if (FAILED(target->GetDesc(&desc))) return;
+    IDirect3DSurface9 *rt = nullptr, *ds = nullptr;
+    s_dev->GetRenderTarget(0, &rt);
+    s_dev->GetDepthStencilSurface(&ds);
+    D3DVIEWPORT9 vp;
+    s_dev->GetViewport(&vp);
+    s_dev->SetRenderTarget(0, target);
+    s_dev->SetDepthStencilSurface(nullptr);
+    s_overlayDraw(s_dev, (int)desc.Width, (int)desc.Height);
+    s_dev->SetRenderTarget(0, rt);
+    s_dev->SetDepthStencilSurface(ds);
+    s_dev->SetViewport(&vp);
+    if (rt) rt->Release();
+    if (ds) ds->Release();
+}
+
+static void DrawOverlayOnBackBuffer() {
+    IDirect3DSurface9* bb = nullptr;
+    if (!s_overlayDraw || !s_dev || FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return;
+    DrawOverlay(bb);
+    bb->Release();
+}
+
 static void OnPresent() {
     RaiseRenderPriority();
     if (KeyPressed(g_cfg.keySpectator)) {
@@ -2291,6 +2329,7 @@ static void OnPresent() {
         if (stereo) {
             captured = true;
             EndHudPhase();
+            if (s_hudValid) DrawOverlay(s_eyeSurf[2]);
             double t0 = D3D_ProfNow();
             Trace_BeforeGpuWait();
             WaitForGpu();
@@ -2304,11 +2343,13 @@ static void OnPresent() {
             D3D_ProfAdd(PROF_SUBMIT, D3D_ProfNow() - t1);
         } else if (Xr_BeginFrame()) {
             // Menus, movies, loading screens: show the flat frame on a virtual screen.
+            DrawOverlayOnBackBuffer();
             D3D_CaptureEye(0);
             captured = true;
             WaitForGpu();
             Xr_EndFrame(LayerMode::Screen, 0, 0, false);
         } else {
+            DrawOverlayOnBackBuffer();
             Xr_EndFrame(LayerMode::None, 0, 0, false);
         }
         if (captured && s_eyeOk && Spectator_Mode() != SpectatorMode::Eye) {
@@ -2336,6 +2377,8 @@ static void OnPresent() {
             s_dumpRequested--;
             DumpEyes();
         }
+    } else {
+        DrawOverlayOnBackBuffer();
     }
     Game_EndOfFrame();
 }
@@ -2765,6 +2808,16 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "SeatForward")) return &g_seatInput[2];
     if (!strcmp(name, "SeatReset")) return &g_seatInput[3];
     return nullptr;
+}
+
+// For the gameplay mod: its overlay, drawn by this mod after the HUD phase (see DrawOverlay).
+// `shown` says whether it has anything to draw this frame. 0 in a copy that isn't the running one.
+int __cdecl Proxy_NfsmwVr_SetOverlay(OverlayShown_t shown, OverlayDraw_t draw) {
+    if (!s_active || !shown || !draw) return 0;
+    s_overlayShown = shown;
+    s_overlayDraw = draw;
+    Log("d3d9: the gameplay mod's overlay is drawn after the HUD phase");
+    return 1;
 }
 
 // This build's release (git describe), for the gameplay mod's menu.

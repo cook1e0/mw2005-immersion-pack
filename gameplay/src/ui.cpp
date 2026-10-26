@@ -15,6 +15,8 @@
 #include "physics.h"
 #include "cars.h"
 #include "inisave.h"
+#include "draw2d.h"
+#include "telemetry.h"
 #include <d3d9.h>
 #include <psapi.h>
 #include <float.h>
@@ -27,156 +29,13 @@ namespace {
 
 constexpr uintptr_t kDevice = 0x982BDC;     // IDirect3DDevice9* __g_IDirect3DDevice9
 
-// --- font ---------------------------------------------------------------------------------
-struct Run { short y, x0, x1; };
-struct Glyph { int advance = 0; std::vector<Run> runs; };
-struct Font {
-    int px = 0;         // requested size
-    int height = 0;     // line height in pixels
-    Glyph glyph[96];    // ' ' .. '~'
-} s_font;
-
-void BuildFont(int px) {
-    s_font.px = px;
-    HDC dc = CreateCompatibleDC(nullptr);
-    int W = px * 3, H = px * 2;
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    bi.bmiHeader.biWidth = W;
-    bi.bmiHeader.biHeight = -H;
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-    uint32_t* bits = nullptr;
-    HBITMAP bmp = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, (void**)&bits, nullptr, 0);
-    HFONT font = CreateFontA(-px, 0, 0, 0, FW_BOLD, 0, 0, 0, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                             NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
-    if (!dc || !bmp || !font) {
-        Log("ui: font creation failed");
-        s_font.height = 0;
-    } else {
-        HGDIOBJ oldBmp = SelectObject(dc, bmp), oldFont = SelectObject(dc, font);
-        SetTextColor(dc, RGB(255, 255, 255));
-        SetBkColor(dc, RGB(0, 0, 0));
-        SetBkMode(dc, OPAQUE);
-        TEXTMETRICA tm;
-        GetTextMetricsA(dc, &tm);
-        s_font.height = std::min((int)tm.tmHeight, H);
-        RECT all = {0, 0, W, H};
-        for (int c = 32; c < 127; c++) {
-            Glyph& g = s_font.glyph[c - 32];
-            g.runs.clear();
-            char ch = (char)c;
-            FillRect(dc, &all, (HBRUSH)GetStockObject(BLACK_BRUSH));
-            TextOutA(dc, 0, 0, &ch, 1);
-            SIZE sz;
-            GetTextExtentPoint32A(dc, &ch, 1, &sz);
-            g.advance = sz.cx;
-            GdiFlush();
-            for (int y = 0; y < s_font.height; y++) {
-                for (int x = 0; x < W;) {
-                    if (!(bits[y * W + x] & 0xFFFFFF)) {
-                        x++;
-                        continue;
-                    }
-                    int x0 = x;
-                    while (x < W && (bits[y * W + x] & 0xFFFFFF)) x++;
-                    g.runs.push_back({(short)y, (short)x0, (short)x});
-                }
-            }
-        }
-        SelectObject(dc, oldFont);
-        SelectObject(dc, oldBmp);
-    }
-    if (font) DeleteObject(font);
-    if (bmp) DeleteObject(bmp);
-    if (dc) DeleteDC(dc);
-}
-
-// --- drawing -------------------------------------------------------------------------------
-struct Vtx {
-    float x, y, z, rhw;
-    D3DCOLOR c;
-};
-std::vector<Vtx> s_v;
-
-void Quad(float x0, float y0, float x1, float y1, D3DCOLOR c) {
-    x0 -= 0.5f, y0 -= 0.5f, x1 -= 0.5f, y1 -= 0.5f;   // pixel centres
-    Vtx a = {x0, y0, 0, 1, c}, b = {x1, y0, 0, 1, c}, d = {x0, y1, 0, 1, c}, e = {x1, y1, 0, 1, c};
-    s_v.insert(s_v.end(), {a, b, d, b, e, d});
-}
-
-float TextWidth(const char* t) {
-    float w = 0;
-    for (; *t; t++)
-        if (*t >= 32 && *t < 127) w += s_font.glyph[*t - 32].advance;
-    return w;
-}
-
-void Text(float x, float y, const char* t, D3DCOLOR c) {
-    x = floorf(x), y = floorf(y);
-    for (; *t; t++) {
-        if (*t < 32 || *t >= 127) continue;
-        const Glyph& g = s_font.glyph[*t - 32];
-        for (const Run& r : g.runs) Quad(x + r.x0, y + r.y, x + r.x1, y + r.y + 1, c);
-        x += g.advance;
-    }
-}
-
-void ShadowText(float x, float y, const char* t, D3DCOLOR c, float k) {
-    float o = std::max(1.0f, floorf(k));
-    Text(x + o, y + o, t, D3DCOLOR_ARGB(200, 0, 0, 0));
-    Text(x, y, t, c);
-}
-
-void Flush(IDirect3DDevice9* dev, int w, int h) {
-    if (s_v.empty()) return;
-    IDirect3DStateBlock9* sb = nullptr;
-    if (FAILED(dev->CreateStateBlock(D3DSBT_ALL, &sb))) {
-        s_v.clear();
-        return;
-    }
-    D3DVIEWPORT9 vp = {0, 0, (DWORD)w, (DWORD)h, 0.0f, 1.0f};
-    dev->SetViewport(&vp);
-    dev->SetVertexShader(nullptr);
-    dev->SetPixelShader(nullptr);
-    dev->SetFVF(D3DFVF_XYZRHW | D3DFVF_DIFFUSE);
-    dev->SetTexture(0, nullptr);
-    dev->SetRenderState(D3DRS_ZENABLE, FALSE);
-    dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-    dev->SetRenderState(D3DRS_STENCILENABLE, FALSE);
-    dev->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-    dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-    dev->SetRenderState(D3DRS_FOGENABLE, FALSE);
-    dev->SetRenderState(D3DRS_LIGHTING, FALSE);
-    dev->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-    dev->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
-    dev->SetRenderState(D3DRS_COLORWRITEENABLE, 0xF);
-    dev->SetRenderState(D3DRS_SRGBWRITEENABLE, FALSE);
-    dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
-    dev->SetRenderState(D3DRS_BLENDOP, D3DBLENDOP_ADD);
-    dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
-    dev->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    // Keep the HUD layer's alpha meaningful for the VR panel: alpha = src + dst * (1 - src).
-    dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, TRUE);
-    dev->SetRenderState(D3DRS_BLENDOPALPHA, D3DBLENDOP_ADD);
-    dev->SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
-    dev->SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
-    dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
-    dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_DIFFUSE);
-    dev->SetTextureStageState(0, D3DTSS_ALPHAOP, D3DTOP_SELECTARG1);
-    dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_DIFFUSE);
-    dev->SetTextureStageState(1, D3DTSS_COLOROP, D3DTOP_DISABLE);
-    dev->SetTextureStageState(1, D3DTSS_ALPHAOP, D3DTOP_DISABLE);
-    const size_t chunk = 30000;   // vertices per call, a multiple of 3
-    for (size_t i = 0; i < s_v.size(); i += chunk) {
-        size_t n = std::min(chunk, s_v.size() - i);
-        dev->DrawPrimitiveUP(D3DPT_TRIANGLELIST, (UINT)(n / 3), &s_v[i], sizeof(Vtx));
-    }
-    sb->Apply();
-    sb->Release();
-    s_v.clear();
-}
+// The gauge and the classic menu draw with draw2d, in their own font.
+using draw2d::Flush;
+using draw2d::Quad;
+using draw2d::ShadowText;
+using draw2d::Text;
+using draw2d::TextWidth;
+draw2d::Font s_font;
 
 bool Blink(int ms) { return (GetTickCount() / ms) % 2 == 0; }
 
@@ -573,6 +432,7 @@ const Item kItems[] = {
     LINK_("Damage and tires", "DAMAGE AND TIRES"),
     LINK_("Physics", "PHYSICS"),
     LINK_("Traffic and HUD", "TRAFFIC AND HUD"),
+    LINK_("Telemetry", "TELEMETRY"),
     LINK_("VR", "VR"),
     LINK_("Menu and testing", "MENU AND TESTING"),
 
@@ -604,6 +464,7 @@ const Item kItems[] = {
     BINDING("Recenter VR view", "Controls", "RecenterVr", recenterVr, 0),
     BINDING("ABS on / off", "Controls", "ToggleAbs", toggleAbs, 0),
     BINDING("TC on / off", "Controls", "ToggleTc", toggleTc, 0),
+    BINDING("Telemetry panel on / off", "Controls", "ToggleTelemetry", toggleTelemetry, 0),
     HEADER_("GEARS"),
     BINDING("Reverse", "Shifter", "Reverse", gear[0], 0),
     BINDING("Gear 1", "Shifter", "Gear1", gear[1], 0),
@@ -772,6 +633,24 @@ const Item kItems[] = {
     {TOGGLE, "Speedbreaker", "HUD", "Speedbreaker", &g_cfg.speedbreaker, 0, 0, 0, 0, nullptr, 0},
     RESET_,
     RESET_GAME_,
+
+    PAGE_("TELEMETRY"),
+    BACK_,
+    {TOGGLE, "Telemetry panel while driving", "Telemetry", "Show", &g_cfg.telemetry, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("BLOCKS"),
+    {TOGGLE, "G-force circle", "Telemetry", "GForce", &g_cfg.telShowG, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Tyres", "Telemetry", "Tyres", &g_cfg.telShowTyres, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Suspension", "Telemetry", "Suspension", &g_cfg.telShowSusp, 0, 0, 0, 0, nullptr, 0},
+    {TOGGLE, "Downforce", "Telemetry", "Downforce", &g_cfg.telShowAero, 0, 0, 0, 0, nullptr, 0},
+    HEADER_("PLACE AND SIZE"),
+    {NUMBER, "Size", "Telemetry", "Size", &g_cfg.telSize, 0.4f, 2.0f, 0.05f, 100, "%.0f%%", 0},
+    {NUMBER, "Across the screen", "Telemetry", "X", &g_cfg.telX, 0.0f, 1.0f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Down the screen", "Telemetry", "Y", &g_cfg.telY, 0.0f, 1.0f, 0.01f, 100, "%.0f%%", 0},
+    {NUMBER, "Opacity", "Telemetry", "Opacity", &g_cfg.telOpacity, 0.1f, 1.0f, 0.05f, 100, "%.0f%%", 0},
+    HEADER_("MOVEMENT"),
+    {NUMBER, "Smoothing", "Telemetry", "Smoothing", &g_cfg.telSmooth, 0.0f, 0.6f, 0.01f, 1, "%.2f s", 0},
+    {NUMBER, "G-force trail", "Telemetry", "Trail", &g_cfg.telTrail, 0.0f, 2.0f, 0.05f, 1, "%.2f s", 0},
+    RESET_,
 
     PAGE_("VR"),
     BACK_,
@@ -1037,6 +916,7 @@ std::string LinkSummary(const char* page) {
     if (p == "ENGINE") return g_cfg.engineWear ? "Wear on" : "Wear off";
     if (p == "DAMAGE AND TIRES") return g_cfg.damage ? "Damage on" : "Damage off";
     if (p == "PHYSICS") return !g_cfg.physics ? "Off" : *Physics_Car() ? SourceText() : "On";
+    if (p == "TELEMETRY") return g_cfg.telemetry ? "Shown" : "Hidden";
     if (p == "TRAFFIC AND HUD") return g_cfg.noHeavySupport ? "No ramming SUVs" : "Ramming SUVs";
     if (p == "VR") {
         if (!ExtSetting(VR_HUDWIDTH)) return kExtMods[MOD_VR].missing;
@@ -2196,6 +2076,18 @@ const struct {
     {&g_cfg.abs, "ABS: a wheel that locks under braking has its brake eased off and reapplied, so full braking stops the car straight instead of spinning it. Icon above the map (flashes while it works). Also on a button: Controls > ABS on / off."},
     {&g_cfg.toggleAbs, "Switches ABS on or off while driving (saved)."},
     {&g_cfg.toggleTc, "Switches traction control (and launch control) on or off while driving (saved)."},
+    {&g_cfg.toggleTelemetry, "Shows or hides the telemetry panel while driving (saved)."},
+    {&g_cfg.telemetry, "A panel of what the car is doing, straight from the game's physics: the G-force circle (the dot is the car's acceleration, the ring the grip its tyres have right now), each tyre's grip (green working, amber near the limit, red sliding), the suspension's travel (up compressed, down extended) and the downforce. Also on a button: Controls > Telemetry panel on / off. In VR it stays on the HUD panel, also with the in-car display."},
+    {&g_cfg.telShowG, "The G-force circle: right is right, up is forward (the bottom half is braking). The ring is the grip of the four tyres together over the car's weight, so it grows with downforce; the faint trail is where the dot has been."},
+    {&g_cfg.telShowTyres, "Each tyre's force (cornering, driving and braking) over its grip limit. Past the white line it slides. Also shows how much of the load is on the front axle."},
+    {&g_cfg.telShowSusp, "Each wheel's suspension travel from where it sits at a standstill: up compressed, down extended, scaled to the most travel lately."},
+    {&g_cfg.telShowAero, "The downforce on the car, as the mass it would weigh."},
+    {&g_cfg.telSize, "The panel's size."},
+    {&g_cfg.telX, "Where the panel's centre is, from the left edge of the screen."},
+    {&g_cfg.telY, "Where the panel's centre is, from the top of the screen."},
+    {&g_cfg.telOpacity, "How solid the panel is."},
+    {&g_cfg.telSmooth, "How quickly the needles follow the car: the time they take to cover most of a change. 0 = every physics step as it is (jittery)."},
+    {&g_cfg.telTrail, "How long the G-force dot's trail is. 0 = no trail."},
     {&g_cfg.character, "How much each car is itself. The game gives every car its own springs, anti-roll bars, grip and torque, but keeps them close together; this spreads them apart. Soft cars (the muscle cars) roll and dive more, stiff ones (the race cars) get flatter and sharper; cars with less grip than most lose some more, and none gets more grip than the game gives it; cars with a lot of torque for their weight and grip step out more under power. 0% = the game's values; 50% = the default. Every car (each by its own data)."},
     {&g_cfg.realWeight, "The game puts 51-55% of every car's weight on the front wheels, the 911 and the mid-engined cars too. On: each car gets its real car's weight distribution (a 911 38% front, a Lamborghini 42%, a front drive hatchback 62%), so rear-engined cars are tail-happy and get traction out of corners, and front-heavy ones push wide. Every car."},
     {&g_cfg.gripBalance, "Moves grip between the front and rear tyres, all the time, also under braking and in a straight line. + : the rear lets go first (oversteer), - : the front does (understeer). Best left at 0: use Roll balance to change how the car corners, as setups in real cars do. Above 0 it also makes the car spin under hard braking. Per car."},
@@ -3278,6 +3170,30 @@ void DrawMenuImGui(IDirect3DDevice9* dev, int W, int H, float k) {
     RenderImGui(dev, ImGui::GetDrawData(), W, H);
 }
 
+// The telemetry panel with the VR mod: the VR mod draws it after it has taken the HUD apart for
+// its in-car display (which would otherwise crop the panel into the display or clear it), onto the
+// headset's HUD layer, or onto the back buffer on a flat screen. While the menu is open the panel
+// is drawn here instead, under the menu (the VR mod leaves the HUD whole then). Older VR builds
+// lack the export: the panel is drawn here.
+int __cdecl VrOverlayShown() { return Telemetry_Shown() && !s_menu.open ? 1 : 0; }
+int __cdecl VrOverlayDraw(IDirect3DDevice9* dev, int w, int h) {
+    if (!VrOverlayShown()) return 0;
+    Telemetry_Draw(dev, w, h);
+    return 1;
+}
+bool VrOverlay() {
+    static int state = -1;      // -1 not asked yet, 0 no, 1 the VR mod draws the panel
+    if (state < 0) {
+        HMODULE m = ExtModule(MOD_VR);
+        FARPROC f = m ? GetProcAddress(m, "NfsmwVr_SetOverlay") : nullptr;
+        typedef int(__cdecl * Shown_t)();
+        typedef int(__cdecl * Draw_t)(IDirect3DDevice9*, int, int);
+        state = f && ((int(__cdecl*)(Shown_t, Draw_t))f)(&VrOverlayShown, &VrOverlayDraw) ? 1 : 0;
+        Log("ui: telemetry panel drawn by %s", state ? "the VR mod, after its HUD phase" : "this mod, with the HUD");
+    }
+    return state == 1;
+}
+
 }  // namespace
 
 // Each menu row on another mod's setting must name the same key as the kExt entry it points at
@@ -3329,8 +3245,10 @@ void Ui_Frame() {
     }
     UpdateMenu(in, st.driving);
     if (float* v = ExtSetting(VR_MENUOPEN)) *v = s_menu.open ? 1.0f : 0.0f;
+    Telemetry_Frame(st.driving);
     if (!st.driving) return;
-    if (!(s_menu.open || (g_cfg.gauge && (st.wear || st.blown)))) return;
+    bool telemetry = Telemetry_Shown() && (s_menu.open || !VrOverlay());
+    if (!(s_menu.open || telemetry || (g_cfg.gauge && (st.wear || st.blown)))) return;
 
     IDirect3DSurface9* rt = nullptr;
     if (FAILED(dev->GetRenderTarget(0, &rt)) || !rt) return;
@@ -3339,13 +3257,17 @@ void Ui_Frame() {
     rt->Release();
     if (FAILED(hr) || desc.Height < 100) return;
 
+    // The panel first, so the menu covers it.
+    if (telemetry) Telemetry_Draw(dev, desc.Width, desc.Height);
+
     float k = desc.Height / 768.0f * g_cfg.uiScale;
     int px = std::max(8, (int)roundf(16 * k));
     if (px != s_font.px) {
-        BuildFont(px);
+        draw2d::BuildFont(s_font, px);
         Log("ui: font %d px for %ux%u", px, desc.Width, desc.Height);
     }
     if (!s_font.height) return;
+    draw2d::UseFont(s_font);
 
     if (!s_menu.open) s_im.wasOpen = false;
     if (s_menu.open && !g_cfg.classicMenu) {

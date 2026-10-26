@@ -84,6 +84,7 @@ struct Config {
     std::string recenterVr;         // recentres the VR view (the VR mod's recentre key), also outside the F4 menu
     std::string toggleAbs;          // [Controls] ToggleAbs: switches ABS on / off while driving
     std::string toggleTc;           // [Controls] ToggleTc: switches traction control on / off while driving
+    std::string toggleTelemetry = "key:RSHIFT";  // [Controls] ToggleTelemetry: shows / hides the telemetry panel
     std::string seat[7];            // VR seat (the cockpit camera), held: Seat order (input.h)
 
     // [Shifter]
@@ -189,6 +190,19 @@ struct Config {
     float gravity = 1.0f;
     bool  gravityAll = false;       // gravity applies to every car, not only the player's
     float maxSpin = 8.0f;           // the player's car never spins faster (rad/s); 0 = the game's 30
+
+    // [Telemetry] the panel of forces, tyres, suspension and downforce while driving (telemetry.h)
+    bool  telemetry = false;        // shown ([Controls] ToggleTelemetry switches it)
+    float telX = 0.13f;             // the panel's centre, fractions of the screen from the left
+    float telY = 0.42f;             // ... and from the top
+    float telSize = 0.8f;
+    float telOpacity = 1.0f;
+    float telSmooth = 0.12f;        // the needles' time constant (s)
+    float telTrail = 0.5f;          // how long the G-force dot's trail is (s)
+    bool  telShowG = true;          // blocks: the G-force circle,
+    bool  telShowTyres = true;      // the tyres' grip,
+    bool  telShowSusp = true;       // the suspension's travel,
+    bool  telShowAero = true;       // and the downforce
 
     // [UI] heat gauge and tuning menu, drawn with the HUD (on the VR mod's HUD panel in VR)
     bool  gauge = false;            // placeholder look, off until it matches the game's HUD

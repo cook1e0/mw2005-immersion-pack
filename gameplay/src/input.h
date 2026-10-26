@@ -18,6 +18,7 @@ struct InputSnapshot {
     uint32_t recenters = 0;     // ... of [Controls] RecenterVr
     uint32_t absToggles = 0;    // ... of [Controls] ToggleAbs
     uint32_t tcToggles = 0;     // ... of [Controls] ToggleTc
+    uint32_t telemetryToggles = 0;  // ... of [Controls] ToggleTelemetry
     uint32_t seatDown = 0;      // bit per Seat: held
     uint32_t menuNav[4] = {};   // ... of MenuUp / MenuDown / MenuLeft / MenuRight, with key repeat
 

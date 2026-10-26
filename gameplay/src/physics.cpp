@@ -216,6 +216,7 @@ constexpr int kTire_SideForce = 0xD8;               // ... side force this step 
 // ... the drivetrain's torque on the wheel this step (N m): UpdateLoaded scales it by 1 - handbrake
 // (0x69DBD5, the handbrake declutches); the brake torque is at +0xE4.
 constexpr int kTire_DriveTorque = 0xE0;
+constexpr int kTire_BrakeTorque = 0xE4;
 constexpr uintptr_t kGripLimit = 0x69DFCE;          // UpdateLoaded: fmul [esp+0x1C]; fstp [esp+0x1C] (the grip limit)
 constexpr int kSR_SuspLayout = 0xC8;                // SuspensionRacer: chassis layout DoWheelForces reads
 // Chassis layout AxlePairs (front, rear): rebound and bump damping, springs, anti-roll bars.
@@ -253,6 +254,11 @@ float s_wheelTie[4] = {1.0f, 1.0f, 1.0f, 1.0f};
 extern "C" float s_budget[4];
 float s_budget[4];
 float s_gas = 0.0f;         // the player's throttle at the last DoDrifting
+// The player's car for the telemetry panel (Physics_Sample), and its tyres and their grip limits
+// while its suspension steps.
+CarSample s_sample;
+uint8_t* s_telTires[4];
+float s_telGrip[4];
 float s_refLoad[2];         // a front / rear tyre's static load (N), for load sensitivity
 float s_lsRatio[4], s_lsFactor[4];  // the last step's load sensitivity, for the log
 // The player's suspension and aero steps this second, for the diagnostics line ([Physics] LogPhysics).
@@ -397,13 +403,56 @@ bool Stock() {
 float s_suspDT = 0.0f;                  // the player's last suspension step (ABS and TC time their pulses by it)
 float s_playerSpeed = 0.0f;             // m/s, from the player's rigid body at its last step
 
+typedef float(__thiscall* WheelFloat_t)(void* susp, unsigned wheel);
+typedef bool(__thiscall* WheelBool_t)(void* susp, unsigned wheel);
+constexpr int kISusp_OnGround = 0x24, kISusp_Compression = 0x28;   // ISuspension vtable slots
+
+// Before the player's suspension step: its tyres, whose grip limits GripLimit keeps for the
+// telemetry panel.
+void StartSample(uint8_t* iface) {
+    for (int i = 0; i < 4; i++) {
+        uint8_t* tire = *(uint8_t**)(iface + kSuspIface_Tires + i * 4);
+        s_telTires[i] = Plausible((uintptr_t)tire) ? tire : nullptr;
+        s_telGrip[i] = 0.0f;
+    }
+    s_sample.body = false;
+}
+
+// After the player's suspension step: what it did to each wheel. The body (axes, velocity, mass,
+// downforce) was taken during the step by Hook_DoAerodynamics.
+void EndSample(uint8_t* iface, float dT) {
+    CarSample& c = s_sample;
+    c.wheels = true;
+    for (int i = 0; i < 4; i++) {
+        uint8_t* tire = s_telTires[i];
+        s_telTires[i] = nullptr;
+        if (!tire) {
+            c.wheels = false;
+            continue;
+        }
+        CarSample::Wheel& w = c.wheel[i];
+        w.onGround = ((WheelBool_t)(*(uintptr_t**)iface)[kISusp_OnGround / 4])(iface, i);
+        w.compression = ((WheelFloat_t)(*(uintptr_t**)iface)[kISusp_Compression / 4])(iface, i);
+        w.load = Field<float>(tire, kTire_Load);
+        w.side = Field<float>(tire, kTire_SideForce);
+        // The force along the tyre as the gripping model has it: (drive + brake torque) / radius.
+        float radius = Field<float>(tire, kTire_Radius);
+        w.along = radius > 0.05f ? (Field<float>(tire, kTire_DriveTorque) + Field<float>(tire, kTire_BrakeTorque)) / radius : 0.0f;
+        w.grip = s_telGrip[i];
+        w.kept = Field<float>(tire, kTire_GripUsed);
+    }
+    c.dt = dT;
+    c.step++;
+}
+
 void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     uint8_t* iface = (uint8_t*)Game_PlayerInterface((void*)kISuspensionHandle);
     bool player = Owns(susp, iface);
     s_playerSusp = player;
-    if (player) s_suspDT = dT, s_diag.suspSteps++;
+    if (player) s_suspDT = dT, s_diag.suspSteps++, StartSample(iface);
     if (!player || !g.ok || !g_cfg.physics || Stock()) {
         s_origSusp(susp, dT);
+        if (player) EndSample(iface, dT);
         s_playerSusp = false;
         return;
     }
@@ -447,6 +496,7 @@ void __fastcall Hook_SuspSimulate(uint8_t* susp, void*, float dT) {
     s_origSusp(susp, dT);
     for (uint8_t*& t : s_latTires) t = nullptr;
     Restore(sv);
+    EndSample(iface, dT);
     s_playerSusp = false;
 }
 
@@ -555,8 +605,7 @@ bool OffroadTire(uint8_t* tire);
 // Load sensitivity, for a player's tyre: its grip limit times (load / static load)^-LoadSensitivity.
 extern "C" __attribute__((used)) void GripLimit(uint8_t* tire, float* limit) {
     float k = g_cfg.loadSensitivity;
-    if (k <= 0.0f) return;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 4 && k > 0.0f; i++) {
         if (s_latTires[i] != tire) continue;
         float ref = s_refLoad[i >= 2], load = Field<float>(tire, kTire_Load);
         if (ref > 1.0f && load > 0.0f && *limit > 0.0f) {
@@ -564,8 +613,11 @@ extern "C" __attribute__((used)) void GripLimit(uint8_t* tire, float* limit) {
             *limit *= f;
             s_lsRatio[i] = r, s_lsFactor[i] = f;
         }
-        return;
+        break;
     }
+    // The player's grip limits, for the telemetry panel (whatever the physics settings).
+    for (int i = 0; i < 4; i++)
+        if (s_telTires[i] == tire) s_telGrip[i] = *limit;
 }
 
 // In place of the grip limit's last multiply and store (8 bytes): the same, then GripLimit on the
@@ -730,17 +782,54 @@ typedef void(__thiscall* DoAerodynamics_t)(void* chassis, const uint8_t* state, 
 typedef void*(__thiscall* GetRigidBody_t)(void* simable);
 typedef void(__thiscall* ResolveForce_t)(void* rb, const float* force, const float* point);
 
+// The game's downforce (N), as DoAerodynamics has it: less when tilted with fewer than two wheels
+// down, none going backwards, 0.8 in the air, the Aerodynamics tuning a quarter per step.
+float GameDownforce(const uint8_t* state, uint8_t* layout, float aero, const uint8_t* tunings) {
+    const float* m = (const float*)state;
+    float mass = *(const float*)(state + kSt_Mass), speed = *(const float*)(state + kSt_Speed);
+    if (aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return 0.0f;
+    float tuning = tunings ? *(const float*)(tunings + kTunings_Aero) : 0.0f;
+    float ground = *(const float*)(state + kSt_Ground);
+    float upness = ground >= 0.5f ? 1.0f : std::max(m[5], 0.0f);
+    const float* vel = (const float*)(state + kSt_LinearVel);
+    float forwardness = std::max((vel[0] * m[8] + vel[1] * m[9] + vel[2] * m[10]) / speed, 0.0f);
+    forwardness = std::max(*(const float*)kAeroDropOffMin, powf(forwardness, *(const float*)kAeroDropOff));
+    float game = aero * upness * forwardness * speed * Field<float>(layout, kChL_AeroCoef) * 2000.0f;
+    if (ground == 0.0f) game *= 0.8f;
+    return game + game * 0.25f * tuning;
+}
+
+// The player's body for the telemetry panel, from its Chassis::State in the suspension step: its
+// axes, velocity and mass, the downforce on it (the game's, times [Physics] Downforce as
+// Hook_DoAerodynamics adds it while the physics settings are on), and where that and the weight sit.
+void SampleBody(const uint8_t* state, uint8_t* layout, float game) {
+    CarSample& c = s_sample;
+    const float* m = (const float*)state;
+    for (int k = 0; k < 3; k++) c.right[k] = m[k], c.up[k] = m[4 + k], c.fwd[k] = m[8 + k];
+    memcpy(c.vel, state + kSt_LinearVel, sizeof(c.vel));
+    c.mass = *(const float*)(state + kSt_Mass);
+    float speed = *(const float*)(state + kSt_Speed);
+    float shape = g_cfg.downforceSquared ? speed / (g_cfg.downforceMatch / 3.6f) : 1.0f;
+    c.downforce = g_cfg.physics ? game * g_cfg.downforce * shape : game;
+    c.aeroFront = Clamp(Field<float>(layout, kChL_AeroCg) * 0.01f, 0.0f, 1.0f);
+    float bias = Field<float>(layout, kChL_WeightBias) * 0.01f;
+    c.weightFront = bias > 0.2f && bias < 0.8f ? bias : 0.5f;
+    c.body = c.mass > 1.0f;
+}
+
 // The game's own aerodynamics, then for the player's car the difference between the game's own
 // downforce (as DoAerodynamics computes it) and [Physics] Downforce times it, times
 // speed / DownforceMatchSpeed with DownforceSquared, at the same point.
 void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* state, float drag, float aero, float frontZ,
                                     float rearZ, const uint8_t* tunings) {
     ((DoAerodynamics_t)kDoAerodynamics)(chassis, state, drag, aero, frontZ, rearZ, tunings);
-    if (!s_playerSusp || !g_cfg.physics || !state) return;
-    s_diag.aeroSteps++;
+    if (!s_playerSusp || !state) return;
     const float* m = (const float*)state;   // rows: right, up, forward, position (4 floats each)
     uint8_t* layout = Field<uint8_t*>(chassis, kCh_Layout);
     if (!Plausible((uintptr_t)layout)) return;
+    SampleBody(state, layout, GameDownforce(state, layout, aero, tunings));
+    if (!g_cfg.physics) return;
+    s_diag.aeroSteps++;
     float mass = *(const float*)(state + kSt_Mass), speed = *(const float*)(state + kSt_Speed);
     float tuning = tunings ? *(const float*)(tunings + kTunings_Aero) : 0.0f;
     float coef = Field<float>(layout, kChL_AeroCoef), aeroCg = Field<float>(layout, kChL_AeroCg);
@@ -764,16 +853,8 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
     }
     s_diag.gameForce = s_diag.extraForce = 0.0f;
     if (aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
-    // The game's downforce, as DoAerodynamics has it: less when tilted with fewer than two wheels
-    // down, none going backwards, 0.8 in the air, the Aerodynamics tuning a quarter per step.
     float ground = *(const float*)(state + kSt_Ground);
-    float upness = ground >= 0.5f ? 1.0f : std::max(m[5], 0.0f);
-    const float* vel = (const float*)(state + kSt_LinearVel);
-    float forwardness = std::max((vel[0] * m[8] + vel[1] * m[9] + vel[2] * m[10]) / speed, 0.0f);
-    forwardness = std::max(*(const float*)kAeroDropOffMin, powf(forwardness, *(const float*)kAeroDropOff));
-    float game = aero * upness * forwardness * speed * coef * 2000.0f;
-    if (ground == 0.0f) game *= 0.8f;
-    game += game * 0.25f * tuning;
+    float game = GameDownforce(state, layout, aero, tunings);
     if (game <= 0.0f) return;
     s_diag.gameForce = game;
     float downforce = g_cfg.downforce;
@@ -1950,6 +2031,8 @@ void Physics_Install() {
         "gravity %.2f%s)", g_cfg.physics ? "on" : "off", g_cfg.tractionControl * 100, g_cfg.stability * 100,
         g_cfg.driftAssist * 100, g_cfg.grip, g_cfg.gravity, g_cfg.gravityAll ? " all cars" : "");
 }
+
+const CarSample& Physics_Sample() { return s_sample; }
 
 void Physics_Frame() {
     AidToggles();
