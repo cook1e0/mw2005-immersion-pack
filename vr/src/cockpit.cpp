@@ -13,7 +13,7 @@
 // The seat: the head of the driver nearest the game camera is measured each frame, in the space of
 // the car body it is drawn with. In the bumper and hood cameras (camera close to the head) the
 // eyes are put there, plus a per-car offset adjusted with the seat keys and saved to [Seat] in
-// nfsmw_vr.ini, and they take the car body's orientation, not the game camera's. The bumper and
+// nfsmw_vr_seat.ini, and they take the car body's orientation, not the game camera's. The bumper and
 // hood cameras lag and shake against the car, so a seat that followed the game camera (as it did
 // at first, from the previous frame's measurement) wobbled inside the car. The body matrix is
 // rebuilt before the eyes render the same way CarRenderConn::OnRender builds it, so the eyes
@@ -315,16 +315,65 @@ double Now() {
     return (double)c.QuadPart / (double)f.QuadPart;
 }
 
-const char* IniPath() {
-    static char path[MAX_PATH];
-    if (!path[0]) ConfigFile("nfsmw_vr.ini", path, false);
-    return path;
+// Per-car settings in a file of their own per kind, next to nfsmw_vr.ini, each keeping its
+// section from there ([Seat] <car>=..., Default included), so one can be shared or replaced without
+// the rest. The triangle editor's are in nfsmw_vr_edits.ini.
+struct CarIniFile {
+    const char* section;
+    const char* name;
+    char path[MAX_PATH];
+};
+CarIniFile s_carInis[] = {{"Seat", "nfsmw_vr_seat.ini"},
+                          {"Hud", "nfsmw_vr_hud.ini"},
+                          {"Dash", "nfsmw_vr_dash.ini"},
+                          {"DashLayout", "nfsmw_vr_dash.ini"},
+                          {"MirrorOffset", "nfsmw_vr_mirror.ini"},
+                          {"WheelPivot", "nfsmw_vr_wheel.ini"}};
+
+// Sections still in nfsmw_vr.ini (where they were before) are moved to their files, once; a line
+// moved over replaces the file's (the file may be a release's defaults, the old line your own).
+void MoveCarSections() {
+    char ini[MAX_PATH];
+    ConfigFile("nfsmw_vr.ini", ini, false);
+    std::vector<char> names(1 << 14), buf(1 << 16);
+    DWORD n = GetPrivateProfileSectionNamesA(names.data(), (DWORD)names.size(), ini);
+    std::set<std::string> present;
+    for (const char* p = names.data(); p < names.data() + n && *p; p += strlen(p) + 1) present.insert(p);
+    for (CarIniFile& f : s_carInis) {
+        if (!present.count(f.section)) continue;
+        DWORD len = GetPrivateProfileSectionA(f.section, buf.data(), (DWORD)buf.size(), ini);
+        if (len >= buf.size() - 2) continue;                // truncated: leave it where it is
+        bool ok = true;
+        int lines = 0;
+        for (const char* p = buf.data(); p < buf.data() + len && *p; p += strlen(p) + 1) {
+            const char* eq = strchr(p, '=');
+            if (*p == ';' || !eq || eq == p) continue;
+            std::string key(p, eq - p);
+            ok = WritePrivateProfileStringA(f.section, key.c_str(), eq + 1, f.path) && ok;
+            lines++;
+        }
+        if (!ok) continue;
+        WritePrivateProfileStringA(f.section, nullptr, nullptr, ini);
+        Log("cockpit: [%s] (%d lines) moved from nfsmw_vr.ini to %s", f.section, lines, f.name);
+    }
+}
+
+const char* CarIni(const char* section) {
+    static bool ready;
+    if (!ready) {
+        ready = true;
+        for (CarIniFile& f : s_carInis) ConfigFile(f.name, f.path, false);
+        MoveCarSections();
+    }
+    for (CarIniFile& f : s_carInis)
+        if (strcmp(f.section, section) == 0) return f.path;
+    return s_carInis[0].path;
 }
 
 void LoadOffset(const std::string& car) {
     char buf[96];
-    GetPrivateProfileStringA("Seat", car.c_str(), "", buf, sizeof(buf), IniPath());
-    if (!buf[0]) GetPrivateProfileStringA("Seat", "Default", "0,0,0", buf, sizeof(buf), IniPath());
+    GetPrivateProfileStringA("Seat", car.c_str(), "", buf, sizeof(buf), CarIni("Seat"));
+    if (!buf[0]) GetPrivateProfileStringA("Seat", "Default", "0,0,0", buf, sizeof(buf), CarIni("Seat"));
     s_offset[0] = s_offset[1] = s_offset[2] = 0;
     sscanf(buf, "%f,%f,%f", &s_offset[0], &s_offset[1], &s_offset[2]);
     s_offsetCar = car;
@@ -334,7 +383,7 @@ void LoadOffset(const std::string& car) {
 void SaveOffset() {
     char buf[96];
     snprintf(buf, sizeof(buf), "%.3f,%.3f,%.3f", s_offset[0], s_offset[1], s_offset[2]);
-    WritePrivateProfileStringA("Seat", s_offsetCar.c_str(), buf, IniPath());
+    WritePrivateProfileStringA("Seat", s_offsetCar.c_str(), buf, CarIni("Seat"));
     s_offsetDirty = false;
     Log("cockpit: seat for %s saved: %s", s_offsetCar.c_str(), buf);
 }
@@ -390,7 +439,7 @@ void SavePerCar(PerCar& p) {
     int len = 0;
     for (int i = 0; i < p.n && len < (int)sizeof(buf) - 16; i++)
         len += snprintf(buf + len, sizeof(buf) - len, i ? ",%.4f" : "%.4f", *p.v[i]);
-    WritePrivateProfileStringA(p.section, p.car.c_str(), buf, IniPath());
+    WritePrivateProfileStringA(p.section, p.car.c_str(), buf, CarIni(p.section));
     p.dirty = false;
     Log("cockpit: %s for %s saved: %s", p.what, p.car.c_str(), buf);
 }
@@ -405,7 +454,7 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         if (p.dirty && !p.car.empty()) SavePerCar(p);
         p.car = car;
         char buf[512];
-        GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), IniPath());
+        GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), CarIni(p.section));
         // Lines saved before a value existed lack it: those start from the mod's built-in value
         // (older [Hud]: no "right", 0; [Dash]: no angles, 0), never the car we came from.
         float x[20] = {};

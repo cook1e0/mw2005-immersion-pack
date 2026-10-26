@@ -11,7 +11,7 @@ anchor switches, LOD changes and frame lifecycle.
 
 - **Seat:** in the bumper and hood cameras the VR eyes start at the driver model's head, so you sit
   in the driver's seat with the car's own dashboard, wheel and the driver's hands in front of you.
-  Numpad 8/2, 4/6, 9/3 move the seat (held), 5 resets; saved per car in `[Seat]` of `nfsmw_vr.ini`.
+  Numpad 8/2, 4/6, 9/3 move the seat (held), 5 resets; saved per car in `nfsmw_vr_seat.ini`.
 - **Head:** the driver model's head is left out when it is within 0.6 m of the eyes (only the
   player's car in practice). `HeadSize` (default 0.25 m) is how far down from the top of the driver
   model is cut.
