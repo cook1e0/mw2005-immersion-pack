@@ -155,6 +155,33 @@ static void TestReloadedDriver() {
     Check(s_retired.empty(), "retired drivers freed at the end of the frame");
 }
 
+static void TestHiddenMirrorGeometry() {
+    static uint8_t solid[0x100], plat[0x40], entry[kEntrySize], format[16];
+    static float verts[] = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    static uint16_t indices[] = {0, 1, 1};
+    static FakeIb ib;
+    At<uint8_t*>(solid, kSolidPlat) = plat;
+    At<int>(plat, kPlatNumEntries) = 1;
+    At<uint8_t*>(plat, kPlatEntries) = entry;
+    At<uint16_t*>(plat, kPlatIndices) = indices;
+    At<IDirect3DIndexBuffer9*>(plat, kPlatIndexBuffer) = &ib;
+    At<int>(plat, kPlatNumIndices) = 3;
+    At<int>(format, 8) = 12;
+    At<uint8_t*>(entry, kEntryFormat) = format;
+    At<int>(entry, kEntryTris) = 1;
+    At<float*>(entry, kEntryVertices) = verts;
+    At<int>(entry, kEntryVertexBytes) = sizeof(verts);
+    s_solids[solid].hidden[TriId(0, 1, 2)] = {0, 1, 2};
+    std::vector<V3> triangles;
+    SolidTriangles(solid, triangles, [](const V3*) { return true; });
+    Check(triangles.size() == 3 && triangles[2].y == 1 && indices[2] == 1,
+          "mirror detection sees hidden original without restoring its draw");
+    s_solids.erase(solid);
+    triangles.clear();
+    SolidTriangles(solid, triangles, [](const V3*) { return true; });
+    Check(triangles.empty(), "unrecognized degenerate triangle is ignored");
+}
+
 // A seated driver with a body, an arm and a head: triangles reordered body, arm, head, and the
 // entry drawn as the ranges the settings leave in.
 static void TestArms() {
@@ -397,6 +424,31 @@ static void TestMirrorGlass() {
         MirrorGlass pr = mirror::FindGlass(punto, false, mirror::GlassKind::RearView);
         Check(pr.ok && fabsf(2 * pr.halfU - 0.2f) < 0.01f && fabsf(pr.centre.z - 1.05f) < 0.01f,
               "rear view mirror found without a far piece in its plane");
+        // An asymmetric corner must be clipped equally on both sides without losing the mirror.
+        MirrorGlass asym = pr;
+        V3 c = asym.centre;
+        auto point = [c, &asym](float x, float y) {
+            return V3{c.x + asym.u.x*x + asym.v.x*y, c.y + asym.u.y*x + asym.v.y*y,
+                      c.z + asym.u.z*x + asym.v.z*y};
+        };
+        V3 poly[] = {point(-0.1f,-0.034f), point(0.1f,-0.034f), point(0.1f,0.034f),
+                     point(-0.05f,0.034f), point(-0.1f,0.01f)};
+        asym.tris.clear();
+        for (int i = 1; i < 4; i++) { asym.tris.push_back(poly[0]); asym.tris.push_back(poly[i]); asym.tris.push_back(poly[i+1]); }
+        std::vector<float> sym;
+        GlassVertices(asym, Identity(), sym, 0.0f, 1.0f, true);
+        Check(sym.size() >= 15, "symmetric Punto mirror remains drawable");
+        for (size_t i = 0; i < sym.size(); i += 5) {
+            V3 p = {sym[i], sym[i+1], sym[i+2]};
+            float x = mirror::Dot(mirror::Sub(p, c), asym.u), y = mirror::Dot(mirror::Sub(p, c), asym.v);
+            bool matched = false;
+            for (size_t j = 0; j < sym.size(); j += 5) {
+                V3 q = {sym[j], sym[j+1], sym[j+2]};
+                if (fabsf(mirror::Dot(mirror::Sub(q, c), asym.u) + x) < 0.0001f &&
+                    fabsf(mirror::Dot(mirror::Sub(q, c), asym.v) - y) < 0.0001f) matched = true;
+            }
+            Check(matched, "Punto outline has mirrored vertices");
+        }
         const float head[3] = {-0.2f, 0.37f, 0.97f};
         V3 at[3] = {{0.25f, 0.05f, 1.0f}, {0.3f, -0.05f, 1.0f}, {0.25f, 0.0f, 1.05f}};
         V3 ahead[3] = {{1.2f, 0.0f, 1.0f}, {1.3f, 0.0f, 1.0f}, {1.2f, 0.0f, 1.05f}};
@@ -566,6 +618,18 @@ static void TestEditsText() {
 }
 
 int main() {
+    TestHiddenMirrorGeometry();
+    Check(CarreraSide("CARRERAGT_KIT00_LEFT_SIDE_MIRROR_A") == 0 && CarreraSide("CARRERAGT_KIT00_RIGHT_SIDE_MIRROR_A") == 1, "Carrera solid sides");
+    Check(CarreraSide("CARRERAGT_KIT01_LEFT_SIDE_MIRROR_A") == -1 && CarreraSide("CAMARO_KIT00_BODY_A") == -1, "override scoped to stock Carrera solids");
+    const uint16_t left[] = {271, 254, 252}, right[] = {255, 254, 252}, housing[] = {251, 252, 253};
+    Check(CarreraTriangle(0, left) && !CarreraTriangle(1, left), "left selection ignores winding and remains side-specific");
+    Check(CarreraTriangle(1, right) && !CarreraTriangle(0, right), "right selection remains side-specific");
+    Check(!CarreraTriangle(0, housing) && !CarreraTriangle(1, housing), "housing not selected");
+    const uint16_t camaro[] = {7017, 7005, 7003}, camaroBody[] = {7003, 7004, 7018};
+    const uint16_t camaroLeft[] = {9178, 9166, 9164};
+    Check(CamaroTriangle(1, camaro) && !CamaroTriangle(0, camaro), "Camaro right selection ignores winding and side-specific");
+    Check(CamaroTriangle(0, camaroLeft) && !CamaroTriangle(1, camaroLeft), "Camaro left selection ignores winding and side-specific");
+    Check(!CamaroTriangle(1, camaroBody) && !CamaroTriangle(0, camaroBody), "Camaro body triangle excluded");
     TestWheelOctants();
     TestDash();
     TestEditsText();

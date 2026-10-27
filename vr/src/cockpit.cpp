@@ -1264,6 +1264,17 @@ template <class Keep> void SolidTriangles(uint8_t* solid, std::vector<V3>& out, 
         if (tris <= 0 || first < 0 || first + tris * 3 > m.numIndices) continue;
         for (int t = 0; t < tris; t++) {
             const uint16_t* tri = m.indices + first + t * 3;
+            // Editor hides collapse indices in the live mesh. Detection must still see the
+            // original geometry, otherwise hiding the glass also removes our mirror anchor.
+            auto found = s_solids.find(solid);
+            if (tri[0] != tri[1] && tri[1] == tri[2] && found != s_solids.end()) {
+                for (const auto& hidden : found->second.hidden)
+                    if (hidden.second[0] == tri[0] && hidden.second[1] == tri[1]) {
+                        tri = hidden.second.data();
+                        break;
+                    }
+            }
+            if (tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2]) continue;
             if (tri[0] >= m.numVerts || tri[1] >= m.numVerts || tri[2] >= m.numVerts) continue;
             V3 p[3] = {m.at(tri[0]), m.at(tri[1]), m.at(tri[2])};
             if (keep(p)) out.insert(out.end(), p, p + 3);
@@ -1282,6 +1293,82 @@ bool OnGlass(const SolidMesh& m, const MirrorGlass& g, const uint16_t* tri, floa
               fabsf(mirror::Dot(q, g.v) - cv) < g.halfV + margin))
             return false;
     }
+    return true;
+}
+
+// User-picked stock Carrera glass, sorted vertex triples. Do not apply to other kits or LODs.
+int CarreraSide(const char* name) {
+    if (!strcmp(name, "CARRERAGT_KIT00_LEFT_SIDE_MIRROR_A")) return 0;
+    if (!strcmp(name, "CARRERAGT_KIT00_RIGHT_SIDE_MIRROR_A")) return 1;
+    return -1;
+}
+bool CarreraTriangle(int side, const uint16_t* tri) {
+    static const uint16_t ids[2][18][3] = {
+        {{252,253,254},{252,254,271},{254,270,271},{255,256,257},{255,257,258},{257,258,259},
+         {258,259,260},{259,260,261},{260,261,262},{261,262,263},{262,263,264},{263,264,265},
+         {264,265,266},{265,266,267},{266,267,268},{267,268,269},{268,269,270},{269,270,271}},
+        {{252,253,254},{252,254,255},{252,255,271},{255,270,271},{256,257,258},{256,258,259},
+         {256,259,260},{259,260,261},{260,261,262},{261,262,263},{262,263,264},{263,264,265},
+         {264,265,266},{265,266,267},{266,267,268},{267,268,269},{268,269,270},{269,270,271}}
+    };
+    if (side < 0 || side > 1) return false;
+    uint16_t sorted[3] = {tri[0], tri[1], tri[2]};
+    std::sort(sorted, sorted + 3);
+    for (const auto& id : ids[side])
+        if (std::equal(sorted, sorted + 3, id)) return true;
+    return false;
+}
+
+bool CamaroTriangle(int side, const uint16_t* tri) {
+    static const uint16_t ids[2][14][3] = {
+        {{9164,9165,9166},{9164,9166,9178},{9164,9178,9179},{9166,9167,9168},
+         {9166,9168,9170},{9166,9170,9174},{9166,9174,9178},{9168,9169,9170},
+         {9170,9171,9172},{9170,9172,9174},{9172,9173,9174},{9174,9175,9176},
+         {9174,9176,9178},{9176,9177,9178}},
+        {
+        {7003,7004,7005},{7003,7005,7017},{7003,7017,7018},{7005,7006,7007},
+        {7005,7007,7009},{7005,7009,7017},{7007,7008,7009},{7009,7010,7011},
+        {7009,7011,7013},{7009,7013,7017},{7011,7012,7013},{7013,7014,7015},
+        {7013,7015,7017},{7015,7016,7017}}
+    };
+    if (side < 0 || side > 1) return false;
+    uint16_t sorted[3] = {tri[0], tri[1], tri[2]};
+    std::sort(sorted, sorted + 3);
+    for (const auto& id : ids[side]) if (std::equal(sorted, sorted + 3, id)) return true;
+    return false;
+}
+
+// Require the complete distinct selection before using a model-specific override.
+bool PickedGlass(const SolidMesh& m, int side, bool camaro, MirrorGlass& g) {
+    std::vector<std::vector<uint16_t>> found;
+    std::vector<V3> points;
+    for (int i = 0; i < m.n; i++) {
+        uint8_t* e = m.entries + i * kEntrySize;
+        int count = At<int>(e, kEntryTris), first = At<int>(e, kEntryFirstIndex);
+        if (count <= 0 || first < 0 || count > (m.numIndices - first) / 3) continue;
+        for (int t = 0; t < count; t++) {
+            const uint16_t* tri = m.indices + first + 3 * t;
+            if (!(camaro ? CamaroTriangle(side, tri) : CarreraTriangle(side, tri)) || tri[0] >= m.numVerts || tri[1] >= m.numVerts || tri[2] >= m.numVerts) continue;
+            std::vector<uint16_t> key(tri, tri + 3);
+            std::sort(key.begin(), key.end());
+            if (std::find(found.begin(), found.end(), key) != found.end()) continue;
+            found.push_back(key);
+            for (int k = 0; k < 3; k++) points.push_back(m.at(tri[k]));
+        }
+    }
+    if (found.size() != (camaro ? 14u : 18u) || !g.ok) return false;
+    float minU = 1e9f, maxU = -1e9f, minV = 1e9f, maxV = -1e9f;
+    for (V3 p : points) {
+        float u = mirror::Dot(p, g.u), v = mirror::Dot(p, g.v);
+        minU = std::min(minU, u); maxU = std::max(maxU, u);
+        minV = std::min(minV, v); maxV = std::max(maxV, v);
+    }
+    float du = (minU + maxU) * 0.5f - mirror::Dot(g.centre, g.u);
+    float dv = (minV + maxV) * 0.5f - mirror::Dot(g.centre, g.v);
+    g.centre = {g.centre.x + g.u.x * du + g.v.x * dv, g.centre.y + g.u.y * du + g.v.y * dv,
+                g.centre.z + g.u.z * du + g.v.z * dv};
+    g.halfU = (maxU - minU) * 0.5f; g.halfV = (maxV - minV) * 0.5f;
+    g.tris = points;
     return true;
 }
 
@@ -1405,7 +1492,7 @@ bool RegisterSharedGlass(uint8_t* solid, SolidInfo& info) {
 }
 
 // Glass without an entry of its own: split out of the entries it shares (GlassSplit).
-void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2]) {
+void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2], int carrera = -1, int camaro = 0) {
     char name[65] = {};
     memcpy(name, info.name, 64);
     SolidMesh m;
@@ -1425,7 +1512,9 @@ void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2]) {
             const uint16_t* tri = idx + t * 3;
             int cls = 0;
             for (int side = 0; side < 2 && !cls; side++)
-                if (need[side] && info.glass[side].ok && OnGlass(m, info.glass[side], tri)) cls = side + 1;
+                if (need[side] && info.glass[side].ok &&
+                    (carrera >= 0 ? side == carrera && CarreraTriangle(carrera, tri) :
+                     (camaro & (1 << side)) ? CamaroTriangle(side, tri) : OnGlass(m, info.glass[side], tri))) cls = side + 1;
             part[cls].insert(part[cls].end(), tri, tri + 3);
         }
         // A few stray triangles are not a mirror's glass.
@@ -1486,6 +1575,8 @@ void SplitSharedGlass(uint8_t* solid, SolidInfo& info, const bool need[2]) {
 void FindMirrors(uint8_t* solid, SolidInfo& info) {
     char name[65] = {};
     memcpy(name, info.name, 64);
+    int carrera = -1;
+    int camaro = 0;
     if (info.interior) {
         const HeadPos* head = CarHead(name);
         if (!head) return;
@@ -1508,6 +1599,12 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
         std::vector<V3> tris;
         SolidTriangles(solid, tris, [](const V3*) { return true; });
         info.glass[left ? 0 : 1] = mirror::FindGlass(tris);
+        int side = CarreraSide(name);
+        SolidMesh m;
+        if (side >= 0 && ReadMesh(solid, m) && PickedGlass(m, side, false, info.glass[side])) {
+            carrera = side;
+            Log("mirrors: %s: using all 18 user-picked glass triangles", name);
+        }
         info.mirrorKind = 1;
         if (info.glass[left ? 0 : 1].ok) s_hasMirrorSolids[CarOf(name)] = true;
     } else if (strstr(name, "_KIT") && strstr(name, "_BODY_")) {
@@ -1530,6 +1627,13 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
             });
             info.glass[side] = mirror::FindGlass(tris, false);
         }
+        SolidMesh m;
+        if (!strcmp(name, "CAMARO_KIT00_BODY_A") && ReadMesh(solid, m))
+            for (int side = 0; side < 2; side++)
+                if (PickedGlass(m, side, true, info.glass[side])) {
+                    camaro |= 1 << side;
+                    Log("mirrors: %s: using all 14 user-picked %s glass triangles", name, side ? "right" : "left");
+                }
         info.mirrorKind = 2;
     }
     for (int side = 0; side < 2; side++) {
@@ -1540,14 +1644,16 @@ void FindMirrors(uint8_t* solid, SolidInfo& info) {
     }
     if (info.mirrorKind == 1 && !info.glass[0].ok && !info.glass[1].ok) Log("mirrors: %s: no glass found", name);
     for (int side = 0; side < 2; side++)
-        if (info.glass[side].ok && g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name))) RegisterGlassEntry(solid, info, side);
-    if (g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name)) && info.glass[0].ok && info.glass[1].ok &&
-        info.glassFirsts[0].empty() && info.glassFirsts[1].empty())
-        if (!RegisterSharedGlass(solid, info)) {
-            // Mixed into the body's entries: split out of them.
-            const bool need[2] = {true, true};
-            SplitSharedGlass(solid, info, need);
+        if (carrera < 0 && !(camaro & (1 << side)) && info.glass[side].ok && g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name))) RegisterGlassEntry(solid, info, side);
+    if (g_cfg.gameMirrors && !SkipGameMirrors(CarOf(name))) {
+        const bool need[2] = {info.glass[0].ok && info.glassFirsts[0].empty(),
+                              info.glass[1].ok && info.glassFirsts[1].empty()};
+        if (need[0] && need[1]) {
+            if (camaro || !RegisterSharedGlass(solid, info)) SplitSharedGlass(solid, info, need, carrera, camaro);
+        } else if (need[0] || need[1]) {
+            SplitSharedGlass(solid, info, need, carrera, camaro);
         }
+    }
 }
 
 // The glass's outline in its own plane, across and up (u, v): the convex hull of the patch's
@@ -1587,11 +1693,41 @@ void GlassOutline(const MirrorGlass& g, std::vector<std::pair<float, float>>& hu
 // The glass's triangles in world space, `lift` metres toward the driver and shrunk by `scale`
 // about the glass's centre, with their place in the glass (0..1 across, 0..1 down) as texture
 // coordinates: x, y, z, u, v per vertex.
-void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, float lift = 0.008f, float scale = 1.0f) {
+void GlassVertices(const MirrorGlass& g, const M4& m, std::vector<float>& out, float lift = 0.008f, float scale = 1.0f,
+                   bool symmetric = false) {
     float cu = mirror::Dot(g.centre, g.u), cv = mirror::Dot(g.centre, g.v), cd = mirror::Dot(g.centre, g.normal);
     out.clear();
     std::vector<std::pair<float, float>> hull;
     GlassOutline(g, hull);
+    if (symmetric && hull.size() >= 3) {
+        // Intersect the outline with its horizontal reflection. Unlike a union, this cannot
+        // extend the overlay beyond the detected glass and into the housing.
+        auto original = hull;
+        std::vector<std::pair<float, float>> reflected;
+        for (auto it = original.rbegin(); it != original.rend(); ++it)
+            reflected.push_back({2 * cu - it->first, it->second});
+        for (size_t edge = 0; edge < reflected.size() && !hull.empty(); edge++) {
+            auto a = reflected[edge], b = reflected[(edge + 1) % reflected.size()];
+            auto side = [a, b](std::pair<float, float> p) {
+                return (b.first - a.first) * (p.second - a.second) - (b.second - a.second) * (p.first - a.first);
+            };
+            std::vector<std::pair<float, float>> clipped;
+            for (size_t i = 0; i < hull.size(); i++) {
+                auto p = hull[i], q = hull[(i + 1) % hull.size()];
+                float dp = side(p), dq = side(q);
+                if (dp >= 0) clipped.push_back(p);
+                if ((dp < 0 && dq > 0) || (dp > 0 && dq < 0)) {
+                    float t = dp / (dp - dq);
+                    clipped.push_back({p.first + t * (q.first - p.first), p.second + t * (q.second - p.second)});
+                }
+            }
+            hull.swap(clipped);
+        }
+        float area = 0;
+        for (size_t i = 0; i < hull.size(); i++)
+            area += hull[i].first * hull[(i + 1) % hull.size()].second - hull[(i + 1) % hull.size()].first * hull[i].second;
+        if (hull.size() < 3 || fabsf(area) < 1e-7f) hull.swap(original);
+    }
     for (size_t i = 1; i + 1 < hull.size(); i++) {
         const std::pair<float, float>* fan[3] = {&hull[0], &hull[i], &hull[i + 1]};
         for (const std::pair<float, float>* at : fan) {
@@ -1634,8 +1770,11 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         std::vector<float> verts, frame;
         float inner = std::min(std::max(g_cfg.mirrorScale, 0.5f), 1.0f);
         // MirrorOffset (per car, F4 > Menu and testing) moves it toward the driver or back into the glass.
-        GlassVertices(glass, mat, frame, 0.006f + g_cfg.mirrorOffset, 1.0f);
-        GlassVertices(glass, mat, verts, 0.010f + g_cfg.mirrorOffset, inner);
+        char name[65] = {};
+        memcpy(name, info.name, 64);
+        bool symmetric = CarOf(name) == "PUNTO";
+        GlassVertices(glass, mat, frame, 0.006f + g_cfg.mirrorOffset, 1.0f, symmetric);
+        GlassVertices(glass, mat, verts, 0.010f + g_cfg.mirrorOffset, inner, symmetric);
         if (g_cfg.mirrorFlip)
             for (size_t i = 3; i < verts.size(); i += 5) verts[i] = 1.0f - verts[i];
         uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);

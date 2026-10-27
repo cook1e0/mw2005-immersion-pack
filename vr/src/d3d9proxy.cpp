@@ -493,17 +493,12 @@ void D3D_SetGlassCorners(void* indexBuffer, int firstIndex, const float uv[8]) {
 
 // Texture coordinates across the glass for the glass's own vertices (in the game's own vertex
 // buffer, once per buffer and base): u along the glass within the job's range, v top to bottom.
-static void MapGlassVertices(MirrorGlassJob& j, INT base) {
+struct SavedGlassUV { UINT offset; float uv[2]; };
+static void MapGlassVertices(MirrorGlassJob& j, INT base, std::vector<SavedGlassUV>& saved) {
     if (j.parts.empty()) return;
     IDirect3DVertexBuffer9* vb = nullptr;
     UINT offset = 0, stride = 0;
     if (FAILED(s_dev->GetStreamSource(0, &vb, &offset, &stride)) || !vb) return;
-    for (auto& m : j.mapped)
-        if (m.first == vb && m.second == base) {
-            vb->Release();
-            return;
-        }
-    j.mapped.push_back({vb, base});
     int posOfs = -1, uvOfs = -1;
     IDirect3DVertexDeclaration9* decl = nullptr;
     if (SUCCEEDED(s_dev->GetVertexDeclaration(&decl)) && decl) {
@@ -544,6 +539,8 @@ static void MapGlassVertices(MirrorGlassJob& j, INT base) {
             UINT i = v - lo;
             const float* pos = (const float*)(p + i * stride + posOfs);
             float* uv = (float*)(p + i * stride + uvOfs);
+            SavedGlassUV old = {offset + (firstVertex + i) * stride + (UINT)uvOfs, {uv[0], uv[1]}};
+            saved.push_back(old);
             float pu = pos[0] * b[3] + pos[1] * b[4] + pos[2] * b[5], pv = pos[0] * b[6] + pos[1] * b[7] + pos[2] * b[8];
             float s = b[9] > 0 ? (pu - (cu - b[9])) / (2 * b[9]) : 0.5f, t = b[10] > 0 ? ((cv + b[10]) - pv) / (2 * b[10]) : 0.5f;
             s = s < 0 ? 0 : s > 1 ? 1 : s;
@@ -558,6 +555,23 @@ static void MapGlassVertices(MirrorGlassJob& j, INT base) {
     if (logged++ < 4) Log("d3d9: side mirror glass: %u vertices given the rear view's coordinates", (unsigned)mappedVerts);
 }
 
+// The body and mirror may share vertices. Restore their original texture coordinates after
+// the mirror draw so subsequent body draws never inherit the rear-view mapping.
+static void RestoreGlassVertices(const std::vector<SavedGlassUV>& saved) {
+    if (saved.empty()) return;
+    IDirect3DVertexBuffer9* vb = nullptr;
+    UINT offset = 0, stride = 0;
+    if (FAILED(s_dev->GetStreamSource(0, &vb, &offset, &stride)) || !vb) return;
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
+        void* p = nullptr;
+        if (SUCCEEDED(vb->Lock(it->offset, sizeof(it->uv), &p, 0)) && p) {
+            memcpy(p, it->uv, sizeof(it->uv));
+            vb->Unlock();
+        }
+    }
+    vb->Release();
+}
+
 
 // The glass's draw: its own texture (sampler 0, a 2D texture; the car shader's environment cube is
 // on sampler 1) is the rear view for this draw.
@@ -569,7 +583,8 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
     for (size_t i : jobs->second) {
         MirrorGlassJob& j = s_glassJobs[i];
         if (j.first != start) continue;
-        MapGlassVertices(j, base);
+        std::vector<SavedGlassUV> saved;
+        MapGlassVertices(j, base, saved);
         int stage = -1;
         IDirect3DBaseTexture9* t0 = nullptr;
         real->GetTexture(0, &t0);
@@ -591,6 +606,7 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
                     if (t) t->Release();
                 }
             }
+            RestoreGlassVertices(saved);
             return false;
         }
         IDirect3DBaseTexture9* orig = nullptr;
@@ -615,6 +631,7 @@ static bool DrawMirrorGlassNative(IDirect3DDevice9Ex* real, D3DPRIMITIVETYPE typ
             real->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
         }
         *hr = real->DrawIndexedPrimitive(type, base, minIndex, verts, start, count);
+        RestoreGlassVertices(saved);
         if (map) {
             real->SetPixelShaderConstantF(0, oldC, 2);
             real->SetSamplerState(0, D3DSAMP_ADDRESSU, oldAddr[0]);
