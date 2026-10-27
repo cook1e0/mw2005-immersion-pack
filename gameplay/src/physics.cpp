@@ -3,7 +3,11 @@
 // The game models front, rear and all-wheel drive properly (SuspensionRacer::DoDriveForces
 // splits the torque by the transmission's TORQUE_SPLIT), but several aids hide the difference:
 // - traction control: DoDriveForces cuts torque to a spinning wheel while steering, scaled by
-//   Ramp(forward slip, 1, Tweak_TractionFowardSlip);
+//   Ramp(forward slip, 1, 20). The 20 is a constant in the code (push 0x41A00000 at 0x68F3F7),
+//   not Tweak_TractionFowardSlip: that float (0x8AAD94) holds 20 too, but only DoInduction and
+//   Chassis::DoJumpStabilizer read it. Up to v0.29.0 the mod set it to 1e9 for TC off, which left
+//   the game's TC on and made the jump stabiliser's in-air torque 5e7 times too strong (the
+//   billions of N m the spin limit below was catching). The code's constant is swapped instead;
 // - yaw control: rear tires get extra friction while the car rotates, up to MaxYawBonus
 //   (TuneWheelParams / YawFrictionBoost);
 // - drift stabiliser: DoDrifting damps rotation by DriftStabilizerTable;
@@ -153,7 +157,9 @@ namespace {
 constexpr uintptr_t kSuspSimulate = 0x6B1DD0;       // void SuspensionRacer::OnTaskSimulate(float)
 constexpr uintptr_t kRBBeginFrame = 0x6A7050;       // void RigidBody::OnBeginFrame(float)
 constexpr uintptr_t kGlobalGripScale = 0x8AAC94;    // float Tweak_GlobalGripScale (1.2)
-constexpr uintptr_t kTractionFwdSlip = 0x8AAD94;    // float Tweak_TractionFowardSlip (20)
+// DoDriveForces: push 20.0 (0x41A00000), the slip limit of its traction control's Ramp; the
+// float is the instruction's operand, at +1.
+constexpr uintptr_t kTcSlipPush = 0x68F3F7;
 constexpr uintptr_t kMaxYawBonus = 0x8F8D3C;        // float MaxYawBonus (0.35)
 constexpr uintptr_t kDriftRearTable = 0x8F8FB0;     // Table DriftRearFrictionTable: count +0, values* +0x10
 constexpr uintptr_t kDriftStabTable = 0x938210;     // tGraph DriftStabilizerTable: {x, y}* +0, count +4
@@ -240,6 +246,7 @@ constexpr float kPoppedDrag = 0.06f;
 
 typedef void(__thiscall* Simulate_t)(void* obj, float dT);
 Simulate_t s_origSusp, s_origRB;
+float* s_tcSlip = nullptr;      // DoDriveForces' traction control slip limit (kTcSlipPush + 1), once writable
 bool s_playerSusp;      // the player's suspension is simulating
 // The player's tyres while its suspension simulates (else null), and the traction each had where
 // UpdateLoaded picked its model this step (below 1: the sliding model).
@@ -339,14 +346,14 @@ const int kSuspOffsets[4] = {kChL_ShockExt, kChL_Shock, kChL_Spring, kChL_Swayba
 void Apply(uint8_t* susp, Saved& sv) {
     const Config& c = g_cfg;
     sv.grip = *(float*)kGlobalGripScale;
-    sv.slip = *(float*)kTractionFwdSlip;
+    if (s_tcSlip) sv.slip = *s_tcSlip;
     sv.yaw = *(float*)kMaxYawBonus;
     Character();
     const CarCharacter& ch = s_char;
     *(float*)kGlobalGripScale = sv.grip * c.grip * ch.grip;
     // DoDriveForces scales the cut by Ramp(slip, 1, limit) = (slip - 1) / (limit - 1).
     float tcStrength = c.tc ? 1.0f : c.tractionControl;   // TC on: the game's own at full strength
-    *(float*)kTractionFwdSlip = tcStrength > 0.01f ? 1.0f + (sv.slip - 1.0f) / tcStrength : 1.0e9f;
+    if (s_tcSlip) *s_tcSlip = tcStrength > 0.01f ? 1.0f + (sv.slip - 1.0f) / tcStrength : 1.0e9f;
     *(float*)kMaxYawBonus = sv.yaw * c.stability;
     float* graph = *(float**)kDriftStabTable;
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i] * c.stability;
@@ -380,7 +387,7 @@ void Apply(uint8_t* susp, Saved& sv) {
 
 void Restore(const Saved& sv) {
     *(float*)kGlobalGripScale = sv.grip;
-    *(float*)kTractionFwdSlip = sv.slip;
+    if (s_tcSlip) *s_tcSlip = sv.slip;
     *(float*)kMaxYawBonus = sv.yaw;
     float* graph = *(float**)kDriftStabTable;
     for (int i = 0; i < g.stabN; i++) graph[i * 2 + 1] = g.stab[i];
@@ -1968,18 +1975,22 @@ void Physics_Install() {
     if (!Expect(kSuspSimulate, {0x81, 0xEC, 0xFC, 0x00, 0x00, 0x00, 0x56, 0x8B, 0xF1}) ||
         !Expect(kRBBeginFrame, {0x51, 0x56, 0x8B, 0xF1, 0x8B, 0x46, 0x78}) ||
         !Expect(kRBBeginFrame + 0x9C, {0x8B, 0x86, 0x84, 0x00, 0x00, 0x00, 0xD9, 0x80, 0xF0, 0x00, 0x00, 0x00}) ||
-        *(float*)kTractionFwdSlip <= 1.0f || *(float*)kGlobalGripScale <= 0.0f) {
+        *(float*)kGlobalGripScale <= 0.0f) {
         Log("physics: sliders unavailable");
         return;
     }
-    // The two Tweak_ values live in .rdata.
-    for (uintptr_t at : {kGlobalGripScale, kTractionFwdSlip}) {
-        DWORD old;
-        if (!VirtualProtect((void*)at, 4, PAGE_READWRITE, &old)) {
-            Log("physics: cannot unprotect 0x%06X", (unsigned)at);
-            return;
-        }
+    // Tweak_GlobalGripScale lives in .rdata.
+    DWORD old;
+    if (!VirtualProtect((void*)kGlobalGripScale, 4, PAGE_READWRITE, &old)) {
+        Log("physics: cannot unprotect 0x%06X", (unsigned)kGlobalGripScale);
+        return;
     }
+    // The traction control's slip limit is an operand in the code: left writable to swap per step.
+    if (Expect(kTcSlipPush, {0x68, 0x00, 0x00, 0xA0, 0x41}) &&
+        VirtualProtect((void*)(kTcSlipPush + 1), 4, PAGE_EXECUTE_READWRITE, &old))
+        s_tcSlip = (float*)(kTcSlipPush + 1);
+    else
+        Log("physics: unexpected traction control code, the game's traction control stays");
     s_origSusp = (Simulate_t)Detour(kSuspSimulate, 6, (void*)&Hook_SuspSimulate);
     s_origRB = (Simulate_t)Detour(kRBBeginFrame, 7, (void*)&Hook_RBBeginFrame);
     InstallBlownTire();

@@ -189,7 +189,9 @@ A customised gameplay INI is kept, with the old shifter INI retained for manual 
   (`FEMultiImage::Clone`) added to the HUD package next to it; the clock icon gets the
   `COPS_ICON` texture. `LocalPlayer::CanDoGameBreaker` (0x6EDC90) turns the speedbreaker off.
 - Physics sliders: `SuspensionRacer::OnTaskSimulate` (0x6B1DD0) is detoured. For the player's
-  car, `Tweak_GlobalGripScale`, `Tweak_TractionFowardSlip` (traction control), `MaxYawBonus` and
+  car, `Tweak_GlobalGripScale`, `MaxYawBonus` and
   `DriftStabilizerTable` (stability), `DriftRearFrictionTable` (drift assist) and the tires'
   `GRIP_SCALE` per axle are swapped for the slider values during the call and restored after.
+  Traction control is the 20.0 operand of the `push` at 0x68F3F7 in `SuspensionRacer::DoDriveForces`,
+  swapped the same way (`Tweak_TractionFowardSlip` is the jump stabilizer's and the turbo's, not its).
   Gravity: `RigidBody::OnBeginFrame` (0x6A7050) scales `rigidbodyspecs.GRAVITY` the same way.
