@@ -110,8 +110,8 @@ uses; pick another from its drop-down (or step through them with left / right):
   Changing a slider in any car of the group changes it for all of them.
 - **This car's own**: values for this car alone.
 
-Character and real weight act on top of all three, so two cars in the same group still drive
-differently.
+Car character is one of the per-car sliders, and it and real weight act on each car's own data,
+so two cars in the same group still drive differently.
 
 Six groups come premade, with every player car in one, by class and drive:
 
@@ -153,8 +153,8 @@ between them, Right ticks, presses or raises, Left lowers or goes back.
   shows every profile there and what importing it does. A group becomes a new group, or replaces
   theirs of the same name (press twice); its cars move into it. A car's file becomes that car's own
   settings.
-- A profile holds every value, so it drives the same anywhere. Car character, real weight, the tyre
-  settings and the steering feel are each player's own (they're for every car).
+- A profile holds every value, so it drives the same anywhere. Real weight, ABS, wall bounce and
+  the steering feel are each player's own (they're for every car).
 
 In the ini a group is a `[Group.<name>]` section with the values and `Cars=` its cars
 (`Cars=camaro,gto,mustanggt`), and a car's own values are a `[Car.<name>]` section.
@@ -195,8 +195,8 @@ In the ini a group is a `[Group.<name>]` section with the values and `Cars=` its
 ### Downforce
 
 - **Downforce** (70%): a share of each car's own aero, so the race cars keep more than the road
-  cars. It only matters in fast corners: with **Downforce grows with speed squared** on (default)
-  there's almost none in town. Lower it if the car feels glued down at speed.
+  cars. It only matters in fast corners: it grows with the square of the speed, as real aero
+  does, so there's almost none in town. Lower it if the car feels glued down at speed.
 
 ## Steering feel (Force feedback page)
 
@@ -235,7 +235,7 @@ has far more of it than a road car.
 | ABS | `ABS` | on / off | on | | off |
 | Stability control | `Stability` | 0–100% | 0% | yes | 100% |
 | Drift assist | `DriftAssist` | 0–100% | 0% | yes | 100% |
-| Car character | `Character` | 0–100% | 50% | | 0% |
+| Car character | `Character` | 0–100% | 50% | yes | 0% |
 | Real weight distribution | `RealWeight` | on / off | on | | off |
 | Settings from | `[Group.<name>]` `Cars=`, or a `[Car.<name>]` section | Shared / a group / this car's own | Shared | | |
 | Grip | `Grip` | 0.3–2.0x | 0.75x | yes | 1.0x |
@@ -245,17 +245,17 @@ has far more of it than a road car.
 | Suspension firmness | `SuspensionFirmness` | 50–200% | 100% | yes | 100% |
 | Grip balance | `GripBalance` | −50–+50% | 0% | yes | 0% |
 | Grip when sliding | `TyreSlideGrip` | 50–100% | 85% | yes | 100% |
-| Tyre grip peaks at | `TyrePeakAngle` | 3–20° | 8° | | (none) |
-| Wheelspin in slides | `WheelspinInSlides` | 0–100% | 50% | | 0% |
-| Throttle takes side grip | `FrictionCircle` | 0–300% | 100% | | 0% |
+| Tyre grip peaks at | `TyrePeakAngle` | 3–20° | 8° | yes | (none) |
+| Wheelspin in slides | `WheelspinInSlides` | 0–100% | 50% | yes | 0% |
+| Throttle takes side grip | `FrictionCircle` | 0–300% | 100% | yes | 0% |
 | Downforce | `Downforce` | −25–200% | 70% | yes | 100% |
-| Downforce grows with speed squared | `DownforceSquared` | on / off | on | | off |
 | Wall bounce | `WallBounce` | 0–100% | 0% | | 100% |
 | Gravity | `Gravity` | 0.1–3 g | 1 g | yes | 1 g |
 
 In the ini only: `LoadSensitivity` (0.2: a more loaded tyre gains less than its share of grip, so
 weight transfer, roll balance and downforce act as in a real car; 0 = the game's),
-`DownforceMatchSpeed` (250 km/h: where the squared downforce equals the game's) and `MaxSpin`.
+`DownforceMatchSpeed` (250 km/h: where the downforce, which grows with the square of the speed
+while the physics sliders are on, equals the game's) and `MaxSpin`.
 
 **Reset page to game defaults** sets everything on the page to the unmodded game's values, the last
 column above.

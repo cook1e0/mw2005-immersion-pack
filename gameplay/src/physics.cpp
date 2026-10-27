@@ -63,8 +63,7 @@
 // Mustang's is 2.4 times its weight at 300 km/h (already 41% at 50 km/h), which is most of the
 // game's grip at speed (the grip limit is load * grip). That call is wrapped, and for the player's
 // car the downforce becomes [Physics] Downforce times the game's own (so each car keeps its own aero
-// and its Aerodynamics tuning), and with [Physics] DownforceSquared (the default) times
-// speed / DownforceMatchSpeed too, so it grows with the square of the speed like real aero and equals
+// and its Aerodynamics tuning), times speed / DownforceMatchSpeed too, so it grows with the square of the speed like real aero and equals
 // Downforce times the game's at that speed (250 km/h): much less in town, a little more at top
 // speed. The difference is added at the game's point (Chassis::State: matrix +0, linear_vel +0x50,
 // ground_effect +0x6C, cog +0x70, mass +0xAC, speed +0xBC; IRigidBody::ResolveForce(force, point),
@@ -816,7 +815,7 @@ void SampleBody(const uint8_t* state, uint8_t* layout, float game) {
     memcpy(c.vel, state + kSt_LinearVel, sizeof(c.vel));
     c.mass = *(const float*)(state + kSt_Mass);
     float speed = *(const float*)(state + kSt_Speed);
-    float shape = g_cfg.downforceSquared ? speed / (g_cfg.downforceMatch / 3.6f) : 1.0f;
+    float shape = speed / (g_cfg.downforceMatch / 3.6f);
     c.downforce = g_cfg.physics ? game * g_cfg.downforce * shape : game;
     c.aeroFront = Clamp(Field<float>(layout, kChL_AeroCg) * 0.01f, 0.0f, 1.0f);
     float bias = Field<float>(layout, kChL_WeightBias) * 0.01f;
@@ -826,7 +825,7 @@ void SampleBody(const uint8_t* state, uint8_t* layout, float game) {
 
 // The game's own aerodynamics, then for the player's car the difference between the game's own
 // downforce (as DoAerodynamics computes it) and [Physics] Downforce times it, times
-// speed / DownforceMatchSpeed with DownforceSquared, at the same point.
+// speed / DownforceMatchSpeed, at the same point.
 void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* state, float drag, float aero, float frontZ,
                                     float rearZ, const uint8_t* tunings) {
     ((DoAerodynamics_t)kDoAerodynamics)(chassis, state, drag, aero, frontZ, rearZ, tunings);
@@ -852,11 +851,10 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
     if (logged != chassis && mass > 1.0f) {
         logged = chassis;
         float game = kAeroRefSpeed * coef * 2000.0f * (1.0f + 0.25f * tuning);
-        float ours = game * g_cfg.downforce * (g_cfg.downforceSquared ? kAeroRefSpeed / (g_cfg.downforceMatch / 3.6f) : 1.0f);
+        float ours = game * g_cfg.downforce * kAeroRefSpeed / (g_cfg.downforceMatch / 3.6f);
         Log("physics: aero: the game's downforce at 300 km/h is %.0f%% of the car's weight, linear in speed "
-            "(AERO_COEFFICIENT %.4f, AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg); Downforce %.2f%s makes it %.0f%%",
-            game / (mass * 9.81f) * 100.0f, coef, aeroCg, tuning, mass, g_cfg.downforce,
-            g_cfg.downforceSquared ? " (with the speed squared)" : "", ours / (mass * 9.81f) * 100.0f);
+            "(AERO_COEFFICIENT %.4f, AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg); Downforce %.2f%s makes it %.0f%% (with the speed squared)",
+            game / (mass * 9.81f) * 100.0f, coef, aeroCg, tuning, mass, g_cfg.downforce, ours / (mass * 9.81f) * 100.0f);
     }
     s_diag.gameForce = s_diag.extraForce = 0.0f;
     if (aero <= 0.0f || mass <= 1.0f || speed < 1.0f) return;
@@ -865,8 +863,7 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
     if (game <= 0.0f) return;
     s_diag.gameForce = game;
     float downforce = g_cfg.downforce;
-    if (downforce == 1.0f && !g_cfg.downforceSquared) return;
-    float shape = g_cfg.downforceSquared ? speed / (g_cfg.downforceMatch / 3.6f) : 1.0f;
+    float shape = speed / (g_cfg.downforceMatch / 3.6f);
     float f = (downforce * shape - 1.0f) * game;   // + more down, - less (below 0 Downforce: lift)
     s_diag.extraForce = f;
     // At the game's aero point: the car's centre of gravity, moved along it by AERO_CG between the
@@ -1255,6 +1252,10 @@ const PerCar kPerCar[] = {
     {&Config::downforce, "Downforce", -0.25f, 2.0f},
     {&Config::suspFirmness, "SuspensionFirmness", 0.5f, 2.0f},
     {&Config::rollBalance, "RollBalance", -0.5f, 0.5f},
+    {&Config::character, "Character", 0.0f, 1.0f},
+    {&Config::tyrePeakAngle, "TyrePeakAngle", 3.0f, 20.0f},
+    {&Config::slideWheelspin, "WheelspinInSlides", 0.0f, 1.0f},
+    {&Config::frictionCircle, "FrictionCircle", 0.0f, 3.0f},
 };
 constexpr int kNumPerCar = sizeof(kPerCar) / sizeof(kPerCar[0]);
 // Keys of settings that are gone or were replaced (FrontGrip and RearGrip by GripBalance, SlideGrip
@@ -2023,8 +2024,7 @@ void Physics_Install() {
         Log("physics: unexpected tyre code, no load sensitivity");
     }
     if (RetargetCall(kCallDoAero, kDoAerodynamics, (void*)&Hook_DoAerodynamics))
-        Log("physics: downforce ready (%.2f x the game's%s)", g_cfg.downforce,
-            g_cfg.downforceSquared ? ", with the speed squared" : "");
+        Log("physics: downforce ready (%.2f x the game's, with the speed squared)", g_cfg.downforce);
     else
         Log("physics: unexpected suspension code, no aero setting");
     int slots = 0;

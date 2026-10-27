@@ -274,7 +274,6 @@ void LoadConfig() {
     c.offroadGrip = Clamp(ReadFloat("Physics", "OffroadGrip", c.offroadGrip), 0.2f, 1.0f);
     c.rainGrip = Clamp(ReadFloat("Physics", "RainGrip", c.rainGrip), 0.5f, 1.0f);
     c.downforce = Clamp(ReadFloat("Physics", "Downforce", c.downforce), -0.25f, 2.0f);
-    c.downforceSquared = ReadInt("Physics", "DownforceSquared", c.downforceSquared) != 0;
     c.downforceMatch = Clamp(ReadFloat("Physics", "DownforceMatchSpeed", c.downforceMatch), 50.0f, 400.0f);
     c.logPhysics = ReadInt("Physics", "LogPhysics", 0);
     c.wallBounce = Clamp(ReadFloat("Physics", "WallBounce", c.wallBounce), 0.0f, 1.0f);

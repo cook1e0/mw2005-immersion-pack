@@ -176,7 +176,6 @@ struct Config {
     float offroadGrip = 0.95f;      // tyre grip on grass, dirt, mud, gravel, sand
     float rainGrip = 0.9f;          // tyre grip in the rain
     float downforce = 0.7f;         // times the game's own aerodynamic downforce (below 0: lift), per car
-    bool  downforceSquared = true;  // the downforce grows with the square of the speed (as real aero), not linearly
     float downforceMatch = 250.0f;  // km/h where the squared downforce equals the game's (times Downforce)
     float loadSensitivity = 0.2f;   // a tyre's grip limit grows with load^(1 - this), around its static load (0 = the game's)
     float tyreSlideGrip = 0.85f;    // side grip of a tyre sliding well past its peak, compared with the peak (1 = the game's tyres), per car
