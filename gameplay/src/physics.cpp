@@ -853,7 +853,7 @@ void __fastcall Hook_DoAerodynamics(uint8_t* chassis, void*, const uint8_t* stat
         float game = kAeroRefSpeed * coef * 2000.0f * (1.0f + 0.25f * tuning);
         float ours = game * g_cfg.downforce * kAeroRefSpeed / (g_cfg.downforceMatch / 3.6f);
         Log("physics: aero: the game's downforce at 300 km/h is %.0f%% of the car's weight, linear in speed "
-            "(AERO_COEFFICIENT %.4f, AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg); Downforce %.2f%s makes it %.0f%% (with the speed squared)",
+            "(AERO_COEFFICIENT %.4f, AERO_CG %.0f%%, tuning %+.0f, mass %.0f kg); Downforce %.2f makes it %.0f%% (with the speed squared)",
             game / (mass * 9.81f) * 100.0f, coef, aeroCg, tuning, mass, g_cfg.downforce, ours / (mass * 9.81f) * 100.0f);
     }
     s_diag.gameForce = s_diag.extraForce = 0.0f;

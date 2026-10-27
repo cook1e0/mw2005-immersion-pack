@@ -20,6 +20,10 @@
 // Logging (nfsmw_gameplay.log next to speed.exe)
 // ---------------------------------------------------------------------------
 void LogInit();
+#if defined(__GNUC__)
+// Check variadic log arguments at compile time, including calls in game-only hooks.
+__attribute__((format(printf, 1, 2)))
+#endif
 void Log(const char* fmt, ...);
 
 // Directory containing the host exe (with trailing backslash).
