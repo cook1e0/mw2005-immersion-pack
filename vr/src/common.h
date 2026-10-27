@@ -73,6 +73,7 @@ struct Config {
     float dashDepth = 0.0f;          // ... and toward the driver (m) from 3 cm off the gauge cluster
     float dashYaw = 0.0f;            // ... turned to the right (+) / left (-) about its own up axis, degrees
     float dashPitch = 0.0f;          // ... tilted to face up (+) / down (-) about its own right axis, degrees
+    float dashRoll = 0.0f;           // clockwise (+) as viewed by the driver, degrees
     // Each dashboard element (DASH_EL_*): x right, y up (m, at zoom 1, from the panel's anchor) and
     // size (1 = the HUD's own scale, 0 = hidden). x/y NaN = automatic layout. F4 > VR > Adjust dashboard;
     // shared by all cars in [DashLayout] Default.

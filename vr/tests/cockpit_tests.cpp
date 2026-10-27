@@ -574,6 +574,18 @@ static void TestDash() {
     Near(t[2], w.dashUp.z, "pitched plane faces up");
     Near(r[1], w.dashRight.y, "pitch keeps right");
     g_cfg.dashPitch = 0;
+    g_cfg.dashRoll = 90;
+    DashBasis(w, m, o, r, u, t);
+    Near(r[2], -w.dashUp.z, "clockwise roll turns right down");
+    Near(u[1], w.dashRight.y, "clockwise roll turns up right");
+    Near(t[0], w.dashN.x, "roll keeps the panel normal");
+    g_cfg.dashRoll = -90;
+    DashBasis(w, m, o, r, u, t);
+    Near(r[2], w.dashUp.z, "counterclockwise roll turns right up");
+    g_cfg.dashRoll = 0.1f;
+    DashBasis(w, m, o, r, u, t);
+    Near(r[2], -w.dashUp.z * sinf(0.1f * 0.017453293f), "roll supports tenth-degree steps");
+    g_cfg.dashRoll = 0;
 }
 
 // The HUD and dashboard panel placement stay per car, while the dashboard element layout is shared.

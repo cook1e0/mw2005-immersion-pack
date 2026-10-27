@@ -2787,6 +2787,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashDepth")) return &g_cfg.dashDepth;
     if (!strcmp(name, "DashYaw")) return &g_cfg.dashYaw;
     if (!strcmp(name, "DashPitch")) return &g_cfg.dashPitch;
+    if (!strcmp(name, "DashRoll")) return &g_cfg.dashRoll;
     if (!strcmp(name, "DashBox")) return &g_cfg.dashBox;
     if (!strcmp(name, "DashScreenW")) return &g_cfg.dashScreenW;
     if (!strcmp(name, "DashGlass")) return &g_cfg.dashGlass;

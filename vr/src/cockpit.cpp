@@ -415,10 +415,10 @@ struct PerCar {
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
 float s_retiredDashCover = 1.3f;                    // a retired size, kept so saved [Dash] lines read the same
-PerCar s_dashCar = {"Dash", "dashboard", 9,
+PerCar s_dashCar = {"Dash", "dashboard", 10,
                     {&g_cfg.dashRight, &g_cfg.dashUp, &g_cfg.dashZoom, &s_retiredDashCover, &g_cfg.dashDepth,
-                     &g_cfg.dashScreenW, &g_cfg.dashScreenH, &g_cfg.dashYaw, &g_cfg.dashPitch},
-                    {-1, -1, 0.2f, 1, -0.2f, 0.02f, 0.02f, -90, -90}, {1, 1, 4, 4, 0.3f, 1, 1, 90, 90}, 3, false, true};
+                     &g_cfg.dashScreenW, &g_cfg.dashScreenH, &g_cfg.dashYaw, &g_cfg.dashPitch, &g_cfg.dashRoll},
+                    {-1, -1, 0.2f, 1, -0.2f, 0.02f, 0.02f, -90, -90, -180}, {1, 1, 4, 4, 0.3f, 1, 1, 90, 90, 180}, 3, false, true};
 // Each dashboard element's x, y and size (Config::dashEl), in that order per element.
 PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                           {&g_cfg.dashEl[0][0], &g_cfg.dashEl[0][1], &g_cfg.dashEl[0][2], &g_cfg.dashEl[1][0],
@@ -815,7 +815,7 @@ void FindDash(Wheel& w, const std::vector<TriRef>& tris, const float headPos[3],
 // The panel's plane in the world: origin (with the offsets from F4, dashRight / dashUp / dashDepth,
 // per car model), right, up and toward the driver (unit). The panel is turned about its own centre:
 // dashYaw about its up axis (+ = its face turned to the driver's right), then dashPitch about its
-// right axis (+ = its face tilted up).
+// right axis (+ = its face tilted up), then roll clockwise as seen by the driver.
 void DashBasis(const Wheel& w, const float* m, float origin[3], float right[3], float up[3], float toEye[3]) {
     V3 o = w.dash + w.dashRight * g_cfg.dashRight + w.dashUp * g_cfg.dashUp + w.dashN * g_cfg.dashDepth;
     const float kDeg = 0.017453293f;
@@ -823,14 +823,16 @@ void DashBasis(const Wheel& w, const float* m, float origin[3], float right[3], 
     float cp = cosf(g_cfg.dashPitch * kDeg), sp = sinf(g_cfg.dashPitch * kDeg);
     V3 r1 = w.dashRight * cy - w.dashN * sy, n1 = w.dashN * cy + w.dashRight * sy;
     V3 u2 = w.dashUp * cp - n1 * sp, n2 = n1 * cp + w.dashUp * sp;
+    float cr = cosf(g_cfg.dashRoll * kDeg), sr = sinf(g_cfg.dashRoll * kDeg);
+    V3 r3 = r1 * cr - u2 * sr, u3 = u2 * cr + r1 * sr;
     for (int a = 0; a < 3; a++) origin[a] = o.x * m[a] + o.y * m[4 + a] + o.z * m[8 + a] + m[12 + a];
     auto dir = [&](V3 v, float* out) {
         V3 r = {v.x * m[0] + v.y * m[4] + v.z * m[8], v.x * m[1] + v.y * m[5] + v.z * m[9], v.x * m[2] + v.y * m[6] + v.z * m[10]};
         r = Norm(r);
         out[0] = r.x; out[1] = r.y; out[2] = r.z;
     };
-    dir(r1, right);
-    dir(u2, up);
+    dir(r3, right);
+    dir(u3, up);
     dir(n2, toEye);
 }
 

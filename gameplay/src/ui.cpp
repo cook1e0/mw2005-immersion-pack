@@ -146,7 +146,7 @@ constexpr struct {
     {MOD_VR, "DashScreenW", 0.30f}, {MOD_VR, "DashScreenH", 0.13f},
     {MOD_VR, "DashGlass", 0.05f}, {MOD_VR, "WheelPivotRight", 0.0f}, {MOD_VR, "WheelPivotUp", 0.0f},
     {MOD_VR, "DashGlassDepth", 0.01f}, {MOD_VR, "DashReflect", 0.05f},
-    {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f},
+    {MOD_VR, "DashYaw", 0.0f}, {MOD_VR, "DashPitch", 0.0f}, {MOD_VR, "DashRoll", 0.0f},
     {MOD_VR, "Anisotropic", 0.0f}, {MOD_VR, "ShadowRes", 2.0f},
     {MOD_VR, "RearViewEvery", 1.0f}, {MOD_VR, "DepthSplit", 1.0f}, {MOD_VR, "SharedShadows", 1.0f},
     {MOD_FFB, "ParkingFriction", 0.2f},
@@ -177,8 +177,8 @@ enum {
     VR_DASHGLASS = VR_DASHSCREEN + 2,
     VR_WHEELPIVOT,              // 2: the steering wheel's turning centre moved right, up
     VR_DASHGLASSDEPTH = VR_WHEELPIVOT + 2, VR_DASHREFLECT,
-    VR_DASHANGLE,               // 2: the in-car dashboard turned left / right (yaw), tilted up / down (pitch)
-    VR_ANISOTROPIC = VR_DASHANGLE + 2, VR_SHADOWRES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
+    VR_DASHANGLE,               // 3: yaw, pitch and roll
+    VR_ANISOTROPIC = VR_DASHANGLE + 3, VR_SHADOWRES, VR_REARVIEWEVERY, VR_DEPTHSPLIT, VR_SHAREDSHADOWS,
     FFB_PARKINGFRICTION,
     FFB_TYRESCRUB,
     FFB_CASTER, FFB_CARWEIGHT, FFB_LOADSENSITIVITY,
@@ -228,6 +228,7 @@ static_assert(KeyIs(kExt[VR_WHEELPIVOT + 1].key, "WheelPivotUp"), "kExt out of o
 static_assert(KeyIs(kExt[VR_DASHGLASSDEPTH].key, "DashGlassDepth"), "kExt out of order at VR_DASHGLASSDEPTH");
 static_assert(KeyIs(kExt[VR_DASHREFLECT].key, "DashReflect"), "kExt out of order at VR_DASHREFLECT");
 static_assert(KeyIs(kExt[VR_DASHANGLE + 1].key, "DashPitch"), "kExt out of order at VR_DASHANGLE + 1");
+static_assert(KeyIs(kExt[VR_DASHANGLE + 2].key, "DashRoll"), "kExt out of order at VR_DASHANGLE + 2");
 float s_ext[EXT_COUNT];         // the menu's copies, read from the mods when the menu opens
 // The traction control row: 0 off, 1 the game's own (TractionControl), 2 that plus the throttle
 // trim and launch control (TC). Follows g_cfg every frame; the row sets both.
@@ -669,6 +670,7 @@ const Item kItems[] = {
     {NUMBER, "Car dashboard GUI depth", "VR", "DashDepth", &s_ext[VR_DASHDEPTH], -0.15f, 0.25f, 0.0025f, 100, "%+.2f cm", 0},
     {NUMBER, "Dashboard angle left / right", "VR", "DashYaw", &s_ext[VR_DASHANGLE], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
     {NUMBER, "Dashboard angle up / down", "VR", "DashPitch", &s_ext[VR_DASHANGLE + 1], -60.0f, 60.0f, 0.5f, 1, "%+.1f deg", 0},
+    {NUMBER, "Dashboard rotation clockwise / counterclockwise", "VR", "DashRoll", &s_ext[VR_DASHANGLE + 2], -180.0f, 180.0f, 0.1f, 1, "%+.1f deg", 0},
     {NUMBER, "Display width", "VR", "DashScreenW", &s_ext[VR_DASHSCREEN], 0.04f, 0.8f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display height", "VR", "DashScreenH", &s_ext[VR_DASHSCREEN + 1], 0.02f, 0.5f, 0.005f, 100, "%.1f cm", 0},
     {NUMBER, "Display opacity", "VR", "DashBox", &s_ext[VR_DASHBOX], 0.0f, 1.0f, 0.05f, 100, "%.0f%%", 0},

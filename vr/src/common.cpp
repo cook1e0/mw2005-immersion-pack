@@ -164,6 +164,7 @@ void LoadConfig() {
     c.dashDepth = ReadFloat(ini, "DashDepth", c.dashDepth);
     c.dashYaw = ReadFloat(ini, "DashYaw", c.dashYaw);
     c.dashPitch = ReadFloat(ini, "DashPitch", c.dashPitch);
+    c.dashRoll = ReadFloat(ini, "DashRoll", c.dashRoll);
     c.dashBox = ReadFloat(ini, "DashBox", c.dashBox);
     c.dashScreenW = ReadFloat(ini, "DashScreenW", c.dashScreenW);
     c.dashGlass = ReadFloat(ini, "DashGlass", c.dashGlass);
