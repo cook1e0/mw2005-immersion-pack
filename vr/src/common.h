@@ -98,6 +98,7 @@ struct Config {
     float dashGlassDepth = 0.01f;         // ... how far in front of the display (m)
     float dashReflect = 0.05f;             // ... the world (the rear view picture) reflected in it: strength (0 = none)
     float wheelPivot[2] = {0, 0};         // the steering wheel's turning centre moved right, up in its plane (m; per car, [WheelPivot])
+    float wheelPosition[2] = {0, 0};      // move the wheel itself right, up (m; per car, [WheelPosition])
     float dashScreenW = 0.30f, dashScreenH = 0.13f;   // ... its size (m, at zoom 1; per car in [Dash]), centred on the panel's anchor
     // Live from F4, not saved: the Adjust dashboard page is open (the panel shows with the menu open,
     // `dashHighlight` outlined); the Triangle editor page is open (picking by gaze), and its command

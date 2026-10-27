@@ -157,6 +157,7 @@ constexpr struct {
     {MOD_FFB, "SurfaceRumble", 0.0f},
     {MOD_FFB, "MinForce", 0.0f},
     {MOD_FFB, "RearSlide", 0.0f},
+    {MOD_VR, "WheelPositionRight", 0.0f}, {MOD_VR, "WheelPositionUp", 0.0f},
 };
 enum {
     FFB_GAIN, FFB_ALIGNING, FFB_CENTERING, FFB_DAMPING, FFB_FRICTION, FFB_SOFTLOCK,
@@ -187,7 +188,8 @@ enum {
     FFB_SURFACE,
     FFB_MINFORCE,
     FFB_REARSLIDE,
-    EXT_COUNT
+    VR_WHEELPOSITION,           // 2: move the steering wheel itself right, up
+    EXT_COUNT = VR_WHEELPOSITION + 2
 };
 static_assert(sizeof(kExt) / sizeof(kExt[0]) == EXT_COUNT, "kExt and the EXT enum differ");
 // Each block of the EXT enum names the kExt entry at its index (a row pointing at its neighbour
@@ -760,6 +762,8 @@ const Item kItems[] = {
     {NUMBER, "Drop height", "Tires", "DropHeight", &g_cfg.dropHeight, 0.5f, 50.0f, 0.5f, 1, "%.1f m", 0},
     {ACTION, "Drop from air", nullptr, "DropCar", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Rear view mirror forward / back", "VR", "MirrorOffset", &s_ext[VR_MIRROROFFSET], -0.05f, 0.05f, 0.001f, 100, "%+.1f cm", 0},
+    {NUMBER, "Steering wheel location left / right", "VR", "WheelPositionRight", &s_ext[VR_WHEELPOSITION], -0.5f, 0.5f, 0.001f, 100, "%+.1f cm", 0},
+    {NUMBER, "Steering wheel location up / down", "VR", "WheelPositionUp", &s_ext[VR_WHEELPOSITION + 1], -0.5f, 0.5f, 0.001f, 100, "%+.1f cm", 0},
     {ACTION, "Center steering wheel animation", nullptr, "EdWheelPivot", nullptr, 0, 0, 0, 0, nullptr, 0},
     {NUMBER, "Steering wheel centre left / right", "VR", "WheelPivotRight", &s_ext[VR_WHEELPIVOT], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
     {NUMBER, "Steering wheel centre up / down", "VR", "WheelPivotUp", &s_ext[VR_WHEELPIVOT + 1], -0.08f, 0.08f, 0.001f, 100, "%+.1f cm", 0},
@@ -1728,6 +1732,8 @@ void UpdateVrPages() {
     if (editor) *editor = strcmp(page, "TRIANGLE EDITOR") == 0 || s_picking ? 1.0f : 0.0f;
     for (int k = 0; k < 2 && s_menu.open; k++)
         if (float* v = ExtSetting(VR_WHEELPIVOT + k)) s_ext[VR_WHEELPIVOT + k] = *v;
+    for (int k = 0; k < 2 && s_menu.open; k++)
+        if (float* v = ExtSetting(VR_WHEELPOSITION + k)) s_ext[VR_WHEELPOSITION + k] = *v;
     if (highlight) {
         *highlight = -1;
         const void* v = s_menu.open && s_menu.sel >= 0 && s_menu.sel < kNumItems ? kItems[s_menu.sel].value : nullptr;
@@ -2025,6 +2031,8 @@ const struct {
     {&s_ext[VR_DASHGLASSDEPTH], "How far in front of the in-car display its glass is."},
     {&s_ext[VR_DASHREFLECT], "How strongly the display's glass reflects the world behind you (from the rear view mirror's picture: needs the rear view mirror on)."},
     {&s_ext[VR_WHEELPIVOT], "Moves the point the steering wheel turns about to the right (+) or left (-). Each car remembers it."},
+    {&s_ext[VR_WHEELPOSITION], "Moves the steering wheel itself right (+) or left (-), without moving the dashboard or changing the animation centre. Each car remembers it. Set to zero to restore its original location."},
+    {&s_ext[VR_WHEELPOSITION + 1], "Moves the steering wheel itself up (+) or down (-). Each car remembers it. Set to zero to restore its original location."},
     {&s_ext[VR_WHEELPIVOT + 1], "Moves the point the steering wheel turns about up (+) or down (-). Each car remembers it."},
     {&s_ext[VR_DASHANGLE], "Turns the whole in-car display (with its glass and elements) about its centre: its face to your right (+) or left (-). Each car model remembers its own."},
     {&s_ext[VR_DASHANGLE + 1], "Tilts the whole in-car display (with its glass and elements) about its centre: its face up (+) or down (-). Each car model remembers its own."},

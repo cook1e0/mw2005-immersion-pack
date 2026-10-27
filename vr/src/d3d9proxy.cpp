@@ -2794,6 +2794,8 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "DashGlassDepth")) return &g_cfg.dashGlassDepth;
     if (!strcmp(name, "DashReflect")) return &g_cfg.dashReflect;
     if (!strcmp(name, "WheelPivotRight")) return &g_cfg.wheelPivot[0];
+    if (!strcmp(name, "WheelPositionRight")) return &g_cfg.wheelPosition[0];
+    if (!strcmp(name, "WheelPositionUp")) return &g_cfg.wheelPosition[1];
     if (!strcmp(name, "WheelPivotUp")) return &g_cfg.wheelPivot[1];
     if (!strcmp(name, "DashScreenH")) return &g_cfg.dashScreenH;
     if (!strcmp(name, "MirrorOffset")) return &g_cfg.mirrorOffset;

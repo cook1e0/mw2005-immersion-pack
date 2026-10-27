@@ -328,7 +328,8 @@ CarIniFile s_carInis[] = {{"Seat", "nfsmw_vr_seat.ini"},
                           {"Dash", "nfsmw_vr_dash.ini"},
                           {"DashLayout", "nfsmw_vr_dash.ini"},
                           {"MirrorOffset", "nfsmw_vr_mirror.ini"},
-                          {"WheelPivot", "nfsmw_vr_wheel.ini"}};
+                          {"WheelPivot", "nfsmw_vr_wheel.ini"},
+                          {"WheelPosition", "nfsmw_vr_wheel.ini"}};
 
 // Sections still in nfsmw_vr.ini (where they were before) are moved to their files, once; a line
 // moved over replaces the file's (the file may be a release's defaults, the old line your own).
@@ -433,6 +434,9 @@ PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirr
 // The steering wheel's turning centre moved (right, up; Config::wheelPivot).
 PerCar s_pivotCar = {"WheelPivot", "steering wheel turning centre", 2, {&g_cfg.wheelPivot[0], &g_cfg.wheelPivot[1]},
                      {-0.1f, -0.1f}, {0.1f, 0.1f}, 2, false, true};
+PerCar s_wheelPositionCar = {"WheelPosition", "steering wheel location", 2,
+                            {&g_cfg.wheelPosition[0], &g_cfg.wheelPosition[1]},
+                            {-0.5f, -0.5f}, {0.5f, 0.5f}, 2, false, true};
 
 void SavePerCar(PerCar& p) {
     char buf[512];
@@ -504,6 +508,7 @@ void UpdateHudCar(const std::string& car) {
     UpdatePerCar(s_dashLayoutCar, "Default");
     UpdatePerCar(s_mirrorCar, car);
     UpdatePerCar(s_pivotCar, car);
+    UpdatePerCar(s_wheelPositionCar, car);
 }
 
 // Arms and hands: in front of the head, above the lap, and out to the side (the chest is in the
@@ -1021,7 +1026,10 @@ void TurnedMatrix(const Wheel& w, float degrees, const float* m, float* out) {
     for (int col = 0; col < 3; col++) {
         float cr = 0;
         for (int r = 0; r < 3; r++) cr += pivot[r] * T[r][col];
-        T[3][col] = pivot[col] - cr;
+        // Translate after rotation so the wheel stays at its chosen location while steering.
+        // Model coordinates: right = -y, up = +z. The dashboard is not translated.
+        float offset[3] = {0, -g_cfg.wheelPosition[0], g_cfg.wheelPosition[1]};
+        T[3][col] = pivot[col] - cr + offset[col];
     }
     T[3][3] = 1;
     for (int r = 0; r < 4; r++)
@@ -2465,7 +2473,8 @@ void __cdecl SubmitEntry(uint8_t* entry, uint32_t a2, uint32_t a3, uint32_t a4, 
     Wheel* w = it != s_solids.end() ? it->second.wheel : nullptr;
     float angle = g_steeringWheelAngle;
     bool wheelOverHud = g_cfg.wheelOverHud > 0.5f;
-    if (w && w->ok && matrix && (fabsf(angle) > 0.05f || wheelOverHud) && DrawingPlayerCar()) {
+    bool wheelMoved = g_cfg.wheelPosition[0] != 0 || g_cfg.wheelPosition[1] != 0;
+    if (w && w->ok && matrix && (fabsf(angle) > 0.05f || wheelOverHud || wheelMoved) && DrawingPlayerCar()) {
         uint8_t* entries = At<uint8_t*>(At<uint8_t*>(solid, kSolidPlat), kPlatEntries);
         int i = (int)(entry - entries) / kEntrySize;
         if (entry >= entries && i < (int)w->turned.size() && w->turned[i] > 0) {
@@ -2551,7 +2560,7 @@ bool Held(int vk) { return vk > 0 && vk < 256 && (GetAsyncKeyState(vk) & 0x8000)
 // before the config is read. Called once from DllMain before LoadConfig (the F4 menu writes the
 // current car's values to [VR]) and before any car is seen or any layout auto-places.
 void Cockpit_PerCarDefaults() {
-    for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar})
+    for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar, &s_wheelPositionCar})
         for (int i = 0; i < p->n; i++) p->base[i] = *p->v[i];
     Log("cockpit: per-car defaults captured");
 }

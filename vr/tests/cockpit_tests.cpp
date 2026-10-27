@@ -55,6 +55,47 @@ static void Stub(uintptr_t address, const void* function) {
     *(int32_t*)(code + 1) = (int32_t)((uintptr_t)function - address - 5);
     FlushInstructionCache(GetCurrentProcess(), code, 5);
 }
+static void TestWheelPosition() {
+    Wheel wheel = {};
+    wheel.axis[0] = 1;
+    wheel.centre[0] = 0.4f;
+    wheel.centre[1] = 0.2f;
+    wheel.centre[2] = 0.8f;
+    M4 model = Identity();
+    model.m[3][0] = 10;
+    float original[16], moved[16];
+    for (float angle : {0.0f, 90.0f, -90.0f, 360.0f}) {
+        g_cfg.wheelPosition[0] = g_cfg.wheelPosition[1] = 0;
+        TurnedMatrix(wheel, angle, &model.m[0][0], original);
+        g_cfg.wheelPosition[0] = 0.12f;
+        g_cfg.wheelPosition[1] = -0.07f;
+        TurnedMatrix(wheel, angle, &model.m[0][0], moved);
+        for (int i = 0; i < 12; i++) Near(moved[i], original[i], "location does not change wheel rotation");
+        Near(moved[12], original[12], "wheel location preserves forward position");
+        Near(moved[13], original[13] - 0.12f, "wheel moves right independently of steering angle");
+        Near(moved[14], original[14] - 0.07f, "wheel moves down independently of steering angle");
+    }
+    g_cfg.wheelPosition[0] = g_cfg.wheelPosition[1] = 0;
+    const char* path = CarIni("WheelPosition");
+    WritePrivateProfileStringA("WheelPosition", "POSITION_TEST_A", "0.12,-0.07", path);
+    UpdatePerCar(s_wheelPositionCar, "POSITION_TEST_A");
+    Near(g_cfg.wheelPosition[0], 0.12f, "per-car wheel location loads");
+    UpdatePerCar(s_wheelPositionCar, "POSITION_TEST_B");
+    Near(g_cfg.wheelPosition[0], 0, "missing car starts at original horizontal location");
+    Near(g_cfg.wheelPosition[1], 0, "missing car starts at original vertical location");
+    g_cfg.wheelPosition[0] = -0.08f;
+    g_cfg.wheelPosition[1] = 0.05f;
+    UpdatePerCar(s_wheelPositionCar, "POSITION_TEST_B");
+    UpdatePerCar(s_wheelPositionCar, "POSITION_TEST_A");
+    Near(g_cfg.wheelPosition[0], 0.12f, "switching cars restores independent location");
+    UpdatePerCar(s_wheelPositionCar, "POSITION_TEST_B");
+    Near(g_cfg.wheelPosition[0], -0.08f, "edited horizontal location persists");
+    Near(g_cfg.wheelPosition[1], 0.05f, "edited vertical location persists");
+    WritePrivateProfileStringA("WheelPosition", nullptr, nullptr, path);
+    s_wheelPositionCar.car.clear();
+    s_wheelPositionCar.dirty = false;
+    g_cfg.wheelPosition[0] = g_cfg.wheelPosition[1] = 0;
+}
 static M4 Apply() {
     M4 view = Identity();
     bool applied = Cockpit_ApplySeat(view);
@@ -729,6 +770,7 @@ int main() {
     TestReloadedDriver();
     TestArms();
     TestSteeringWheel();
+    TestWheelPosition();
     TestPerCarDefaults();
     puts("PASS: cockpit motion, offsets, current POV, unload, anchor switch, LOD, frame lifecycle, reloaded drivers, steering wheel and per-model HUD defaults");
 }

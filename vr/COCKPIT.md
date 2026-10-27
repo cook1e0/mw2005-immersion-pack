@@ -1,3 +1,17 @@
+# Steering wheel location
+
+Open **F4 > Menu and testing** and adjust **Steering wheel location left / right**
+or **Steering wheel location up / down**. Positive values move right or up;
+negative values move left or down. Each step is 0.1 cm, with a range of ±50 cm.
+These move only the detected/selected steering-wheel geometry, not the dashboard,
+seat, or rotation centre, and work even when the steering is straight.
+
+Locations are saved automatically per car in `[WheelPosition]` in
+`scripts\nfsmw_vr_wheel.ini`, as `car=right,up` in metres. Cars without a saved
+location start at zero. Set both sliders to zero to restore the original position.
+The existing animation-centre controls remain separate. Steering-wheel detection
+must be enabled; for models needing manual selection, use the triangle editor.
+
 # Cockpit notes
 
 Seat and head removal were tested in Mustang GT free roam with `FakeHmd=1` on the desktop.
