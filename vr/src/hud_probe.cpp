@@ -39,7 +39,7 @@ HRESULT HudProbeAtlas::Begin(IDirect3DDevice9* dev, D3DMULTISAMPLE_TYPE samples,
 
 HRESULT HudProbeAtlas::Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* quad,
                                  float scaleX, float scaleY, const HudProbeRect& source, bool* outside,
-                                 const HudProbeRect* clip) {
+                                 const HudProbeRect* clip, float shiftX) {
     *outside = false;
     if (!target_ || failed_) return E_FAIL;
     float w = source.right - source.left, h = source.bottom - source.top;
@@ -49,7 +49,7 @@ HRESULT HudProbeAtlas::Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* qu
     memcpy(vertices, quad, sizeof(vertices));
     const float fit = 2.0f / std::max(w, h);
     for (auto& v : vertices) {
-        float x = (v.x + 1) / scaleX, y = (1 - v.y) / scaleY;
+        float x = (v.x + 1) / scaleX - shiftX, y = (1 - v.y) / scaleY;
         if (!std::isfinite(x + y)) return E_INVALIDARG;
         *outside |= x < source.left - 0.5f || x > source.right + 0.5f ||
                     y < source.top - 0.5f || y > source.bottom + 0.5f;
@@ -76,7 +76,7 @@ HRESULT HudProbeAtlas::Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* qu
     if (scissorOn) {
         // D3D's scissor is in source viewport pixels. Map it into the same canonical UI space.
         auto mapX = [&](LONG p) { return (LONG)std::floor(((((p - (float)viewport.X) /
-            viewport.Width) * 2) / scaleX - (source.left + source.right) * 0.5f) * fit * Size / 2 + Size / 2); };
+            viewport.Width) * 2) / scaleX - shiftX - (source.left + source.right) * 0.5f) * fit * Size / 2 + Size / 2); };
         auto mapY = [&](LONG p) { return (LONG)std::floor(((((p - (float)viewport.Y) /
             viewport.Height) * 2) / scaleY - (source.top + source.bottom) * 0.5f) * fit * Size / 2 + Size / 2); };
         cell = {std::max(0L, mapX(scissor.left)), std::max(0L, mapY(scissor.top)),
@@ -139,6 +139,14 @@ HudProbeAtlas atlas;
 HudProbeAtlas components[DASH_EL_COUNT];
 HudProbeRect componentSource[DASH_EL_COUNT];
 HudProbeRect componentClip[DASH_EL_COUNT];   // what is kept of a part's draws (zero size: all of it)
+// The widescreen fix's FixHUD widens the HUD's canvas (its x scale, the constant CanvasScale reads,
+// times 3/4 for 16:9: 853 layout units instead of 640). Against the 640-wide layout the left parts
+// stay, the centre ones move half the extra width and the right ones all of it (measured: minimap
+// 88 -> 88, radar 203 -> 310, speedometer 457 -> 670): componentShift, for the crops. Of that, the
+// right group's anchor in the tree carries half (529.7 on the first frame, 636.3 after); the left
+// (93.7) and centre (313.5) anchors stay. The rectangles follow the anchors as they are, so a
+// part's draws lose what its anchor doesn't carry (drawShift): 0 left, half the extra elsewhere.
+float componentShift[DASH_EL_COUNT], drawShift[DASH_EL_COUNT], canvasExtra;
 bool directActive, directOk, directReady;
 unsigned directFailure;
 unsigned componentDraws[DASH_EL_COUNT], completedDraws[DASH_EL_COUNT];
@@ -219,9 +227,11 @@ bool IsSpeedo(uint32_t h) {
            h == 0x87c38e97 || h == 0x82d60021 ||
            h == Hash("Speedbreaker_Meter_Multi_Image") || h == 0x27ddf583 || h == 0xedfb6d37;
 }
-bool VisibleOutside(float l,float t,float r,float b,const HudProbeRect& s,float canvasW,float canvasH) {
+// l..b on the canvas (canvasW x canvasH); s in the layout, shift units left of the canvas (FixHUD).
+bool VisibleOutside(float l,float t,float r,float b,const HudProbeRect& s,float canvasW,float canvasH,float shift=0) {
     l=std::max(0.0f,l); t=std::max(0.0f,t); r=std::min(canvasW,r); b=std::min(canvasH,b);
     if (r<=l || b<=t) return false; // the game's viewport already discards off-screen animation quads
+    l-=shift; r-=shift;
     return l<s.left-.5f || t<s.top-.5f || r>s.right+.5f || b>s.bottom+.5f;
 }
 int Component(uint32_t h) {
@@ -254,7 +264,9 @@ bool ResolveSources() {
         return HudProbeRect{o->ax+l,o->ay+t,o->ax+r,o->ay+b};
     };
     componentSource[DASH_EL_MAP] = rect(left,-120,0,128,258);
-    componentSource[DASH_EL_SPEEDO] = rect(right,-118,-78,142,222);
+    // Up and right of the gauge: room for the gameplay mod's ABS / TC icons (above the car icon,
+    // TC right of ABS) moved by its [HUD] AidIconRight / AidIconUp, about 50 units either way.
+    componentSource[DASH_EL_SPEEDO] = rect(right,-118,-130,200,222);
     componentSource[DASH_EL_RADAR] = rect(centre,-130,-260,142,12);
     componentSource[DASH_EL_PURSUIT] = rect(centre,-132,136,144,256);
     componentSource[DASH_EL_BOARD] = rect(right,-110,-282,120,-120);
@@ -265,7 +277,8 @@ bool ResolveSources() {
     for (auto& c : componentClip) c = HudProbeRect{};
     componentClip[DASH_EL_RADAR] = rect(centre,-84,-134,100,-110);
     static bool logged;
-    if (!logged) { logged=true; Log("hud: centre group at %.1f %.1f, radar strip kept at %.0f..%.0f x %.0f..%.0f", centre->ax, centre->ay,
+    if (!logged) { logged=true; Log("hud: groups at left %.1f, centre %.1f %.1f, right %.1f (canvas %.1f wider), radar strip kept at %.0f..%.0f x %.0f..%.0f",
+        left->ax, centre->ax, centre->ay, right->ax, canvasExtra,
         componentClip[DASH_EL_RADAR].left, componentClip[DASH_EL_RADAR].right, componentClip[DASH_EL_RADAR].top, componentClip[DASH_EL_RADAR].bottom); }
     return true;
 }
@@ -433,7 +446,14 @@ void HudProbe_Begin(IDirect3DDevice9* dev, IDirect3DSurface9* hud, int w, int h,
     atlasOk = g_cfg.hudProbe && SUCCEEDED(atlas.Begin(dev, desc.MultiSampleType, desc.MultiSampleQuality));
     char ini[MAX_PATH]; ConfigFile("NFSMostWanted.WidescreenFix.ini",ini,false);
     fixHud = (int)GetPrivateProfileIntA("MAIN","FixHUD",0,ini);
-    directActive = allowDirect && g_cfg.dashRenderer > 0.5f && treeOk && fixHud == 0 && ResolveSources();
+    // The canvas's extra width over the 640-unit layout (0 without FixHUD); a narrower one is
+    // nothing we know, and is left to the crops.
+    float extra = scaleX > 0 ? 2 / scaleX - 640 : -1;
+    canvasExtra = extra > 0.5f ? extra : 0;
+    for (int e=0;e<DASH_EL_COUNT;e++)
+        componentShift[e] = e==DASH_EL_MAP ? 0 : e==DASH_EL_SPEEDO || e==DASH_EL_BOARD ? canvasExtra : canvasExtra/2,
+        drawShift[e] = e==DASH_EL_MAP ? 0 : canvasExtra/2;
+    directActive = allowDirect && g_cfg.dashRenderer > 0.5f && treeOk && extra > -0.5f && ResolveSources();
     directOk = directActive; directFailure = 0;
     memset(componentDraws,0,sizeof(componentDraws));
     if (directActive) {
@@ -474,14 +494,20 @@ void HudProbe_Draw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT count, con
                 bool clipped=false;
                 const HudProbeRect& keep=componentClip[element];
                 bool cut=keep.right>keep.left && keep.bottom>keep.top;   // outside the clip is meant to go
-                directOk = SUCCEEDED(components[element].Duplicate(dev,quad,scaleX,scaleY,componentSource[element],&clipped,cut?&keep:nullptr));
+                const float shift=drawShift[element];
+                directOk = SUCCEEDED(components[element].Duplicate(dev,quad,scaleX,scaleY,componentSource[element],&clipped,cut?&keep:nullptr,shift));
                 if (!directOk) directFailure=2;
                 if (clipped && element!=DASH_EL_MAP && !cut) {
                     float l=INFINITY,t=INFINITY,r=-INFINITY,b=-INFINITY;
                     for (const auto& v:quad) { float x=(v.x+1)/scaleX,y=(1-v.y)/scaleY;
                         l=std::min(l,x); t=std::min(t,y); r=std::max(r,x); b=std::max(b,y); }
-                    if (VisibleOutside(l,t,r,b,componentSource[element],2/scaleX,2/scaleY)) {
+                    if (VisibleOutside(l,t,r,b,componentSource[element],2/scaleX,2/scaleY,shift)) {
                         directOk=false; directFailure=4;
+                        static int logged;
+                        const HudProbeRect& s=componentSource[element];
+                        if (logged++ < 3) Log("hud: part %d drawn outside its rectangle (object %08X): %.1f..%.1f x %.1f..%.1f, "
+                            "rectangle %.1f..%.1f x %.1f..%.1f, shift %.1f", element, current ? current->hash : 0,
+                            l-shift, r-shift, t, b, s.left, s.right, s.top, s.bottom, shift);
                     }
                 }
                 componentDraws[element]++;
@@ -551,13 +577,17 @@ IDirect3DTexture9* HudComponents_Texture(int element) {
     return directReady && element>=0 && element<DASH_EL_COUNT && completedDraws[element] ? components[element].Texture() : nullptr;
 }
 IDirect3DSurface9* HudComponents_Remaining() { return directReady ? remainingSurface : nullptr; }
+float HudCanvasExtra() { return canvasExtra; }
+float HudCanvasShift(int element) { return element>=0 && element<DASH_EL_COUNT ? componentShift[element] : 0; }
 bool HudComponents_Coverage(int element, float out[4]) {
     if (!directReady || element<0 || element>=DASH_EL_COUNT || !(scaleX>0 && scaleY>0)) return false;
-    // The cell is the square around the source rectangle (Duplicate's fit), in the layout's units;
-    // a layout x is (x * scaleX / 2) of the HUD picture's width, y likewise.
+    // The cell is the square around the source rectangle (Duplicate's fit), in the 640 x 480 layout
+    // (FixHUD's widening taken off): shares of the HUD picture as it is without FixHUD, the picture
+    // the crops are shares of.
     const HudProbeRect& s=componentSource[element];
     float cx=(s.left+s.right)*.5f, cy=(s.top+s.bottom)*.5f, half=std::max(s.right-s.left,s.bottom-s.top)*.5f;
-    out[0]=(cx-half)*scaleX*.5f; out[1]=(cy-half)*scaleY*.5f;
-    out[2]=(cx+half)*scaleX*.5f; out[3]=(cy+half)*scaleY*.5f;
+    cx+=drawShift[element]-componentShift[element];   // what the anchor carries of FixHUD's move
+    out[0]=(cx-half)/640; out[1]=(cy-half)/480;
+    out[2]=(cx+half)/640; out[3]=(cy+half)/480;
     return true;
 }

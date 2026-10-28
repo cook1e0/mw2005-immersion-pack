@@ -179,14 +179,17 @@ For dashboard crop diagnostics, set `KeyDump=120` in `[VR]`, restart, and press 
 radar, speedometer and meters, pursuit status, race/bounty information, and messages. The ordinary
 HUD remains complete. Unknown UI content stays on the HUD layer; the camera-dependent radar
 surround is replaced by the physical dashboard. The diagnostic comparison panel has been removed.
-Component sizes use dashboard metres rather than source pixels, and scale with the per-car display.
-The existing element X/Y/Size controls remain usable. `DashRenderer=0` selects calibrated crops.
+Each native part is placed exactly where its crop would put it, at the crop's scale, so the
+element X/Y/Size controls and any saved layout look the same with both renderers; `DashRenderer=0`
+selects the calibrated crops, which are only less sharp.
 
-Native components currently support the stock `HUD_SingleRace.fng` / `HUD_Drag.fng` layout with
-`FixHUD=0`. A missing layout anchor, incompatible draw, clipped component or failed target uses
-the complete HUD's crop path for that frame. `FixHUD=1` uses crops; the renderer does not claim to
-undo that setting. Map quads may extend past their circular UV mask. Off-screen animation geometry
-is checked only where the game's viewport could have shown it.
+Native components support the stock `HUD_SingleRace.fng` / `HUD_Drag.fng` layout with either
+`FixHUD` setting of the widescreen fix. With `FixHUD=1` the fix widens the HUD's canvas and moves the
+centre parts half the extra width right and the right parts all of it; the native parts and the
+crops both take that off again, so the display is the same as with `FixHUD=0`. A missing layout
+anchor, incompatible draw, clipped component or failed target uses the complete HUD's crop path for
+that frame. Map quads may extend past their circular UV mask. Off-screen animation geometry is
+checked only where the game's viewport could have shown it.
 
 `FakeHmd=1` always uses a window so the recommended eye size does not become a desktop display
 mode. `Resolution=auto` can therefore render at 1832x1920 while the Broadcast window stays 1600x900.

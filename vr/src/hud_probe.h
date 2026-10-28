@@ -10,9 +10,11 @@ public:
     HudProbeAtlas() = default;
     ~HudProbeAtlas() { Release(); }
     HRESULT Begin(IDirect3DDevice9* dev, D3DMULTISAMPLE_TYPE samples, DWORD quality);
-    // clip (layout units, optional): only what falls inside it is copied.
+    // clip (layout units, optional): only what falls inside it is copied. shiftX: layout units taken
+    // off x first (the widescreen fix's FixHUD moves the HUD's parts out toward the screen's edges).
     HRESULT Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* quad, float scaleX, float scaleY,
-                      const HudProbeRect& source, bool* outside, const HudProbeRect* clip = nullptr);
+                      const HudProbeRect& source, bool* outside, const HudProbeRect* clip = nullptr,
+                      float shiftX = 0);
     HRESULT End(IDirect3DDevice9* dev);
     void Release();
     IDirect3DTexture9* Texture() const { return valid_ ? texture_ : nullptr; }
@@ -43,3 +45,7 @@ IDirect3DSurface9* HudComponents_Remaining();
 // The part of the HUD picture (left, top, right, bottom: shares of its width and height) that
 // element's cell shows, so it can be placed exactly as a crop of that picture would be.
 bool HudComponents_Coverage(int element, float out[4]);
+// How many layout units wider than 640 the HUD's canvas is (the widescreen fix's FixHUD; 0 without),
+// and how far right of the 640 layout that element's part is drawn on it.
+float HudCanvasExtra();
+float HudCanvasShift(int element);

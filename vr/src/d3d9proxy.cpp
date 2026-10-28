@@ -1029,6 +1029,25 @@ static const float* Crop(int i) {
     return s_autoCrop[i].settled ? s_autoCrop[i].box : g_cfg.dashCrop[i];
 }
 
+// The configured crops are shares of the HUD's 640-wide layout (FixHUD off). The widescreen fix's
+// FixHUD widens the HUD picture in layout units and draws each part toward its edge
+// (HudCanvasShift): a crop's place in the picture as drawn (x only), and back. Auto crops are found
+// on the picture itself.
+static float PictureX(int i, float x) {
+    float extra = g_cfg.dashAutoCrop ? 0 : HudCanvasExtra();
+    return extra > 0 ? (x * 640 + HudCanvasShift(i)) / (640 + extra) : x;
+}
+static float LayoutX(int i, float x) {
+    float extra = g_cfg.dashAutoCrop ? 0 : HudCanvasExtra();
+    return extra > 0 ? (x * (640 + extra) - HudCanvasShift(i)) / 640 : x;
+}
+static const float* PictureCrop(int i) {
+    static float out[DASH_EL_COUNT][4];
+    const float* c = Crop(i);
+    out[i][0] = PictureX(i, c[0]); out[i][1] = c[1]; out[i][2] = PictureX(i, c[2]); out[i][3] = c[3];
+    return out[i];
+}
+
 // Finds the HUD's parts in the probe's coverage (kProbe x kProbe cells, 1 = HUD there): pieces of
 // the HUD (cells joined across a one-cell gap, so a gauge and its text are one piece) go to the
 // element whose configured crop's centre is nearest, among those whose crop, widened, has the
@@ -1740,7 +1759,7 @@ static bool ProbeHud() {
     if (g_cfg.dashAutoCrop) FindCrops(cov);
     double now = D3D_ProfNow();
     for (int i = 0; i < DASH_EL_COUNT; i++) {
-        const float* c = Crop(i);
+        const float* c = PictureCrop(i);
         int x0 = std::max(0, (int)(c[0] * kProbe)), y0 = std::max(0, (int)(c[1] * kProbe));
         int x1 = std::min(kProbe, (int)ceilf(c[2] * kProbe)), y1 = std::min(kProbe, (int)ceilf(c[3] * kProbe));
         int n = 0;
@@ -1775,7 +1794,7 @@ static void OutlineCrops() {
     LONG t = std::max(2L, (LONG)(s_eyeH / 400));
     for (int i = 0; i < DASH_EL_COUNT; i++) {
         DashBox d;
-        const float* c = Crop(i);
+        const float* c = PictureCrop(i);
         d.x0 = c[0]; d.y0 = c[1]; d.x1 = c[2]; d.y1 = c[3];
         RECT r = HudRect(d);
         if (r.right - r.left < 2 * t || r.bottom - r.top < 2 * t) continue;
@@ -1854,10 +1873,10 @@ static void ComposeDash() {
         // Where a smaller element's crop reaches into this one, that part is the smaller element's
         // only: cut out here. (The minimap's and the speedometer's crops reach into the pursuit info
         // box; their pieces of it met in the middle of the display as a second, squashed copy.)
-        const float* ci = Crop(i);
+        const float* ci = PictureCrop(i);
         float areaI = (ci[2] - ci[0]) * (ci[3] - ci[1]);
         for (int j = 0; j < DASH_EL_COUNT; j++) {
-            const float* cj = Crop(j);
+            const float* cj = PictureCrop(j);
             float areaJ = (cj[2] - cj[0]) * (cj[3] - cj[1]);
             if (j == i || areaJ <= 0 || areaJ > areaI || (areaJ == areaI && j > i)) continue;
             DashBox b = {cj[0], cj[1], cj[2], cj[3], 0, true};
@@ -1875,7 +1894,8 @@ static void ComposeDash() {
         }
         s_el[i] = {true, dst.left / (float)kAtlasW, dst.top / (float)kAtlasH, dst.right / (float)kAtlasW,
                    dst.bottom / (float)kAtlasH,
-                   {src.left / (float)s_eyeW, src.top / (float)s_eyeH, src.right / (float)s_eyeW, src.bottom / (float)s_eyeH}};
+                   {LayoutX(i, src.left / (float)s_eyeW), src.top / (float)s_eyeH,
+                    LayoutX(i, src.right / (float)s_eyeW), src.bottom / (float)s_eyeH}};
     }
     AutoLayout();
     // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the display.

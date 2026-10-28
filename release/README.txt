@@ -156,12 +156,11 @@ on our v1.3 exe. If the game crashes right at start with your own ini, set SkipI
 SimRate = -1 runs the game's physics at the monitor's refresh rate; after a second in the
 headset, the VR mod sets it to suit the headset (72 Hz -> 144) from the next start. The fix keeps the game's settings
 in its own registry key starting from defaults (640x480, low detail): set them again in the
-game's options. The fix ships with FixHUD = 0, which VR needs: the headset shows the HUD and menus
-on a 4:3 panel, the game's own layout, and the in-car dashboard draws the HUD's parts directly only
-with FixHUD = 0 (with 1 it falls back to cut-outs). FixHUD = 1 squeezes the HUD for the nearly
-square eye picture so its parts run into each other. Playing flat on a widescreen monitor without
-VR, set FixHUD = 1 to keep the HUD from stretching. An existing NFSMostWanted.WidescreenFix.ini is
-kept when you update: check its FixHUD line.
+game's options. The fix ships with FixHUD = 0 for VR: the headset shows the HUD and menus on a 4:3
+panel, the game's own layout, and FixHUD = 1 squeezes that panel for the nearly square eye picture
+so its parts run into each other. The in-car dashboard looks the same with either setting. Playing
+flat on a widescreen monitor without VR, set FixHUD = 1 to keep the HUD from stretching. An existing
+NFSMostWanted.WidescreenFix.ini is kept when you update.
 
 Without an ASI loader: each .asi also works renamed to the DLL it used to be, next to speed.exe:
 nfsmw_vr.asi -> d3d9.dll, nfsmw_ffb.asi -> dinput8.dll, nfsmw_gameplay.asi -> dsound.dll.

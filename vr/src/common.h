@@ -48,7 +48,7 @@ struct Config {
     float fakeYaw = 0, fakePitch = 0; // debug: fake head orientation in degrees (+yaw = left, +pitch = up)
     bool  fakeMotion = false;       // debug: fixed spectator test motions, without a playback system
     bool  hudProbe = false;         // debug: duplicate speedometer draws, keep production HUD/crops
-    float dashRenderer = 1.0f;      // 0 calibrated crops, 1 native UI components (FixHUD=0)
+    float dashRenderer = 1.0f;      // 0 calibrated crops, 1 native UI components (either FixHUD)
     float hudProbeSource[4] = {420, 216, 660, 500}; // measured free-roam bounds + margin, fixed until restart
     float fakeIpd = 0.064f;        // debug: fake eye separation (m)
     int   dumpFrames = 1;          // debug: consecutive frames written per dump key press
