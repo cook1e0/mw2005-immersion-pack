@@ -43,8 +43,14 @@ Dumps contain portions of game memory. [VR] CrashDumps=0 disables capture.
 If the folder cannot be written, the helper tries %TEMP%\nfsmw_crash_<pid>.dmp and .txt;
 nfsmw_crashdump.log records the path. Forced exits and hangs are not captured.
 
-Upgrading from v0.28.0: replace scripts
-fsmw_vr.asi and nfsmw_gameplay.asi (or extract the zip
+Upgrading from v0.29.0: replace scripts\nfsmw_vr.asi, nfsmw_gameplay.asi and nfsmw_vr_host.exe
+(or extract the zip over your install; your ini files stay). The in-car dashboard now draws the
+HUD's own parts (sharp; [VR] DashRenderer=1, on by default) and keeps your layout as it was. The
+mirrors now show the right side the right way round: if you had set [VR] MirrorFlip=1 to work
+around it, set it back to 0. For the new spectator view add SpectatorPreset=broadcast and
+SpectatorWidth=0 (the window fills the monitor) to [VR] in scripts\nfsmw_vr.ini.
+
+Upgrading from v0.28.0: replace scripts\nfsmw_vr.asi and nfsmw_gameplay.asi (or extract the zip
 over your install; your ini files stay). The new telemetry panel starts off: Right Shift while
 driving shows it, F4 > Telemetry sets it up. The VR mod is needed for it to stay visible in VR
 with the in-car display on, so update both.

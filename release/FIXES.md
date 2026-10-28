@@ -1,3 +1,36 @@
+### v0.30.0: the HUD's own parts on the in-car display
+
+- **Sharp in-car display** (VR, `[VR] DashRenderer=1`, on by default): the minimap, cop radar,
+  speedometer, pursuit info, leaderboard and messages are drawn from the game's own HUD, part by
+  part, instead of cut out of a picture of it. Each part sits exactly where and as big as its
+  cut-out did, so every dashboard layout (the default one or your own from F4) looks the same,
+  only sharper. `DashRenderer=0` brings back the cut-outs, which a frame the mod can't match
+  still uses (it looks the same). Works with the widescreen fix's `FixHUD` 0 or 1.
+- **The cop radar on the display**: its dotted strip comes along with the dome, without the HUD
+  rear-view mirror's empty frame above it, and it's no longer faint: half-transparent HUD art
+  (the radar's glow, menu backgrounds) was shown at about an eighth of its strength in the
+  headset, on the display and in the spectator view.
+- **Mirrors the right way round**: the side mirrors showed the other side and the interior mirror
+  wasn't reversed. If you had set `[VR] MirrorFlip=1` to work around it, set it back to 0.
+  Mirror glass fixes for the Murcielago, CTS, Corvette C6.R, Carrera GT, Camaro, Punto and
+  Cayman S, and no more gaps in their cockpits (spinesplitter).
+- **In-car display placement for every car**: spinesplitter's placements for all the exotics
+  (911 Turbo, Murcielago, Carrera GT, Ford GT, ...) and his retunes are built in, so a car your
+  ini has no line for starts there instead of in the middle, and F4's "back to default" returns
+  to that car's own placement. Dashboard rotation (F4) and per-car steering wheel position
+  (F4, separate from its pivot) are new (spinesplitter).
+- **Spectator view** (VR): `[VR] SpectatorPreset=broadcast` is a steadier 80-degree 16:9 view for
+  watching or recording, and `SpectatorWidth=0` makes the window borderless and as big as the
+  monitor, like fullscreen. A pixel width still gives a normal window, now limited only by the
+  screen.
+- **Gameplay**: the traction control slider now really reaches the game's traction control (at
+  0% it stayed on, and cars in the air got a far too strong stabilising torque); car character
+  and the tyre sliders are per car like grip and downforce, the real weight distribution is
+  saved with physics profiles (spinesplitter), and the downforce always grows with speed squared.
+  A crash in the downforce log is fixed (spinesplitter).
+- **Widescreen fix ships with `FixHUD = 0`**, what VR wants (the headset's HUD and menus are a 4:3
+  panel). Playing flat on a widescreen monitor, set it to 1. An existing widescreen fix ini stays.
+
 ### v0.29.0: telemetry panel
 
 - **Telemetry panel** (gameplay, F4 > Telemetry, off by default; Right Shift shows / hides it,
