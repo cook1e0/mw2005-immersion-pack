@@ -38,7 +38,8 @@ HRESULT HudProbeAtlas::Begin(IDirect3DDevice9* dev, D3DMULTISAMPLE_TYPE samples,
 }
 
 HRESULT HudProbeAtlas::Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* quad,
-                                 float scaleX, float scaleY, const HudProbeRect& source, bool* outside) {
+                                 float scaleX, float scaleY, const HudProbeRect& source, bool* outside,
+                                 const HudProbeRect* clip) {
     *outside = false;
     if (!target_ || failed_) return E_FAIL;
     float w = source.right - source.left, h = source.bottom - source.top;
@@ -80,6 +81,13 @@ HRESULT HudProbeAtlas::Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* qu
             viewport.Height) * 2) / scaleY - (source.top + source.bottom) * 0.5f) * fit * Size / 2 + Size / 2); };
         cell = {std::max(0L, mapX(scissor.left)), std::max(0L, mapY(scissor.top)),
                 std::min((LONG)Size, mapX(scissor.right)), std::min((LONG)Size, mapY(scissor.bottom))};
+    }
+    if (clip) {
+        // The clip is in layout units, like the source: into the cell the same way as the vertices.
+        auto cx = [&](float x) { return (LONG)std::floor((x - (source.left + source.right) * 0.5f) * fit * Size / 2 + Size / 2); };
+        auto cy = [&](float y) { return (LONG)std::floor((y - (source.top + source.bottom) * 0.5f) * fit * Size / 2 + Size / 2); };
+        cell = {std::max(cell.left, cx(clip->left)), std::max(cell.top, cy(clip->top)),
+                std::min(cell.right, cx(clip->right)), std::min(cell.bottom, cy(clip->bottom))};
     }
     if (cell.left < cell.right && cell.top < cell.bottom) {
         hr = dev->SetDepthStencilSurface(nullptr);
@@ -130,6 +138,7 @@ struct Frame {
 HudProbeAtlas atlas;
 HudProbeAtlas components[DASH_EL_COUNT];
 HudProbeRect componentSource[DASH_EL_COUNT];
+HudProbeRect componentClip[DASH_EL_COUNT];   // what is kept of a part's draws (zero size: all of it)
 bool directActive, directOk, directReady;
 unsigned directFailure;
 unsigned componentDraws[DASH_EL_COUNT], completedDraws[DASH_EL_COUNT];
@@ -221,9 +230,9 @@ int Component(uint32_t h) {
     if (h == 0x1603009e || h == 0x00a1a862 || h == Hash("TRACK_MAP") || h == Hash("PLAYERCARINDICATOR") ||
         h == Hash("PLAYERCARINDICATOR2") || h == Hash("MINIMAP_NORTH_INDICATOR")) return DASH_EL_MAP;
     if (h == 0x062743f5) return DASH_EL_RADAR;
-    // Camera-dependent surround artwork is separate from the functional radar. Its empty
-    // frame must not become an extra dashboard instrument. The ordinary HUD retains it.
-    if (h == 0x9ee06631) return DASH_EL_COUNT;
+    // The radar's pill (its capsule backing, 5630E0B9 in two halves at x 192..448, y 21..108 of the
+    // layout): the radar's own source rectangle holds it, and it is part of how the radar reads.
+    if (h == 0x9ee06631) return DASH_EL_RADAR;
     if (h == 0x7b422ba3 || h == 0x84a226ec || h == 0xe0b1430b) return DASH_EL_PURSUIT;
     if (h == 0xde89e070 || h == Hash("RaceInformationGroup") || h == Hash("LeaderBoardGroup") ||
         h == 0x2269d232) return DASH_EL_BOARD;
@@ -250,6 +259,14 @@ bool ResolveSources() {
     componentSource[DASH_EL_PURSUIT] = rect(centre,-132,136,144,256);
     componentSource[DASH_EL_BOARD] = rect(right,-110,-282,120,-120);
     componentSource[DASH_EL_MSG] = rect(centre,-214,-126,226,-24);
+    // The radar's strip (the dome on a dotted bar, x 230..412, y 86..108 with the centre group
+    // at 313, 219) is the bottom edge of one texture with the HUD rear-view mirror's empty frame
+    // above it (9EE06631): only the strip is kept.
+    for (auto& c : componentClip) c = HudProbeRect{};
+    componentClip[DASH_EL_RADAR] = rect(centre,-84,-134,100,-110);
+    static bool logged;
+    if (!logged) { logged=true; Log("hud: centre group at %.1f %.1f, radar strip kept at %.0f..%.0f x %.0f..%.0f", centre->ax, centre->ay,
+        componentClip[DASH_EL_RADAR].left, componentClip[DASH_EL_RADAR].right, componentClip[DASH_EL_RADAR].top, componentClip[DASH_EL_RADAR].bottom); }
     return true;
 }
 uintptr_t FindPackage(uintptr_t feng, const char* name) {
@@ -455,9 +472,11 @@ void HudProbe_Draw(IDirect3DDevice9* dev, D3DPRIMITIVETYPE type, UINT count, con
             else if (element==DASH_EL_COUNT) { /* surround replaced by the physical display */ }
             else if (element>=0) {
                 bool clipped=false;
-                directOk = SUCCEEDED(components[element].Duplicate(dev,quad,scaleX,scaleY,componentSource[element],&clipped));
+                const HudProbeRect& keep=componentClip[element];
+                bool cut=keep.right>keep.left && keep.bottom>keep.top;   // outside the clip is meant to go
+                directOk = SUCCEEDED(components[element].Duplicate(dev,quad,scaleX,scaleY,componentSource[element],&clipped,cut?&keep:nullptr));
                 if (!directOk) directFailure=2;
-                if (clipped && element!=DASH_EL_MAP) {
+                if (clipped && element!=DASH_EL_MAP && !cut) {
                     float l=INFINITY,t=INFINITY,r=-INFINITY,b=-INFINITY;
                     for (const auto& v:quad) { float x=(v.x+1)/scaleX,y=(1-v.y)/scaleY;
                         l=std::min(l,x); t=std::min(t,y); r=std::max(r,x); b=std::max(b,y); }

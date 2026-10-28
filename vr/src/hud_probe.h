@@ -10,8 +10,9 @@ public:
     HudProbeAtlas() = default;
     ~HudProbeAtlas() { Release(); }
     HRESULT Begin(IDirect3DDevice9* dev, D3DMULTISAMPLE_TYPE samples, DWORD quality);
+    // clip (layout units, optional): only what falls inside it is copied.
     HRESULT Duplicate(IDirect3DDevice9* dev, const HudProbeVertex* quad, float scaleX, float scaleY,
-                      const HudProbeRect& source, bool* outside);
+                      const HudProbeRect& source, bool* outside, const HudProbeRect* clip = nullptr);
     HRESULT End(IDirect3DDevice9* dev);
     void Release();
     IDirect3DTexture9* Texture() const { return valid_ ? texture_ : nullptr; }

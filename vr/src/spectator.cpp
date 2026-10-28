@@ -390,7 +390,7 @@ void Spectator_Draw(IDirect3DDevice9* dev, const SpectatorFrame& f) {
             DrawRect(dev, f.eye[eye], vx0, 0, vx1, H, true);
             dev->SetPixelShader(nullptr);
             if (f.hud && (!broadcast || g_cfg.spectatorHud > 0.5f || f.menuOpen)) {
-                SetBlend(dev, true);
+                SetOverlayBlend(dev);   // the HUD layer is premultiplied, like the overlay
                 if (broadcast) DrawFlatPanel(dev, f.hud, W, H, aspect, contentAspect);
                 else DrawPanel(dev, f.hud, {g_cfg.hudRight, g_cfg.hudHeight, -g_cfg.hudDistance}, g_cfg.hudWidth, g_cfg.hudWidth * panelAspect,
                                camPos, s_smoothed, tanX, tanY, vx0, vx1, H);

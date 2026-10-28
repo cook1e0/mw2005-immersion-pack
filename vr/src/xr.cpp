@@ -1126,8 +1126,9 @@ void Xr_EndFrame(LayerMode mode, float tanX, float tanY, bool withHud) {
         if (ok && withHud && s.chains[2].handle && BlitToSwapchain(s.chains[2], s.eyeSrv[2], true)) {
             // Seat-locked transparent panel in front of the driver.
             V3 offset = QRotate(s.originRot, {g_cfg.hudRight, g_cfg.hudHeight, -g_cfg.hudDistance});
-            hud.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT |
-                             XR_COMPOSITION_LAYER_UNPREMULTIPLIED_ALPHA_BIT;
+            // Premultiplied: the game's HUD blends leave its colour multiplied by its alpha, which
+            // is coverage (d3d9proxy's HudAlphaAsCoverage).
+            hud.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             hud.space = s.local;
             hud.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             hud.subImage.swapchain = s.chains[2].handle;

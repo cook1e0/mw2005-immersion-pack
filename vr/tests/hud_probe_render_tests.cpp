@@ -59,7 +59,7 @@ static void TreeCases() {
     assert(VisibleOutside(400,0,450,150,{400,0,500,100},640,480));
     assert(Component(0x82d60021)==DASH_EL_PURSUIT);
     assert(Component(0x00a1a862)==DASH_EL_MAP); // procedural minimap markers, outside the frame group
-    assert(Component(0x9ee06631)==DASH_EL_COUNT); // camera-dependent surround is not an instrument
+    assert(Component(0x9ee06631)==DASH_EL_RADAR); // the radar's pill goes with the radar
     assert(Component(0xde89e070)==DASH_EL_BOARD && Component(0x2269d232)==DASH_EL_BOARD);
     assert(Component(0x7b422ba3)==DASH_EL_PURSUIT && Component(0xe0ba07ec)==DASH_EL_MSG);
     puts("live tree: nested replacement, component inheritance and cycle rejection passed");

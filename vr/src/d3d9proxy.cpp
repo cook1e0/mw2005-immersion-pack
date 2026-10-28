@@ -861,6 +861,7 @@ void D3D_EndWheelEye() {
     s_dev->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);   // the HUD layer is premultiplied (HudAlphaAsCoverage)
     s_dev->SetRenderState(D3DRS_STENCILENABLE, TRUE);
     s_dev->SetRenderState(D3DRS_TWOSIDEDSTENCILMODE, FALSE);
     s_dev->SetRenderState(D3DRS_STENCILFUNC, D3DCMP_NOTEQUAL);
@@ -1290,6 +1291,7 @@ static void SetColor(D3DCOLOR argb) {
     s_dev->SetRenderState(D3DRS_TEXTUREFACTOR, argb);
     s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
     s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, blend);
+    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_SRCALPHA);
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, !blend);
     s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TFACTOR);
@@ -1297,14 +1299,16 @@ static void SetColor(D3DCOLOR argb) {
     s_dev->SetTextureStageState(0, D3DTSS_ALPHAARG1, D3DTA_TFACTOR);
 }
 
-// The dashboard texture, its alpha blended; depth written where it is drawn (alpha test), so the
-// interior drawn later stays behind it and the wheel and arms in front.
+// The dashboard texture (the HUD's parts, premultiplied: HudAlphaAsCoverage) blended; depth written
+// where it is drawn (alpha test), so the interior drawn later stays behind it and the wheel and
+// arms in front.
 static void SetPicture() {
     s_dev->SetTexture(0, s_dashTex);
     s_dev->SetRenderState(D3DRS_ALPHATESTENABLE, TRUE);
     s_dev->SetRenderState(D3DRS_ALPHAFUNC, D3DCMP_GREATER);
     s_dev->SetRenderState(D3DRS_ALPHAREF, 8);
     s_dev->SetRenderState(D3DRS_ALPHABLENDENABLE, TRUE);
+    s_dev->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
     s_dev->SetRenderState(D3DRS_ZWRITEENABLE, TRUE);
     s_dev->SetTextureStageState(0, D3DTSS_COLOROP, D3DTOP_SELECTARG1);
     s_dev->SetTextureStageState(0, D3DTSS_COLORARG1, D3DTA_TEXTURE);
@@ -1905,6 +1909,19 @@ static DWORD HudColorWrite(DWORD mask) {
                ? mask | D3DCOLORWRITEENABLE_ALPHA : mask;
 }
 
+// The HUD layer starts transparent (0, 0, 0, 0), so the game's src-alpha blend leaves its colour
+// premultiplied (c * a); its alpha, blended the same way, came out as a * a, and every place that
+// then blended the layer by that alpha again showed a half-transparent part (the cop radar's glow)
+// at about an eighth of its strength. Alpha is accumulated as coverage instead (a + dst * (1 - a)),
+// and the layer is blended premultiplied everywhere it is used (ONE, INVSRCALPHA).
+static void HudAlphaAsCoverage(bool on) {
+    s_dev->SetRenderState(D3DRS_SEPARATEALPHABLENDENABLE, on);
+    if (!on) return;
+    s_dev->SetRenderState(D3DRS_BLENDOPALPHA, D3DBLENDOP_ADD);
+    s_dev->SetRenderState(D3DRS_SRCBLENDALPHA, D3DBLEND_ONE);
+    s_dev->SetRenderState(D3DRS_DESTBLENDALPHA, D3DBLEND_INVSRCALPHA);
+}
+
 // After the last eye's scene render: keep the scene, then point everything the game
 // draws next (HUD, frontend) at a transparent render target.
 void D3D_BeginHudPhase() {
@@ -1922,6 +1939,7 @@ void D3D_BeginHudPhase() {
     s_dev->SetViewport(&vp);
     DWORD mask;
     if (SUCCEEDED(s_dev->GetRenderState(D3DRS_COLORWRITEENABLE, &mask))) s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, HudColorWrite(mask));
+    HudAlphaAsCoverage(true);
     s_hudPhase = true;
     HudProbe_Begin(s_dev, s_hudRT, s_eyeW, s_eyeH, s_dashThisFrame && s_uiMenuOpen<0.5f);
 }
@@ -1934,6 +1952,7 @@ static void EndHudPhase() {
     if (!s_hudPhase) return;
     HudProbe_End(s_dev);
     s_hudPhase = false;
+    HudAlphaAsCoverage(false);
     IDirect3DSurface9* cur = nullptr;
     s_dev->GetRenderTarget(0, &cur);
     if (cur == s_hudRT) s_dev->SetRenderTarget(0, s_backBuffer);
@@ -1941,7 +1960,7 @@ static void EndHudPhase() {
     s_hudValid = s_eyeSurf[2] && SUCCEEDED(s_dev->StretchRect(s_hudRT, nullptr, s_eyeSurf[2], nullptr, D3DTEXF_NONE));
     ComposeDash();
     if (s_hudValid && s_hudInEyes < 2 && Spectator_Mode() == SpectatorMode::Eye)
-        Spectator_BlendFullscreen(s_dev, s_eyeTex[2], s_eyeW, s_eyeH);
+        Spectator_BlendFullscreen(s_dev, s_eyeTex[2], s_eyeW, s_eyeH, nullptr, true);
     s_backBuffer->Release();
     s_backBuffer = nullptr;
 }
@@ -2580,6 +2599,7 @@ public:
     // writes colour without alpha and they would be invisible there.
     HRESULT STDMETHODCALLTYPE SetRenderState(D3DRENDERSTATETYPE state, DWORD value) override {
         if (s_hudPhase && state == D3DRS_COLORWRITEENABLE) value = HudColorWrite(value);
+        if (s_hudPhase && state == D3DRS_SEPARATEALPHABLENDENABLE) value = TRUE;   // HudAlphaAsCoverage
         return real->SetRenderState(state, value);
     }
 
