@@ -172,7 +172,7 @@ struct Config {
     float driftAssist = 0.0f;       // how much rear grip is lowered in a slide
     float grip = 0.75f;             // overall tire grip
     float character = 0.5f;         // each car's own springs, bars, grip, aero and torque spread from the others' (cars.h)
-    bool  realWeight = true;        // the real car's front / rear weight instead of the game's 51-55% front
+    float realWeight = 1.0f;        // per-profile on/off: the real car's front / rear weight
     float gripBalance = 0.0f;       // front tyres' grip 1 + this, rear 1 - this (above 0: oversteer)
     bool  abs = true;               // ABS: a locking wheel's brake is eased off and reapplied
     bool  tc = false;               // traction control: 100% the game's own, plus throttle trimmed to the

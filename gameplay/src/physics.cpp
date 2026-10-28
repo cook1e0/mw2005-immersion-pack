@@ -1253,6 +1253,7 @@ const PerCar kPerCar[] = {
     {&Config::suspFirmness, "SuspensionFirmness", 0.5f, 2.0f},
     {&Config::rollBalance, "RollBalance", -0.5f, 0.5f},
     {&Config::character, "Character", 0.0f, 1.0f},
+    {&Config::realWeight, "RealWeight", 0.0f, 1.0f},
     {&Config::tyrePeakAngle, "TyrePeakAngle", 3.0f, 20.0f},
     {&Config::slideWheelspin, "WheelspinInSlides", 0.0f, 1.0f},
     {&Config::frictionCircle, "FrictionCircle", 0.0f, 3.0f},
@@ -1453,8 +1454,9 @@ void Character() {
     static std::string car = "";
     static float k = -1.0f;
     static bool real;
-    if (car == pc.car && k == g_cfg.character && real == g_cfg.realWeight) return;
-    car = pc.car, k = g_cfg.character, real = g_cfg.realWeight;
+    const bool useRealWeight = g_cfg.realWeight > 0.5f;
+    if (car == pc.car && k == g_cfg.character && real == useRealWeight) return;
+    car = pc.car, k = g_cfg.character, real = useRealWeight;
     s_char = Cars_Character(car.c_str(), k, real);
     const CarCharacter& c = s_char;
     if (!c.known) {

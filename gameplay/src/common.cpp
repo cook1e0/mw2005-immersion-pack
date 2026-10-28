@@ -283,7 +283,7 @@ void LoadConfig() {
     c.suspFirmness = Clamp(ReadFloat("Physics", "SuspensionFirmness", c.suspFirmness), 0.5f, 2.0f);
     c.rollBalance = Clamp(ReadFloat("Physics", "RollBalance", c.rollBalance), -0.5f, 0.5f);
     c.character = Clamp(ReadFloat("Physics", "Character", c.character), 0.0f, 1.0f);
-    c.realWeight = ReadInt("Physics", "RealWeight", c.realWeight) != 0;
+    c.realWeight = ReadInt("Physics", "RealWeight", c.realWeight > 0.5f) != 0 ? 1.0f : 0.0f;
     c.slideWheelspin = Clamp(ReadFloat("Physics", "WheelspinInSlides", c.slideWheelspin), 0.0f, 1.0f);
     c.frictionCircle = Clamp(ReadFloat("Physics", "FrictionCircle", c.frictionCircle), 0.0f, 3.0f);
     c.gravity = Clamp(ReadFloat("Physics", "Gravity", c.gravity), 0.1f, 3.0f);

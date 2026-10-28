@@ -110,8 +110,10 @@ uses; pick another from its drop-down (or step through them with left / right):
   Changing a slider in any car of the group changes it for all of them.
 - **This car's own**: values for this car alone.
 
-Car character is one of the per-car sliders, and it and real weight act on each car's own data,
+Car character and Real weight distribution are per-profile values, and act on each car's own data,
 so two cars in the same group still drive differently.
+Real weight distribution is saved as `RealWeight=0` or `1` in `[Group.<name>]` or `[Car.<name>]`.
+Older setups without that key inherit the Shared `[Physics] RealWeight` value.
 
 Six groups come premade, with every player car in one, by class and drive:
 
@@ -153,8 +155,8 @@ between them, Right ticks, presses or raises, Left lowers or goes back.
   shows every profile there and what importing it does. A group becomes a new group, or replaces
   theirs of the same name (press twice); its cars move into it. A car's file becomes that car's own
   settings.
-- A profile holds every value, so it drives the same anywhere. Real weight, ABS, wall bounce and
-  the steering feel are each player's own (they're for every car).
+- A profile includes Real weight distribution as well as the other per-car values. ABS, wall bounce
+  and the steering feel are each player's own (they're for every car).
 
 In the ini a group is a `[Group.<name>]` section with the values and `Cars=` its cars
 (`Cars=camaro,gto,mustanggt`), and a car's own values are a `[Car.<name>]` section.
