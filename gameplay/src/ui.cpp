@@ -1220,6 +1220,12 @@ bool DefaultOf(const Item& it, float* f, bool* b, uint32_t* u) {
         int ext = ExtIndex(it.value);
         if (ext >= 0) {
             *f = kExt[ext].def;
+            // A per-car VR setting (the in-car display's place, the HUD, the seat's wheel...) starts
+            // from the car's own default, which the VR mod knows ("Default.<key>").
+            HMODULE m = kExt[ext].mod == MOD_VR ? ExtModule(MOD_VR) : nullptr;
+            FARPROC get = m ? GetProcAddress(m, kExtMods[MOD_VR].exportName) : nullptr;
+            const float* car = get ? ((float* (__cdecl*)(const char*))get)((std::string("Default.") + kExt[ext].key).c_str()) : nullptr;
+            if (car) *f = *car;
             return true;
         }
         if (it.value == &s_tcMode) {

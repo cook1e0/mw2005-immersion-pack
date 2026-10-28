@@ -412,6 +412,7 @@ struct PerCar {
     bool dirty = false;
     double changed = 0;
     float base[20] = {};                            // the mod's built-in values: where a model with none of its own starts
+    float def[20] = {};                             // where the current model starts without a line: base, or its own built-in values
 };
 PerCar s_hudCar = {"Hud", "HUD", 4, {&g_cfg.hudWidth, &g_cfg.hudDistance, &g_cfg.hudHeight, &g_cfg.hudRight},
                    {0.1f, 0.1f, -5, -5}, {10, 10, 5, 5}, 3, false};
@@ -429,6 +430,50 @@ PerCar s_dashLayoutCar = {"DashLayout", "dashboard layout", 18,
                            &g_cfg.dashEl[5][1], &g_cfg.dashEl[5][2]},
                           {-1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0, -1, -1, 0},
                           {1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5, 1, 1, 5}, 15, true, true, true};
+
+// The display's placement set up for each car model ([Dash] in the shipped nfsmw_vr_dash.ini), built in
+// so a model the ini has no line for still starts there, and F4's "back to default" returns to it.
+struct ModelDash { const char* car; int n; float v[10]; };
+const ModelDash kModelDash[] = {
+    {"VIPER", 9, {0.005f, 0.035f, 0.8f, 1.3f, -0.0475f, 0.3f, 0.13f, 0.5f, 0.0f}},
+    {"CAYMANS", 7, {-0.005f, 0.0f, 0.8f, 1.3f, -0.0375f, 0.265f, 0.13f}},
+    {"RX8", 9, {-0.01f, -0.0f, 0.7f, 1.3f, -0.0325f, 0.27f, 0.135f, 0.0f, 0.0f}},
+    {"MUSTANGGT", 9, {0.0f, 0.075f, 0.7f, 1.3f, -0.0625f, 0.3f, 0.13f, 2.0f, 0.0f}},
+    {"IS300", 7, {0.0f, 0.01f, 0.8f, 1.3f, -0.0325f, 0.265f, 0.13f}},
+    {"LANCEREVO8", 7, {-0.01f, 0.085f, 0.7f, 1.3f, -0.15f, 0.265f, 0.135f}},
+    {"CLK500", 9, {-0.0f, 0.02f, 0.6f, 1.3f, -0.0425f, 0.3f, 0.13f, 1.5f, 0.0f}},
+    {"DB9", 9, {0.005f, 0.045f, 0.7f, 1.3f, -0.055f, 0.3f, 0.13f, 0.0f, 0.0f}},
+    {"SUPRA", 9, {0.005f, -0.045f, 0.7f, 1.3f, -0.0625f, 0.27f, 0.135f, 0.0f, 0.0f}},
+    {"ECLIPSEGT", 9, {0.005f, 0.04f, 0.7f, 1.3f, -0.0175f, 0.265f, 0.135f, 0.0f, 0.0f}},
+    {"BMWM3GTRE46", 9, {0.005f, 0.065f, 0.8f, 1.3f, -0.0325f, 0.265f, 0.135f, -2.5f, 0.0f}},
+    {"GTI", 9, {0.015f, 0.065f, 0.85f, 1.3f, -0.04f, 0.27f, 0.135f, 0.0f, 0.0f}},
+    {"PUNTO", 9, {0.0f, -0.005f, 0.85f, 1.3f, -0.045f, 0.265f, 0.135f, 0.0f, 0.0f}},
+    {"TT", 7, {0.01f, 0.04f, 0.8f, 1.3f, -0.045f, 0.265f, 0.13f}},
+    {"A3", 9, {0.01f, 0.05f, 0.75f, 1.3f, -0.0125f, 0.3f, 0.13f, -4.0f, 0.0f}},
+    {"A4", 9, {0.005f, 0.025f, 0.6f, 1.3f, -0.05f, 0.3f, 0.13f, 0.0f, 0.0f}},
+    {"COBALTSS", 9, {0.005f, 0.035f, 0.85f, 1.3f, -0.0425f, 0.3f, 0.13f, 0.0f, 0.0f}},
+    {"CORVETTE", 9, {0.005f, 0.0f, 0.65f, 1.3f, -0.04f, 0.3f, 0.13f, 3.5f, 0.0f}},
+    {"SLR", 9, {0.02f, 0.03f, 0.7f, 1.3f, -0.15f, 0.3f, 0.13f, -3.5f, 0.0f}},
+    {"CTS", 9, {-0.015f, -0.005f, 1.0f, 1.3f, -0.04f, 0.3f, 0.13f, 4.0f, 0.0f}},
+    {"CLIO", 9, {-0.02f, 0.05f, 0.8f, 1.3f, -0.045f, 0.3f, 0.13f, 1.0f, 0.0f}},
+    {"SL500", 9, {-0.005f, -0.01f, 0.7f, 1.3f, -0.045f, 0.3f, 0.13f, 1.5f, -23.5f}},
+    {"GTO", 9, {0.0f, 0.035f, 0.8f, 1.3f, -0.0275f, 0.3f, 0.13f, 2.0f, -12.0f}},
+    {"MONARO", 9, {0.0f, 0.025f, 0.85f, 1.3f, -0.035f, 0.3f, 0.13f, -2.0f, -17.5f}},
+    {"CAMARO", 9, {0.0f, 0.0f, 1.0f, 1.3f, -0.045f, 0.3f, 0.13f, 0.0f, -33.5f}},
+    {"GALLARDO", 9, {0.01f, -0.04f, 0.85f, 1.3f, -0.03f, 0.3f, 0.13f, -3.0f, 13.5f}},
+    {"CORVETTEC6R", 9, {0.0f, 0.0f, 0.95f, 1.3f, -0.0275f, 0.3f, 0.13f, 0.0f, 0.0f}},
+    {"IMPREZAWRX", 9, {0.0f, 0.08f, 0.8f, 1.3f, -0.15f, 0.3f, 0.13f, 0.0f, 0.0f}},
+    {"FORDGT", 9, {-0.03f, 0.05f, 0.75f, 1.3f, -0.15f, 0.3f, 0.13f, 2.5f, 0.0f}},
+    {"RX7", 9, {0.005f, 0.035f, 0.85f, 1.3f, -0.0325f, 0.3f, 0.13f, 0.5f, -9.0f}},
+    {"ELISE", 9, {-0.01f, 0.02f, 0.65f, 1.3f, -0.02f, 0.3f, 0.13f, 2.0f, -11.0f}},
+    {"997S", 9, {0.0f, -0.01f, 0.8f, 1.3f, -0.0175f, 0.3f, 0.13f, 0.0f, -29.0f}},
+    {"911TURBO", 9, {0.015f, 0.04f, 0.8f, 1.3f, -0.0425f, 0.3f, 0.13f, -2.0f, -15.0f}},
+    {"MURCIELAGO", 9, {0.01f, 0.035f, 0.85f, 1.3f, -0.0225f, 0.3f, 0.13f, 0.0f, 6.0f}},
+    {"CARRERAGT", 9, {0.025f, 0.005f, 0.9f, 1.3f, -0.005f, 0.3f, 0.13f, -8.5f, 0.0f}},
+    {"SL65", 9, {-0.005f, -0.015f, 0.85f, 1.3f, -0.03f, 0.3f, 0.13f, 0.5f, -29.5f}},
+    {"911GT2", 9, {0.015f, 0.04f, 0.8f, 1.3f, -0.025f, 0.3f, 0.13f, -3.5f, 0.0f}},
+    {"BMWM3GTR", 9, {0.03f, 0.055f, 0.8f, 1.3f, -0.03f, 0.3f, 0.13f, -8.5f, -4.0f}},
+};
 
 PerCar s_mirrorCar = {"MirrorOffset", "rear view mirror offset", 1, {&g_cfg.mirrorOffset}, {-0.1f}, {0.1f}, 1, false, true};
 // The steering wheel's turning centre moved (right, up; Config::wheelPivot).
@@ -457,6 +502,10 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
     if (car != p.car) {
         if (p.dirty && !p.car.empty()) SavePerCar(p);
         p.car = car;
+        memcpy(p.def, p.base, sizeof(p.def));
+        if (&p == &s_dashCar)
+            for (const ModelDash& d : kModelDash)
+                if (car == d.car) memcpy(p.def, d.v, sizeof(float) * std::min(d.n, p.n));
         char buf[512];
         GetPrivateProfileStringA(p.section, car.c_str(), "", buf, sizeof(buf), CarIni(p.section));
         // Lines saved before a value existed lack it: those start from the mod's built-in value
@@ -480,10 +529,11 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
         } else if (p.keepIfMissing) {
             Log("cockpit: %s for %s: none saved, the ini's values kept", p.what, car.c_str());
         } else {
-            // No line for this car model: start from the mod's defaults, not the car we came
-            // from, so each model's placement is its own.
-            for (int i = 0; i < p.n; i++) *p.v[i] = p.base[i];
-            Log("cockpit: %s for %s: none saved, the default used", p.what, car.c_str());
+            // No line for this car model: start from the mod's defaults (the model's own built-in
+            // ones if it has them), not the car we came from, so each model's placement is its own.
+            for (int i = 0; i < p.n; i++) *p.v[i] = p.def[i];
+            Log("cockpit: %s for %s: none saved, the %s default used", p.what, car.c_str(),
+                memcmp(p.def, p.base, sizeof(p.def)) ? "model's" : "mod's");
         }
         for (int i = 0; i < p.n; i++) p.seen[i] = *p.v[i];
         return;
@@ -2627,6 +2677,15 @@ void Cockpit_PerCarDefaults() {
     for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar, &s_wheelPositionCar})
         for (int i = 0; i < p->n; i++) p->base[i] = *p->v[i];
     Log("cockpit: per-car defaults captured");
+}
+
+float* Cockpit_PerCarDefault(const float* setting) {
+    for (PerCar* p : {&s_hudCar, &s_dashCar, &s_dashLayoutCar, &s_mirrorCar, &s_pivotCar, &s_wheelPositionCar}) {
+        if (p->car.empty()) continue;
+        for (int i = 0; i < p->n; i++)
+            if (p->v[i] == setting) return &p->def[i];
+    }
+    return nullptr;
 }
 
 void Cockpit_Install() {

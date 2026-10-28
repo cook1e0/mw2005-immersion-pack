@@ -2909,6 +2909,11 @@ int WINAPI Proxy_NfsmwVr_Loaded() { return 1; }
 // unknown, or in a copy that isn't the one running (an .asi next to the d3d9.dll proxy).
 float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!s_active || !name) return nullptr;
+    // "Default.<name>": a per-car setting's default for the car now driven (F4's "back to default").
+    if (!strncmp(name, "Default.", 8)) {
+        float* setting = Proxy_NfsmwVr_Setting(name + 8);
+        return setting ? Cockpit_PerCarDefault(setting) : nullptr;
+    }
     if (float* value = Spectator_Setting(name)) return value;
     if (!strcmp(name, "HudWidth")) return &g_cfg.hudWidth;
     if (!strcmp(name, "HudDistance")) return &g_cfg.hudDistance;

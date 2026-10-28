@@ -8,6 +8,10 @@
 // defaults (Config's own), not the [VR] values. Call once before LoadConfig, so a model you have
 // never set up never inherits the last car's HUD or dashboard placement.
 void Cockpit_PerCarDefaults();
+// The default of a per-car setting (one of the Config values the per-car lines hold) for the car
+// model now driven: where that model starts without a line of its own. Null for other settings
+// or with no car.
+float* Cockpit_PerCarDefault(const float* setting);
 void Cockpit_Install();
 // Called with the game camera's world->view matrix before the eyes are placed; moves it to the
 // driver's seat in the bumper and hood cameras. Returns true if it did.
