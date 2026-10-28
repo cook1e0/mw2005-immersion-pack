@@ -966,8 +966,9 @@ static IDirect3DSurface9* s_dashSurf;
 static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_EL_COUNT];
-static bool s_dashDirect;
-static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_EL_COUNT];
+// Each element's region of the dashboard texture (u0..v1) and the part of the HUD picture it shows
+// (hud: left, top, right, bottom, shares of the picture): a crop, or a native part's cell.
+static struct DashEl { bool ok; float u0, v0, u1, v1; float hud[4]; } s_el[DASH_EL_COUNT];
 static double s_lastProbe;
 // Each element's crop as found on the HUD (DashAutoCrop). A part is collected (the box around
 // everything of it seen) until the box has stopped growing for 2 s, then settles: from then on that
@@ -1519,15 +1520,15 @@ static void DrawDash() {
         if (e[2] <= 0.001f || e[0] != e[0] || e[1] != e[1]) continue;
         bool have = s_el[i].ok;
         if (!have && !adjust) continue;
-        const float* crop = g_cfg.dashCrop[i];
-        float wPx = have ? s_el[i].wPx : (crop[2] - crop[0]) * s_eyeW, hPx = have ? s_el[i].hPx : (crop[3] - crop[1]) * s_eyeH;
-        float hw = wPx / std::max(s_eyeW, 1) * kHudW * zoom * e[2] / 2, hh = hPx / std::max(s_eyeH, 1) * kHudH * zoom * e[2] / 2;
-        float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * (i + 1);
-        if (s_dashDirect) {
-            float sx=std::max(0.01f,g_cfg.dashScreenW)/0.30f;
-            float sy=std::max(0.01f,g_cfg.dashScreenH)/0.13f;
-            x *= sx; y *= sy; hw *= std::min(sx,sy); hh *= std::min(sx,sy);
-        }
+        // The element's crop is centred at its place (x, y) at its size: the HUD picture scaled to
+        // kHudW x kHudH by zoom and size. What is shown (the crop, or a native part's cell around
+        // it) goes where those pixels of the picture are, so both renderers place a part alike.
+        const float* crop = Crop(i);
+        const float* r = have ? s_el[i].hud : crop;
+        float k = zoom * e[2], lift = 0.0005f * (i + 1);
+        float x = e[0] * zoom + ((r[0] + r[2]) - (crop[0] + crop[2])) / 2 * kHudW * k;
+        float y = e[1] * zoom - ((r[1] + r[3]) - (crop[1] + crop[3])) / 2 * kHudH * k;
+        float hw = (r[2] - r[0]) / 2 * kHudW * k, hh = (r[3] - r[1]) / 2 * kHudH * k;
         if (have) {
             const float uv[4] = {s_el[i].u0, s_el[i].v0, s_el[i].u1, s_el[i].v1};
             PanelQuad(x, y, hw, hh, lift + 0.0002f, uv, q);
@@ -1787,13 +1788,10 @@ static void OutlineCrops() {
 static void AutoLayout() {
     static const float kPlace[DASH_EL_COUNT][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
                                                 {0.0f, 0.0f}};
-    static const float directPlace[DASH_EL_COUNT][2] = {{-.08f,-.01f},{0,.035f},{.08f,-.005f},
-                                                                       {0,-.042f},{0,.010f},{0,-.025f}};
-    const auto& place = g_cfg.dashRenderer>.5f ? directPlace : kPlace;
     for (int i = 0; i < DASH_EL_COUNT; i++) {
         float* e = g_cfg.dashEl[i];
-        if (e[0] != e[0]) e[0] = place[i][0];
-        if (e[1] != e[1]) e[1] = place[i][1];
+        if (e[0] != e[0]) e[0] = kPlace[i][0];
+        if (e[1] != e[1]) e[1] = kPlace[i][1];
     }
 }
 
@@ -1813,17 +1811,16 @@ static void ComposeDash() {
         if (g_cfg.dashAdjust > 0.5f) OutlineCrops();
         return;
     }
-    s_dashDirect = false;
     if (HudComponents_Ready()) {
         s_dev->ColorFill(s_dashSurf,nullptr,0);
         bool copied=true;
         DashEl next[DASH_EL_COUNT] = {};
-        // Full square cells retain the source artwork's proportions. Physical extents no
-        // longer depend on the eye render resolution or the extraction rectangle.
-        const float extent[DASH_EL_COUNT] = {.125f,.090f,.150f,.080f,.085f,.120f};
+        // Full square cells retain the source artwork's proportions; each is placed by the part
+        // of the HUD picture it covers (DrawDash), as that element's crop would be.
         for (int i=0;i<DASH_EL_COUNT;i++) {
             IDirect3DTexture9* tex=HudComponents_Texture(i);
-            if (!tex) continue;
+            float hud[4];
+            if (!tex || !HudComponents_Coverage(i,hud)) continue;
             IDirect3DSurface9* src=nullptr;
             HRESULT hr=tex->GetSurfaceLevel(0,&src);
             LONG x=(i%3)*kCellW,y=(i/3)*kCellH;
@@ -1832,10 +1829,10 @@ static void ComposeDash() {
             if (src) src->Release();
             copied &= SUCCEEDED(hr);
             next[i]={true,x/(float)kAtlasW,y/(float)kAtlasH,(x+512)/(float)kAtlasW,(y+512)/(float)kAtlasH,
-                     extent[i]/.364f*s_eyeW,extent[i]/.273f*s_eyeH};
+                     {hud[0],hud[1],hud[2],hud[3]}};
         }
         if (copied && SUCCEEDED(s_dev->StretchRect(HudComponents_Remaining(),nullptr,s_eyeSurf[2],nullptr,D3DTEXF_NONE))) {
-            memcpy(s_el,next,sizeof(s_el)); s_dashDirect=true; AutoLayout(); return;
+            memcpy(s_el,next,sizeof(s_el)); AutoLayout(); return;
         }
     }
     ProbeHud();
@@ -1873,7 +1870,8 @@ static void ComposeDash() {
             if (cut.right > cut.left && cut.bottom > cut.top) s_dev->ColorFill(s_dashSurf, &cut, D3DCOLOR_ARGB(0, 0, 0, 0));
         }
         s_el[i] = {true, dst.left / (float)kAtlasW, dst.top / (float)kAtlasH, dst.right / (float)kAtlasW,
-                   dst.bottom / (float)kAtlasH, w, h};
+                   dst.bottom / (float)kAtlasH,
+                   {src.left / (float)s_eyeW, src.top / (float)s_eyeH, src.right / (float)s_eyeW, src.bottom / (float)s_eyeH}};
     }
     AutoLayout();
     // The whole HUD off the headset's HUD layer: its parts, the messages too, are on the display.

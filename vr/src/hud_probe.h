@@ -39,3 +39,6 @@ IDirect3DTexture9* HudProbe_Texture();
 bool HudComponents_Ready();
 IDirect3DTexture9* HudComponents_Texture(int element);
 IDirect3DSurface9* HudComponents_Remaining();
+// The part of the HUD picture (left, top, right, bottom: shares of its width and height) that
+// element's cell shows, so it can be placed exactly as a crop of that picture would be.
+bool HudComponents_Coverage(int element, float out[4]);

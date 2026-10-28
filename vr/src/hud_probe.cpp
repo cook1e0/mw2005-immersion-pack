@@ -532,3 +532,13 @@ IDirect3DTexture9* HudComponents_Texture(int element) {
     return directReady && element>=0 && element<DASH_EL_COUNT && completedDraws[element] ? components[element].Texture() : nullptr;
 }
 IDirect3DSurface9* HudComponents_Remaining() { return directReady ? remainingSurface : nullptr; }
+bool HudComponents_Coverage(int element, float out[4]) {
+    if (!directReady || element<0 || element>=DASH_EL_COUNT || !(scaleX>0 && scaleY>0)) return false;
+    // The cell is the square around the source rectangle (Duplicate's fit), in the layout's units;
+    // a layout x is (x * scaleX / 2) of the HUD picture's width, y likewise.
+    const HudProbeRect& s=componentSource[element];
+    float cx=(s.left+s.right)*.5f, cy=(s.top+s.bottom)*.5f, half=std::max(s.right-s.left,s.bottom-s.top)*.5f;
+    out[0]=(cx-half)*scaleX*.5f; out[1]=(cy-half)*scaleY*.5f;
+    out[2]=(cx+half)*scaleX*.5f; out[3]=(cy+half)*scaleY*.5f;
+    return true;
+}
