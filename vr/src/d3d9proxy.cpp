@@ -13,6 +13,7 @@
 #include "cockpit.h"
 #include "crash.h"
 #include "frametrace.h"
+#include "hud_probe.h"
 
 #include <d3d9.h>
 #include "d3d9device_gen.h"
@@ -68,6 +69,9 @@ static bool s_active;                     // this copy runs the mod (see DllMain
 static IDirect3DTexture9* s_eyeTex[3];    // left, right, HUD (shared with D3D11)
 static IDirect3DSurface9* s_eyeSurf[3];
 static IDirect3DSurface9* s_hudRT;        // HUD is drawn here (matches the back buffer's MSAA)
+static IDirect3DTexture9* s_modOverlayTex;
+static IDirect3DSurface9* s_modOverlaySurf;
+
 static IDirect3DSurface9* s_backBuffer;   // held while the HUD phase is active
 static bool s_hudPhase, s_hudValid;
 static int s_hudInEyes;                   // eyes this frame with the HUD drawn into them (steering wheel over the HUD)
@@ -154,12 +158,17 @@ static void ReleaseSavedState() {
 }
 
 static void ReleaseEyeTargets() {
+    HudProbe_Release();
     for (int i = 0; i < 3; i++) {
         if (s_eyeSurf[i]) s_eyeSurf[i]->Release();
         if (s_eyeTex[i]) s_eyeTex[i]->Release();
         s_eyeSurf[i] = nullptr;
         s_eyeTex[i] = nullptr;
     }
+    if (s_modOverlaySurf) s_modOverlaySurf->Release();
+    if (s_modOverlayTex) s_modOverlayTex->Release();
+    s_modOverlaySurf = nullptr;
+    s_modOverlayTex = nullptr;
     if (s_hudRT) s_hudRT->Release();
     s_hudRT = nullptr;
     if (s_mirrorSurf) s_mirrorSurf->Release();
@@ -957,6 +966,7 @@ static IDirect3DSurface9* s_dashSurf;
 static IDirect3DSurface9* s_probeRT;           // the HUD, small
 static IDirect3DSurface9* s_probeMem;          // ... read back
 static struct DashBox { float x0, y0, x1, y1; double seen; bool ok; } s_dashBox[DASH_EL_COUNT];
+static bool s_dashDirect;
 static struct DashEl { bool ok; float u0, v0, u1, v1, wPx, hPx; } s_el[DASH_EL_COUNT];
 static double s_lastProbe;
 // Each element's crop as found on the HUD (DashAutoCrop). A part is collected (the box around
@@ -1513,6 +1523,11 @@ static void DrawDash() {
         float wPx = have ? s_el[i].wPx : (crop[2] - crop[0]) * s_eyeW, hPx = have ? s_el[i].hPx : (crop[3] - crop[1]) * s_eyeH;
         float hw = wPx / std::max(s_eyeW, 1) * kHudW * zoom * e[2] / 2, hh = hPx / std::max(s_eyeH, 1) * kHudH * zoom * e[2] / 2;
         float x = e[0] * zoom, y = e[1] * zoom, lift = 0.0005f * (i + 1);
+        if (s_dashDirect) {
+            float sx=std::max(0.01f,g_cfg.dashScreenW)/0.30f;
+            float sy=std::max(0.01f,g_cfg.dashScreenH)/0.13f;
+            x *= sx; y *= sy; hw *= std::min(sx,sy); hh *= std::min(sx,sy);
+        }
         if (have) {
             const float uv[4] = {s_el[i].u0, s_el[i].v0, s_el[i].u1, s_el[i].v1};
             PanelQuad(x, y, hw, hh, lift + 0.0002f, uv, q);
@@ -1772,10 +1787,13 @@ static void OutlineCrops() {
 static void AutoLayout() {
     static const float kPlace[DASH_EL_COUNT][2] = {{-0.08f, 0.0f}, {0.0f, 0.05f}, {0.08f, 0.0f}, {0.0f, -0.035f}, {0.13f, -0.055f},
                                                 {0.0f, 0.0f}};
+    static const float directPlace[DASH_EL_COUNT][2] = {{-.08f,-.01f},{0,.035f},{.08f,-.005f},
+                                                                       {0,-.042f},{0,.010f},{0,-.025f}};
+    const auto& place = g_cfg.dashRenderer>.5f ? directPlace : kPlace;
     for (int i = 0; i < DASH_EL_COUNT; i++) {
         float* e = g_cfg.dashEl[i];
-        if (e[0] != e[0]) e[0] = kPlace[i][0];
-        if (e[1] != e[1]) e[1] = kPlace[i][1];
+        if (e[0] != e[0]) e[0] = place[i][0];
+        if (e[1] != e[1]) e[1] = place[i][1];
     }
 }
 
@@ -1794,6 +1812,31 @@ static void ComposeDash() {
         s_probePending = false;   // the HUD is on its floating layer: don't read a picture from before
         if (g_cfg.dashAdjust > 0.5f) OutlineCrops();
         return;
+    }
+    s_dashDirect = false;
+    if (HudComponents_Ready()) {
+        s_dev->ColorFill(s_dashSurf,nullptr,0);
+        bool copied=true;
+        DashEl next[DASH_EL_COUNT] = {};
+        // Full square cells retain the source artwork's proportions. Physical extents no
+        // longer depend on the eye render resolution or the extraction rectangle.
+        const float extent[DASH_EL_COUNT] = {.125f,.090f,.150f,.080f,.085f,.120f};
+        for (int i=0;i<DASH_EL_COUNT;i++) {
+            IDirect3DTexture9* tex=HudComponents_Texture(i);
+            if (!tex) continue;
+            IDirect3DSurface9* src=nullptr;
+            HRESULT hr=tex->GetSurfaceLevel(0,&src);
+            LONG x=(i%3)*kCellW,y=(i/3)*kCellH;
+            RECT dst={x,y,x+512,y+512};
+            if (SUCCEEDED(hr)) hr=s_dev->StretchRect(src,nullptr,s_dashSurf,&dst,D3DTEXF_NONE);
+            if (src) src->Release();
+            copied &= SUCCEEDED(hr);
+            next[i]={true,x/(float)kAtlasW,y/(float)kAtlasH,(x+512)/(float)kAtlasW,(y+512)/(float)kAtlasH,
+                     extent[i]/.364f*s_eyeW,extent[i]/.273f*s_eyeH};
+        }
+        if (copied && SUCCEEDED(s_dev->StretchRect(HudComponents_Remaining(),nullptr,s_eyeSurf[2],nullptr,D3DTEXF_NONE))) {
+            memcpy(s_el,next,sizeof(s_el)); s_dashDirect=true; AutoLayout(); return;
+        }
     }
     ProbeHud();
     s_dev->ColorFill(s_dashSurf, nullptr, D3DCOLOR_ARGB(0, 0, 0, 0));
@@ -1882,6 +1925,7 @@ void D3D_BeginHudPhase() {
     DWORD mask;
     if (SUCCEEDED(s_dev->GetRenderState(D3DRS_COLORWRITEENABLE, &mask))) s_dev->SetRenderState(D3DRS_COLORWRITEENABLE, HudColorWrite(mask));
     s_hudPhase = true;
+    HudProbe_Begin(s_dev, s_hudRT, s_eyeW, s_eyeH, s_dashThisFrame && s_uiMenuOpen<0.5f);
 }
 
 static void EndHudPhase() {
@@ -1890,6 +1934,7 @@ static void EndHudPhase() {
     s_frameRT = s_frameDS = nullptr;
     s_skipPostPass = false;
     if (!s_hudPhase) return;
+    HudProbe_End(s_dev);
     s_hudPhase = false;
     IDirect3DSurface9* cur = nullptr;
     s_dev->GetRenderTarget(0, &cur);
@@ -2108,36 +2153,65 @@ static void RaiseRenderPriority() {
         timer ? "1 ms" : "unchanged");
 }
 
-static void DumpEyes() {
-    for (int i = 0; i < 3; i++) {
-        if (!s_eyeSurf[i]) continue;
-        IDirect3DSurface9* sys = nullptr;
-        if (FAILED(s_dev->CreateOffscreenPlainSurface(s_eyeW, s_eyeH, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &sys, nullptr))) continue;
+static void DumpSurface(IDirect3DSurface9* source, const char* name) {
+    if (!source) return;
+    D3DSURFACE_DESC d;
+    if (FAILED(source->GetDesc(&d))) return;
+    IDirect3DSurface9 *resolved = nullptr, *sys = nullptr;
+    if (d.MultiSampleType != D3DMULTISAMPLE_NONE) {
+        if (FAILED(s_dev->CreateRenderTarget(d.Width, d.Height, d.Format, D3DMULTISAMPLE_NONE, 0, FALSE, &resolved, nullptr))) return;
+        if (FAILED(s_dev->StretchRect(source, nullptr, resolved, nullptr, D3DTEXF_NONE))) {
+            resolved->Release();
+            return;
+        }
+        source = resolved;
+    }
+    if (SUCCEEDED(s_dev->CreateOffscreenPlainSurface(d.Width, d.Height, d.Format, D3DPOOL_SYSTEMMEM, &sys, nullptr))) {
         D3DLOCKED_RECT lr;
-        if (SUCCEEDED(s_dev->GetRenderTargetData(s_eyeSurf[i], sys)) && SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
+        if (SUCCEEDED(s_dev->GetRenderTargetData(source, sys)) && SUCCEEDED(sys->LockRect(&lr, nullptr, D3DLOCK_READONLY))) {
             char path[MAX_PATH];
-            snprintf(path, sizeof(path), "%svr_dump_%03d_%s.bmp", GameDir(), s_dumpIndex, i == 0 ? "left" : i == 1 ? "right" : "hud");
+            snprintf(path, sizeof(path), "%svr_dump_%03d_%s.bmp", GameDir(), s_dumpIndex, name);
             FILE* f = fopen(path, "wb");
             if (f) {
                 BITMAPFILEHEADER fh = {};
                 BITMAPINFOHEADER ih = {};
                 ih.biSize = sizeof(ih);
-                ih.biWidth = s_eyeW;
-                ih.biHeight = -s_eyeH; // top-down
+                ih.biWidth = d.Width;
+                ih.biHeight = -(LONG)d.Height;
                 ih.biPlanes = 1;
                 ih.biBitCount = 32;
                 fh.bfType = 0x4D42;
                 fh.bfOffBits = sizeof(fh) + sizeof(ih);
-                fh.bfSize = fh.bfOffBits + s_eyeW * s_eyeH * 4;
+                fh.bfSize = fh.bfOffBits + d.Width * d.Height * 4;
                 fwrite(&fh, sizeof(fh), 1, f);
                 fwrite(&ih, sizeof(ih), 1, f);
-                for (int y = 0; y < s_eyeH; y++) fwrite((char*)lr.pBits + y * lr.Pitch, 4, s_eyeW, f);
+                for (UINT y = 0; y < d.Height; y++) fwrite((char*)lr.pBits + y * lr.Pitch, 4, d.Width, f);
                 fclose(f);
                 Log("d3d9: wrote %s", path);
             }
             sys->UnlockRect();
         }
         sys->Release();
+    }
+    if (resolved) resolved->Release();
+}
+
+static void DumpEyes() {
+    for (int i = 0; i < 3; i++) DumpSurface(s_eyeSurf[i], i == 0 ? "left" : i == 1 ? "right" : "hud");
+    // ComposeDash clears the submitted HUD layer. Keep its source and the assembled display too.
+    DumpSurface(s_hudRT, "hud_raw");
+    DumpSurface(s_dashSurf, "dash");
+    DumpSurface(s_modOverlaySurf, "overlay");
+    if (IDirect3DTexture9* probe = HudProbe_Texture()) {
+        IDirect3DSurface9* surface = nullptr;
+        if (SUCCEEDED(probe->GetSurfaceLevel(0, &surface))) {
+            DumpSurface(surface, "hudprobe"); surface->Release();
+        }
+    }
+    IDirect3DSurface9* bb = nullptr;
+    if (SUCCEEDED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb))) {
+        DumpSurface(bb, "spectator");
+        bb->Release();
     }
     s_dumpIndex++;
 }
@@ -2268,7 +2342,7 @@ static bool KeyPressed(int vk) {
 }
 
 static void AdjustPresentParams(D3DPRESENT_PARAMETERS* pp) {
-    if (g_cfg.forceWindowed) {
+    if (g_cfg.UsesWindowedRendering()) {
         pp->Windowed = TRUE;
         pp->FullScreen_RefreshRateInHz = 0;
     }
@@ -2312,6 +2386,29 @@ static void DrawOverlay(IDirect3DSurface9* target) {
     if (ds) ds->Release();
 }
 
+// Native-pixel overlays must not inherit the game's anamorphic 4:3 presentation.
+static bool DrawModOverlayLayer() {
+    if (!s_overlayDraw || !s_overlayShown() || !s_eyeOk) return false;
+    D3DDEVICE_CREATION_PARAMETERS cp = {}; s_dev->GetCreationParameters(&cp);
+    RECT client = {}; GetClientRect(cp.hFocusWindow,&client);
+    float aspect = client.right>0 && client.bottom>0 ? (float)client.right/client.bottom : (float)s_eyeW/s_eyeH;
+    UINT width=s_eyeW, height=std::max(1u,(UINT)std::lround(width/aspect));
+    D3DSURFACE_DESC previous = {};
+    if (s_modOverlayTex && (FAILED(s_modOverlayTex->GetLevelDesc(0,&previous)) || previous.Width!=width || previous.Height!=height)) {
+        if (s_modOverlaySurf) s_modOverlaySurf->Release(); s_modOverlaySurf=nullptr;
+        s_modOverlayTex->Release(); s_modOverlayTex=nullptr;
+    }
+    if (!s_modOverlayTex) {
+        if (FAILED(s_dev->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
+                                       D3DPOOL_DEFAULT, &s_modOverlayTex, nullptr))) return false;
+        s_modOverlayTex->GetSurfaceLevel(0, &s_modOverlaySurf);
+        Log("d3d9: mod overlay canvas %ux%u, desktop client %ldx%ld",width,height,client.right,client.bottom);
+    }
+    s_dev->ColorFill(s_modOverlaySurf, nullptr, 0);
+    DrawOverlay(s_modOverlaySurf);
+    return true;
+}
+
 static void DrawOverlayOnBackBuffer() {
     IDirect3DSurface9* bb = nullptr;
     if (!s_overlayDraw || !s_dev || FAILED(s_dev->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &bb)) || !bb) return;
@@ -2328,7 +2425,10 @@ static void OnPresent() {
     if (KeyPressed(g_cfg.keyRecenter)) Xr_Recenter();
     if (KeyPressed(g_cfg.keyToggle)) Game_ToggleStereo();
     if (KeyPressed(g_cfg.keyLevel)) Game_ToggleLevel();
-    if (KeyPressed(g_cfg.keyDump)) s_dumpRequested = g_cfg.dumpFrames > 0 ? g_cfg.dumpFrames : 1;
+    if (KeyPressed(g_cfg.keyDump)) {
+        s_dumpRequested = g_cfg.dumpFrames > 0 ? g_cfg.dumpFrames : 1;
+        HudProbe_RequestCapture();
+    }
     Trace_KeyCheck(g_cfg.keyTrace, s_dev);
     // Debug key: the same frame with the shared-view rule flipped, to tell a pass that differs
     // between the eyes from one that does not. (There is no key for StableReflections: a stray
@@ -2342,11 +2442,48 @@ static void OnPresent() {
     UpdatePictureSettings();
 
     if (s_xr) {
-        bool stereo = Game_StereoThisFrame(), captured = false;
+        bool stereo = Game_StereoThisFrame();
+        auto drawSpectator = [&](IDirect3DTexture9* overlay) {
+            if (!s_eyeOk || Spectator_Mode() == SpectatorMode::Eye) return;
+            SpectatorFrame sf = {};
+            sf.eye[0] = s_eyeTex[0];
+            sf.eye[1] = s_eyeTex[1];
+            sf.hud = stereo && s_hudValid && s_hudInEyes < 2 ? s_eyeTex[2] : nullptr;
+            sf.overlay = overlay;
+            D3DSURFACE_DESC overlayDesc = {};
+            if (overlay && SUCCEEDED(overlay->GetLevelDesc(0,&overlayDesc)) && overlayDesc.Height)
+                sf.overlayAspect = (float)overlayDesc.Width/overlayDesc.Height;
+            sf.stereo = stereo;
+            Game_RenderedFov(&sf.eyeTanX, &sf.eyeTanY);
+            const EyeView& e0 = Xr_Eye(0);
+            const EyeView& e1 = Xr_Eye(1);
+            sf.eyeRot[0] = e0.relOrientation;
+            sf.eyeRot[1] = e1.relOrientation;
+            sf.headPos = (e0.relPosition + e1.relPosition) * 0.5f;
+            sf.hmdTanX = std::max(std::max(e0.tanLeft, e0.tanRight), std::max(e1.tanLeft, e1.tanRight));
+            sf.hmdTanY = std::max(std::max(e0.tanUp, e0.tanDown), std::max(e1.tanUp, e1.tanDown));
+            sf.bbWidth = s_eyeW;
+            sf.bbHeight = s_eyeH;
+            sf.poseEpoch = Xr_PoseEpoch();
+            sf.menuOpen = s_uiMenuOpen > 0.5f;
+            sf.panelAspect = 4.0f / 3.0f; // native mod controls are on their separate desktop-shaped layer
+            double ts = D3D_ProfNow();
+            Spectator_Draw(s_dev, sf);
+            D3D_ProfAdd(PROF_SPECTATOR, D3D_ProfNow() - ts);
+        };
+
         if (stereo) {
-            captured = true;
             EndHudPhase();
-            if (s_hudValid) DrawOverlay(s_eyeSurf[2]);
+            bool overlay = s_hudValid && DrawModOverlayLayer();
+            D3DSURFACE_DESC overlayDesc = {}; if (overlay) s_modOverlayTex->GetLevelDesc(0,&overlayDesc);
+            float overlayAspect = overlay && overlayDesc.Height ? (float)overlayDesc.Width/overlayDesc.Height : 4.0f/3.0f;
+            if (Spectator_Mode() == SpectatorMode::Smooth && g_cfg.spectatorPreset > 0) {
+                drawSpectator(overlay ? s_modOverlayTex : nullptr);
+                if (overlay) Spectator_BlendFullscreen(s_dev, s_modOverlayTex, s_eyeW, s_eyeH, s_eyeSurf[2], true, overlayAspect, 4.0f/3.0f);
+            } else {
+                if (overlay) Spectator_BlendFullscreen(s_dev, s_modOverlayTex, s_eyeW, s_eyeH, s_eyeSurf[2], true, overlayAspect, 4.0f/3.0f);
+                drawSpectator(nullptr);
+            }
             double t0 = D3D_ProfNow();
             Trace_BeforeGpuWait();
             WaitForGpu();
@@ -2360,42 +2497,30 @@ static void OnPresent() {
             D3D_ProfAdd(PROF_SUBMIT, D3D_ProfNow() - t1);
         } else if (Xr_BeginFrame()) {
             // Menus, movies, loading screens: show the flat frame on a virtual screen.
-            DrawOverlayOnBackBuffer();
+            bool broadcast=Spectator_Mode()==SpectatorMode::Smooth && g_cfg.spectatorPreset>0;
+            bool overlay=broadcast && DrawModOverlayLayer();
+            if (!broadcast) DrawOverlayOnBackBuffer();
             D3D_CaptureEye(0);
-            captured = true;
+            drawSpectator(overlay?s_modOverlayTex:nullptr);
             WaitForGpu();
             Xr_EndFrame(LayerMode::Screen, 0, 0, false);
         } else {
             DrawOverlayOnBackBuffer();
             Xr_EndFrame(LayerMode::None, 0, 0, false);
         }
-        if (captured && s_eyeOk && Spectator_Mode() != SpectatorMode::Eye) {
-            SpectatorFrame sf = {};
-            sf.eye[0] = s_eyeTex[0];
-            sf.eye[1] = s_eyeTex[1];
-            sf.hud = stereo && s_hudValid && s_hudInEyes < 2 ? s_eyeTex[2] : nullptr;
-            sf.stereo = stereo;
-            Game_RenderedFov(&sf.eyeTanX, &sf.eyeTanY);
-            const EyeView& e0 = Xr_Eye(0);
-            const EyeView& e1 = Xr_Eye(1);
-            sf.eyeRot[0] = e0.relOrientation;
-            sf.eyeRot[1] = e1.relOrientation;
-            sf.headPos = (e0.relPosition + e1.relPosition) * 0.5f;
-            sf.hmdTanX = std::max(std::max(e0.tanLeft, e0.tanRight), std::max(e1.tanLeft, e1.tanRight));
-            sf.hmdTanY = std::max(std::max(e0.tanUp, e0.tanDown), std::max(e1.tanUp, e1.tanDown));
-            sf.bbWidth = s_eyeW;
-            sf.bbHeight = s_eyeH;
-            double ts = D3D_ProfNow();
-            Spectator_Draw(s_dev, sf);
-            D3D_ProfAdd(PROF_SPECTATOR, D3D_ProfNow() - ts);
-            if (Spectator_ConsumeResize()) FitWindow(s_wnd, s_bbW, s_bbH);
-        }
+        if (s_eyeOk && Spectator_Mode() != SpectatorMode::Eye && Spectator_ConsumeResize())
+            FitWindow(s_wnd, s_bbW, s_bbH);
         if (s_dumpRequested > 0) {
             s_dumpRequested--;
             DumpEyes();
         }
     } else {
         DrawOverlayOnBackBuffer();
+    }
+    if (g_cfg.hudProbe) {
+        static unsigned stable; static bool captured;
+        stable=HudComponents_Ready()?stable+1:0;
+        if (stable==120 && !captured) { captured=true; DumpEyes(); HudProbe_RequestCapture(); }
     }
     Game_EndOfFrame();
 }
@@ -2542,6 +2667,7 @@ public:
     HRESULT STDMETHODCALLTYPE DrawPrimitive(D3DPRIMITIVETYPE type, UINT start, UINT count) override {
         if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
+        if (g_cfg.hudProbe || g_cfg.dashRenderer > 0.5f) HudProbe_OtherDraw(real);
         return real->DrawPrimitive(type, start, count);
     }
     HRESULT STDMETHODCALLTYPE SetIndices(IDirect3DIndexBuffer9* ib) override {
@@ -2552,6 +2678,7 @@ public:
                                                    UINT count) override {
         if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
+        if (g_cfg.hudProbe || g_cfg.dashRenderer > 0.5f) HudProbe_OtherDraw(real);
         bool mirrorJobs = s_mirrorEye && (!s_pendingMirrors.empty() || (!s_glassJobs.empty() && s_mirrorTex));
         bool wheelJobs = s_wheelEye.active && !s_wheelDraws.empty();
         bool dashJobs = (s_colorEye && !s_colorTris.empty()) || (s_dashEye.on && s_dashEye.added && !s_dashEye.drawn);
@@ -2567,13 +2694,16 @@ public:
     HRESULT STDMETHODCALLTYPE DrawPrimitiveUP(D3DPRIMITIVETYPE type, UINT count, CONST void* data, UINT stride) override {
         if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
-        return real->DrawPrimitiveUP(type, count, data, stride);
+        HRESULT hr = real->DrawPrimitiveUP(type, count, data, stride);
+        if ((g_cfg.hudProbe || g_cfg.dashRenderer > 0.5f) && SUCCEEDED(hr)) HudProbe_Draw(real, type, count, data, stride);
+        return hr;
     }
     HRESULT STDMETHODCALLTYPE DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE type, UINT minIndex, UINT verts, UINT count,
                                                      CONST void* indices, D3DFORMAT fmt, CONST void* data,
                                                      UINT stride) override {
         if (s_dropDraws || s_skipPostPass || s_texHidden) return D3D_OK;
         CountEyeDrawCall();
+        if (g_cfg.hudProbe || g_cfg.dashRenderer > 0.5f) HudProbe_OtherDraw(real);
         return real->DrawIndexedPrimitiveUP(type, minIndex, verts, count, indices, fmt, data, stride);
     }
 
@@ -2652,22 +2782,39 @@ bool D3D_EnsureXr() {
         ex->Release();
     }
     s_xr = Xr_Init(luid);
+    if (s_xr) HudProbe_Install();
     Log("d3d9: VR %s", s_xr ? "active" : "unavailable - running flat");
     return s_xr;
 }
 
 // Sizes the game window for the spectator view: its aspect (16:9 / 32:9 / back
-// buffer), limited to SpectatorWidth and the monitor. Present scales the back buffer
+// buffer). SpectatorWidth=0 (with a headset): borderless, the largest such rectangle on
+// the monitor, centred - the whole screen when the aspects match, as fullscreen would be.
+// Otherwise a framed window SpectatorWidth wide (the back buffer's width without a headset),
+// as large as fits the monitor's work area with its frame. Present scales the back buffer
 // to the client area.
 static void FitWindow(HWND wnd, UINT w, UINT h) {
-    if (!wnd || !g_cfg.forceWindowed || !w || !h) return;
+    if (!wnd || !g_cfg.UsesWindowedRendering() || !w || !h) return;
     s_wnd = wnd;
     s_bbW = w;
     s_bbH = h;
     MONITORINFO mi = {sizeof(mi)};
     if (!GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi)) return;
-    float maxW = (mi.rcWork.right - mi.rcWork.left) * 0.9f, maxH = (mi.rcWork.bottom - mi.rcWork.top) * 0.9f;
     float aspect = s_xr ? Spectator_WindowAspect((int)w, (int)h) : (float)w / h;
+    if (s_xr && g_cfg.spectatorWidth <= 0) {
+        LONG style = GetWindowLongA(wnd, GWL_STYLE);
+        SetWindowLongA(wnd, GWL_STYLE, (style & ~(WS_OVERLAPPEDWINDOW | WS_DLGFRAME)) | WS_POPUP);
+        float mw = (float)(mi.rcMonitor.right - mi.rcMonitor.left), mh = (float)(mi.rcMonitor.bottom - mi.rcMonitor.top);
+        LONG cw = (LONG)std::min(mw, mh * aspect), ch = (LONG)std::min(mh, mw / aspect);
+        SetWindowPos(wnd, nullptr, mi.rcMonitor.left + ((LONG)mw - cw) / 2, mi.rcMonitor.top + ((LONG)mh - ch) / 2,
+                     cw, ch, SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+        Log("d3d9: window client %ldx%ld, borderless on the monitor", cw, ch);
+        return;
+    }
+    RECT frame = {0, 0, 0, 0};
+    AdjustWindowRectEx(&frame, (DWORD)GetWindowLongA(wnd, GWL_STYLE), FALSE, (DWORD)GetWindowLongA(wnd, GWL_EXSTYLE));
+    float maxW = (float)(mi.rcWork.right - mi.rcWork.left - (frame.right - frame.left));
+    float maxH = (float)(mi.rcWork.bottom - mi.rcWork.top - (frame.bottom - frame.top));
     float cw = s_xr && Spectator_Mode() != SpectatorMode::Eye ? (float)g_cfg.spectatorWidth : (float)w;
     cw = std::min(cw, std::min(maxW, maxH * aspect));
     float ch = cw / aspect;
@@ -2764,6 +2911,7 @@ int WINAPI Proxy_NfsmwVr_Loaded() { return 1; }
 // unknown, or in a copy that isn't the one running (an .asi next to the d3d9.dll proxy).
 float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!s_active || !name) return nullptr;
+    if (float* value = Spectator_Setting(name)) return value;
     if (!strcmp(name, "HudWidth")) return &g_cfg.hudWidth;
     if (!strcmp(name, "HudDistance")) return &g_cfg.hudDistance;
     if (!strcmp(name, "HudHeight")) return &g_cfg.hudHeight;
@@ -2776,6 +2924,7 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "WheelOverHud")) return &g_cfg.wheelOverHud;
     if (!strcmp(name, "HudPerCar")) return &g_cfg.hudPerCar;
     if (!strcmp(name, "Dash")) return &g_cfg.dash;
+    if (!strcmp(name, "DashRenderer")) return &g_cfg.dashRenderer;
     if (!strcmp(name, "RearViewEvery")) return &g_cfg.rearViewEvery;
     if (!strcmp(name, "DepthSplit")) return &g_cfg.depthSplit;
     if (!strcmp(name, "SharedShadows")) return &g_cfg.sharedShadows;
@@ -2828,6 +2977,10 @@ float* __cdecl Proxy_NfsmwVr_Setting(const char* name) {
     if (!strcmp(name, "SeatForward")) return &g_seatInput[2];
     if (!strcmp(name, "SeatReset")) return &g_seatInput[3];
     return nullptr;
+}
+
+int __cdecl Proxy_NfsmwVr_SpectatorEdit(const char* key, float value) {
+    return s_active && key && Spectator_Edit(key, value) ? 1 : 0;
 }
 
 // For the gameplay mod: its overlay, drawn by this mod after the HUD phase (see DrawOverlay).

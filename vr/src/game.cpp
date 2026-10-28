@@ -344,7 +344,7 @@ void __stdcall hkGetResolution(int* w, int* h) {
     } else if (_stricmp(mode, "game") != 0) {
         sscanf(mode, "%dx%d", &cw, &ch);
     }
-    if (cw >= 320 && ch >= 240 && g_cfg.forceWindowed) {
+    if (cw >= 320 && ch >= 240 && g_cfg.UsesWindowedRendering()) {
         *w = cw & ~1;
         *h = ch & ~1;
     }

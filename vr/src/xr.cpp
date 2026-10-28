@@ -1,5 +1,6 @@
 #include "xr.h"
 #include "xr_bridge.h"
+#include "spectator_motion.h"
 
 #include <d3d11.h>
 #include <dxgi.h>
@@ -100,6 +101,7 @@ struct State {
     V3 originPos = {0, 0, 0};
 };
 State s;
+unsigned s_poseEpoch;
 
 const char* ResultStr(XrResult r) {
     static char buf[XR_MAX_RESULT_STRING_SIZE];
@@ -546,12 +548,14 @@ void UpdateOrigin(XrTime time) {
     s.originPos = {loc.pose.position.x, loc.pose.position.y, loc.pose.position.z};
     s.haveOrigin = true;
     s.recenterPending = false;
+    ++s_poseEpoch;
     Log("XR: recentred (yaw %.1f deg)", yaw * 57.2958f);
 }
 
-void FillFakeEyes() {
+void FillFakeEyes(double motionSeconds = 0) {
     const float deg = 3.14159265f / 180;
     Quat head = QMul(QFromAxisAngle({0, 1, 0}, g_cfg.fakeYaw * deg), QFromAxisAngle({1, 0, 0}, g_cfg.fakePitch * deg));
+    if (g_cfg.fakeMotion) head = QMul(head, Spectator_TestPose(motionSeconds));
     for (int i = 0; i < 2; i++) {
         EyeView& e = s.eyes[i];
         e.orientation = e.relOrientation = head;
@@ -848,6 +852,7 @@ float Xr_DisplayHz() {
     return period > 0 ? (float)(1e9 / (double)period) : 0.0f;
 }
 const EyeView& Xr_Eye(int eye) { return s.eyes[eye]; }
+unsigned Xr_PoseEpoch() { return s_poseEpoch; }
 const char* Xr_RuntimeName() { return s.runtimeName; }
 
 void Xr_PollEvents() {
@@ -855,6 +860,7 @@ void Xr_PollEvents() {
 }
 
 void Xr_Recenter() {
+    ++s_poseEpoch;
 #ifndef NFSMW_XR_HOST
     if (s.remote) {
         BridgeCall(kBridgeRecenter);
@@ -909,6 +915,10 @@ bool Xr_BeginFrame() {
     if (s.frameBegun) return s.viewsValid;
     s.viewsValid = false;
     if (s.fake) {
+        static double started;
+        double now = XrSeconds();
+        if (!started) started = now;
+        FillFakeEyes(now - started);
         s.frameBegun = true;
         s.viewsValid = true;
         return true;
@@ -920,6 +930,7 @@ bool Xr_BeginFrame() {
         s.frameState.shouldRender = b.shm->shouldRender;
         s.eyes[0] = b.shm->eyes[0];
         s.eyes[1] = b.shm->eyes[1];
+        s_poseEpoch = b.shm->poseEpoch;
         s.viewsValid = b.shm->result != 0;
         return s.viewsValid;
     }
@@ -948,8 +959,10 @@ bool Xr_BeginFrame() {
     XrView views[2] = {{XR_TYPE_VIEW}, {XR_TYPE_VIEW}};
     uint32_t count = 0;
     if (XR_FAILED(xrLocateViews(s.session, &li, &vs, 2, &count, views)) || count != 2 ||
-        !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT))
+        !(vs.viewStateFlags & XR_VIEW_STATE_ORIENTATION_VALID_BIT)) {
+        ++s_poseEpoch;
         return false;
+    }
 
     Quat invOrigin = QConj(s.originRot);
     for (int i = 0; i < 2; i++) {

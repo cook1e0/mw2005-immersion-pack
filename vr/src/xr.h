@@ -29,6 +29,7 @@ bool Xr_FrameBegun();
 // been waited for.
 float Xr_DisplayHz();
 const EyeView& Xr_Eye(int eye);
+unsigned Xr_PoseEpoch();
 
 // D3D9Ex shared handles of the eye textures and the HUD texture (BGRA8). Re-call when the size changes.
 bool Xr_SetSharedTextures(HANDLE eye0, HANDLE eye1, HANDLE hud, int width, int height);

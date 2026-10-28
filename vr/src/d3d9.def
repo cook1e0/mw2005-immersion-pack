@@ -11,6 +11,7 @@ EXPORTS
     D3DPERF_GetStatus=Proxy_D3DPERF_GetStatus
     NfsmwVr_Loaded=Proxy_NfsmwVr_Loaded
     NfsmwVr_Setting=Proxy_NfsmwVr_Setting
+    NfsmwVr_SpectatorEdit=Proxy_NfsmwVr_SpectatorEdit
     NfsmwVr_Recenter=Proxy_NfsmwVr_Recenter
     NfsmwVr_Version=Proxy_NfsmwVr_Version
     NfsmwVr_SetOverlay=Proxy_NfsmwVr_SetOverlay

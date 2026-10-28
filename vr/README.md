@@ -129,7 +129,17 @@ Everything is in `nfsmw_vr.ini`. The useful ones:
 
 ## Recording
 
-The game window shows a stabilised version of the headset view, including the floating HUD. F6 switches between that view, side-by-side 3D (`sbs`) and the raw eye mirror. For a 16:9 recording, set `SpectatorFov=100` and `SpectatorAspect=1.7778`.
+F6 switches between the spectator view, side-by-side 3D (`sbs`), and the raw eye mirror (`eye`).
+
+`SpectatorPreset=broadcast` gives the spectator view an 80-degree horizontal FOV and a 16:9 aspect ratio. A missing preset, or `headset`, keeps the previous presentation. Non-zero `SpectatorFov` and `SpectatorAspect` override either preset. Zero selects that preset's automatic value. F4 > VR exposes the preset, FOV, aspect, smoothing, and HUD switch. Editing a value selects `custom` and saves the resolved FOV and aspect. Selecting a preset preserves numeric overrides.
+
+Broadcast and Custom reuse one rendered eye. They smooth yaw and pitch, then check all four output corner rays against the actual rendered projection. Corrections first move yaw and pitch toward the eye without head roll. If that path cannot provide coverage, temporary roll restores coverage and releases gradually when space returns. Corrected yaw and pitch become the next filter state. A frame gap longer than 0.1 seconds, a recenter, or a mode transition resets history. The crop fits both source dimensions with a sampling inset. Coverage takes priority over a level image and smoothing. Levelling is relative to the base game camera; `LevelRoll` still controls vehicle roll.
+
+The spectator keeps the game's HUD on its 4:3 canvas. Pixel-based telemetry uses a separate layer with its native proportions, and F4 uses its native canvas aspect to keep text proportional. Game menus and videos fit a centred 4:3 rectangle. The raw eye and SBS presentations retain their existing behaviour. A HUD already drawn into the eye image remains visible when the separate spectator HUD is hidden.
+
+`SpectatorWidth` controls window size, not source detail. The default, 0, makes the window borderless and as large as the monitor allows at the view's aspect (the whole screen for 16:9 on a 16:9 monitor); a pixel width gives a normal framed window that size, shrunk only if it doesn't fit the screen. Cropping enlarges part of the eye image. The log reports effective framing and source pixels. `FovScale` changes the headset render too; wider values trade pixel density and potentially rendering time for more coverage and are not changed by a spectator preset.
+
+Broadcast uses speed-dependent yaw and pitch filtering. `SpectatorSmoothing` controls smoothing at rest. `SpectatorAdaptive=0` selects the fixed exponential filter for comparison. Temporary roll releases with a 0.2-second time constant. Camera correction starts in the outer 12% of the available crop margin. These settings affect the desktop image only.
 
 ## Known issues
 
@@ -157,9 +167,49 @@ Each frame, the game's scene renderer (`___eDisplayFrame`) runs once per eye. Be
 Requires Visual Studio 2017 Build Tools (x86 and x64) and Windows SDK 10.0.17763. Run `build.cmd`; the output is `bin\d3d9.dll` (released as `nfsmw_vr.asi`), `bin\nfsmw_vr_host.exe`, and the x86 `bin\nfsmw_crashdump.exe`. Keep the generated PDB files with the matching build for dump analysis.
 
 Run `tests\run.cmd` for cockpit, required-hook validation and OpenXR frame regressions.
-They exercise production code with a synthetic game layout and fake runtime calls;
-they do not launch or modify the game. Incompatible required render hooks leave VR inactive;
-an existing valid resolution detour (such as the widescreen fix's) is chained.
+The suite also checks spectator coverage, correction feedback, roll release, and filter response with deterministic random poses and scripted motion. `tests\spectator_render_run.cmd` runs the production spectator shader on a D3D9 device, checks rendered pixels, HUD/menu framing, and device-state restoration, and saves captures under `dist\validation`.
+
+The automated suites use synthetic game layouts, fake runtime calls, and a standalone D3D9 device. They do not launch or modify the game. Incompatible required render hooks leave VR inactive; an existing valid resolution detour, such as the widescreen fix's, is chained.
+
+To run the fixed motion sequence in the game without a headset, set `FakeHmd=1`, `FakeMotion=1`, and `SpectatorPreset=broadcast` in `[VR]`. FakeHmd is a fallback when no runtime session is available. The 12-second loop contains yaw and pitch sweeps, step flicks, and a yaw flick with a 30-degree lean. The log's `spectator test` lines count final camera frames, coverage failures (`outside`), and corrected frames. Restore both debug keys to zero before playing in a headset. The numerical tests run the same motion function at 72, 90, and 120 Hz.
+
+For dashboard crop diagnostics, set `KeyDump=120` in `[VR]`, restart, and press F9 while driving. The BMP captures next to `speed.exe` include both eyes, the submitted HUD, the original HUD before dashboard extraction (`hud_raw`), the dashboard atlas (`dash`), telemetry (`overlay`), and the displayed desktop frame (`spectator`). The submitted HUD can be empty because the in-car display has consumed it; use `hud_raw` to check source crop coordinates. `KeyDump=0` disables the key.
+
+`DashRenderer=1` renders the stock UI objects into six dashboard cells: minimap and markers,
+radar, speedometer and meters, pursuit status, race/bounty information, and messages. The ordinary
+HUD remains complete. Unknown UI content stays on the HUD layer; the camera-dependent radar
+surround is replaced by the physical dashboard. The diagnostic comparison panel has been removed.
+Component sizes use dashboard metres rather than source pixels, and scale with the per-car display.
+The existing element X/Y/Size controls remain usable. `DashRenderer=0` selects calibrated crops.
+
+Native components currently support the stock `HUD_SingleRace.fng` / `HUD_Drag.fng` layout with
+`FixHUD=0`. A missing layout anchor, incompatible draw, clipped component or failed target uses
+the complete HUD's crop path for that frame. `FixHUD=1` uses crops; the renderer does not claim to
+undo that setting. Map quads may extend past their circular UV mask. Off-screen animation geometry
+is checked only where the game's viewport could have shown it.
+
+`FakeHmd=1` always uses a window so the recommended eye size does not become a desktop display
+mode. `Resolution=auto` can therefore render at 1832x1920 while the Broadcast window stays 1600x900.
+F4 and telemetry render on a separate canvas with the desktop client's aspect, matching the mouse
+mapping. Their headset composition preserves the same proportions inside the 4:3 HUD layer.
+
+`HudProbe=1` enables bounded diagnostics and an extra speedometer-only atlas; it does not add a
+panel beside the dashboard. `HudProbeSource=420,216,660,500` controls only that diagnostic atlas.
+The first six qualifying UI-tree changes capture 45 HUD frames. F9 requests another burst and
+saves the eye, HUD, atlas and spectator BMPs. A stable direct dashboard also saves one automatic
+capture per launch while this debug setting is enabled. Set `HudProbe=0` for normal use.
+
+CSV captures next to `speed.exe` share a `nfsmw_hudprobe_PID_NNN` prefix: frames, draw formats and
+vertex bounds, the live object tree, and CPU clipping calls. The clip trace covers two checked
+ordinary `AddPoly` call sites; zero records do not prove every path is unclipped. CPU timings
+include diagnostics and do not establish GPU cost or an FPS change.
+
+Run `tests\hud_probe_run.cmd` for multisampling, scissor mapping, shader masks, unchanged ordinary
+HUD targets, state restoration, transparent clearing, live-tree replacement, six-cell composition
+at 1024x768 / 2560x1440 / 1832x1920, and whole-frame fallback. To replay recorded geometry through
+the production ownership and bounds tables, run `obj\tests\hud_probe_render_tests.exe --replay
+C:\Games\NFSMW\nfsmw_hudprobe_PID_NNN` after building the tests. Exit 2 means no component draws;
+exit 1 means visible content exceeded its cell. This checks bounds, not textures or GPU timing.
 
 Run `tests\crash_run.ps1` for crash-capture integration tests. They use a synthetic x86 process,
 check the dump's exception/context/module/thread streams, and cover handled exceptions, normal

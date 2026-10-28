@@ -69,7 +69,9 @@ int main() {
     s.session = (XrSession)1; s.running = true;
     xrPollEvent = Poll; xrWaitFrame = Wait; xrBeginFrame = Begin;
     xrLocateSpace = Space; xrLocateViews = Views; xrEndFrame = End;
+    unsigned initialEpoch = Xr_PoseEpoch();
     assert(!Xr_BeginFrame() && !Xr_BeginFrame() && Xr_FrameBegun() && waitCalls == 1);
+    assert(Xr_PoseEpoch() != initialEpoch);
     // Even with existing textures, a failed pose lookup must submit no layers.
     s.eyeSrv[0] = (ID3D11ShaderResourceView*)1; s.chains[0].handle = (XrSwapchain)1;
     Xr_EndFrame(LayerMode::Stereo, 1, 1, true);
@@ -81,7 +83,12 @@ int main() {
     flags = XR_VIEW_STATE_ORIENTATION_VALID_BIT | XR_VIEW_STATE_POSITION_VALID_BIT;
     assert(Xr_BeginFrame() && Xr_BeginFrame());
     assert(waitCalls == 3 && s.eyes[0].tanLeft > 0);
+    Quat renderedPose = Xr_Eye(0).relOrientation;
     Xr_EndFrame(LayerMode::None, 0, 0, false);
+    assert(!memcmp(&renderedPose, &Xr_Eye(0).relOrientation, sizeof(renderedPose)));
+    unsigned beforeRecenter = Xr_PoseEpoch();
+    Xr_Recenter();
+    assert(Xr_PoseEpoch() != beforeRecenter);
     render = false;
     assert(!Xr_BeginFrame() && !Xr_BeginFrame() && Xr_FrameBegun());
     Xr_EndFrame(LayerMode::None, 0, 0, false);

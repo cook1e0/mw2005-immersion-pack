@@ -1383,12 +1383,14 @@ bool PickedGlass(const SolidMesh& m, int side, bool camaro, MirrorGlass& g) {
 }
 
 // The part of the rear view (u from, to) a side mirror shows: [VR] SideMirrorWidth of its width
-// from that side (the left mirror the left part), mirrored with MirrorFlip.
+// from that side (the left mirror the car's left), reversed so it reads as a mirror. The rear view
+// is rendered as a camera looking back sees it (the car's left on the right of the picture): the
+// HUD mirror flips it when drawing it (its quad's right edge takes u = 0). MirrorFlip undoes ours.
 void SideMirrorRange(int side, float* u0, float* u1) {
     float w = g_cfg.sideMirrorWidth;
     *u0 = side == 0 ? 0.0f : 1.0f - w;
     *u1 = *u0 + w;
-    if (g_cfg.mirrorFlip) *u0 = 1.0f - *u0, *u1 = 1.0f - *u1;
+    if (!g_cfg.mirrorFlip) *u0 = 1.0f - *u0, *u1 = 1.0f - *u1;
 }
 
 // A car listed in [VR] GameMirrorsSkip (model names such as BMWM3GTRE46, any case): its side
@@ -1785,7 +1787,7 @@ void NoteMirrors(uint8_t* solid, SolidInfo& info, const float* m) {
         bool symmetric = CarOf(name) == "PUNTO";
         GlassVertices(glass, mat, frame, 0.006f + g_cfg.mirrorOffset, 1.0f, symmetric);
         GlassVertices(glass, mat, verts, 0.010f + g_cfg.mirrorOffset, inner, symmetric);
-        if (g_cfg.mirrorFlip)
+        if (!g_cfg.mirrorFlip)   // the rear view reversed to read as a mirror (SideMirrorRange)
             for (size_t i = 3; i < verts.size(); i += 5) verts[i] = 1.0f - verts[i];
         uint8_t* plat = At<uint8_t*>(solid, kSolidPlat);
         void* ib = plat ? At<void*>(plat, kPlatIndexBuffer) : nullptr;

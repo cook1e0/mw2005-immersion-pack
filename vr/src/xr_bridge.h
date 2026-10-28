@@ -7,7 +7,7 @@
 #include "xr.h"
 
 #define XR_BRIDGE_EXE "nfsmw_vr_host.exe"
-constexpr uint32_t kBridgeProtocolVersion = 2;
+constexpr uint32_t kBridgeProtocolVersion = 3;
 
 // Object names, formatted with the game's process id.
 #define XR_BRIDGE_MAPPING "Local\\nfsmw_vr_bridge_%lu"
@@ -53,6 +53,7 @@ struct BridgeShared {
     uint32_t protocolVersion, hostProtocolVersion;
     float   hudRight;                           // appended: sideways offset of the HUD panel
     float   displayHz;                          // appended: the headset's refresh rate (0 = not known yet)
+    uint32_t poseEpoch;                         // appended: source-pose discontinuity, for spectator history
 };
 
 static_assert(sizeof(EyeView) == 18 * 4, "EyeView must be plain floats");

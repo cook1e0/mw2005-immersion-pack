@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <math.h>
+#include <cmath>
 
 Config g_cfg;
 
@@ -133,6 +134,20 @@ void LoadConfig() {
     c.bridge = _stricmp(bridge, "auto") == 0 ? -1 : atoi(bridge) != 0;
     c.apiLayers = ReadInt(ini, "ApiLayers", c.apiLayers) != 0;
     c.fakeHmd = ReadInt(ini, "FakeHmd", c.fakeHmd) != 0;
+    c.fakeMotion = ReadInt(ini, "FakeMotion", c.fakeMotion) != 0;
+    c.dashRenderer = ReadFloat(ini, "DashRenderer", c.dashRenderer);
+    c.hudProbe = ReadInt(ini, "HudProbe", 0) != 0;
+    {
+        char bounds[128] = {};
+        GetPrivateProfileStringA("VR", "HudProbeSource", "420,216,660,500", bounds, sizeof(bounds), ini);
+        float l, t, r, b;
+        if (sscanf(bounds, "%f,%f,%f,%f", &l, &t, &r, &b) == 4 &&
+            std::isfinite(l + t + r + b) && r > l && b > t &&
+            l >= -4096 && t >= -4096 && r <= 4096 && b <= 4096) {
+            c.hudProbeSource[0] = l; c.hudProbeSource[1] = t;
+            c.hudProbeSource[2] = r; c.hudProbeSource[3] = b;
+        }
+    }
     c.fakeYaw = ReadFloat(ini, "FakeYaw", c.fakeYaw);
     c.fakePitch = ReadFloat(ini, "FakePitch", c.fakePitch);
     c.fakeIpd = ReadFloat(ini, "FakeIpd", c.fakeIpd);
@@ -146,6 +161,12 @@ void LoadConfig() {
     c.keySpectator = ReadInt(ini, "KeySpectator", c.keySpectator);
     c.keyToggleShared = ReadInt(ini, "KeyToggleShared", c.keyToggleShared);
     GetPrivateProfileStringA("VR", "SpectatorMode", c.spectatorMode, c.spectatorMode, sizeof(c.spectatorMode), ini);
+    char preset[32] = "headset";
+    GetPrivateProfileStringA("VR", "SpectatorPreset", preset, preset, sizeof(preset), ini);
+    c.spectatorPreset = !_stricmp(preset, "broadcast") || !strcmp(preset, "1") ? 1.0f
+                       : !_stricmp(preset, "custom") || !strcmp(preset, "2") ? 2.0f : 0.0f;
+    c.spectatorHud = ReadInt(ini, "SpectatorHud", 1) != 0 ? 1.0f : 0.0f;
+    c.spectatorAdaptive = ReadInt(ini, "SpectatorAdaptive", 1) != 0;
     c.spectatorEye = ReadInt(ini, "SpectatorEye", c.spectatorEye) != 0 ? 1 : 0;
     c.spectatorFov = ReadFloat(ini, "SpectatorFov", c.spectatorFov);
     c.spectatorAspect = ReadFloat(ini, "SpectatorAspect", c.spectatorAspect);

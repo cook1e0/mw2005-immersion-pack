@@ -67,6 +67,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR cmdLine, int) {
             shm->eyes[0] = Xr_Eye(0);
             shm->eyes[1] = Xr_Eye(1);
             shm->displayHz = Xr_DisplayHz();
+            shm->poseEpoch = Xr_PoseEpoch();
             break;
         case kBridgeSetTextures: {
             HANDLE h[3];
