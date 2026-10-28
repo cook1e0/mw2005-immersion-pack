@@ -472,6 +472,18 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
             while (*s == ',' || *s == ' ') s++;
         }
         for (int i = got; i < p.n; i++) x[i] = p.base[i];
+        // The layout shipped up to v0.29 was sized for the crops; with the HUD's own parts
+        // (DashRenderer=1) that exact line becomes the layout made for them. Edited ones stay.
+        static const float kCropLayout[18] = {-.06f, -.04f, 1.5f, 0, .045f, 1, .065f, -.035f, 1.5f,
+                                              0, -.05f, .95f, .02f, .035f, .95f, 0, .33f, 2};
+        static const float kPartsLayout[18] = {-.08f, -.01f, 1.05f, 0, .035f, 1, .08f, -.005f, 1,
+                                               0, -.042f, 1, 0, .01f, .85f, 0, -.025f, .7f};
+        bool cropLayout = &p == &s_dashLayoutCar && g_cfg.dashRenderer > .5f && got == p.n;
+        for (int i = 0; i < p.n && cropLayout; i++) cropLayout = fabsf(x[i] - kCropLayout[i]) < 1e-4f;
+        if (cropLayout) {
+            memcpy(x, kPartsLayout, sizeof(kPartsLayout));
+            Log("cockpit: dashboard layout: the crops' default replaced by the HUD parts' default");
+        }
         bool ok = got >= p.least;
         for (int i = 0; i < p.n && ok; i++) ok = (p.nanOk && x[i] != x[i]) || (x[i] >= p.lo[i] && x[i] <= p.hi[i]);
         if (ok) {
@@ -486,6 +498,7 @@ void UpdatePerCar(PerCar& p, const std::string& car) {
             Log("cockpit: %s for %s: none saved, the default used", p.what, car.c_str());
         }
         for (int i = 0; i < p.n; i++) p.seen[i] = *p.v[i];
+        if (cropLayout) SavePerCar(p);
         return;
     }
     bool moved = false;
