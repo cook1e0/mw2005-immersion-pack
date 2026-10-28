@@ -1971,8 +1971,9 @@ V3 ToWorld(const V3& p, const float* m) {
 
 // Model-space triangles to the world for the current eye, each vertex lifted `lift` m toward the
 // eyes (last frame's gaze position: the game camera's own is not where the eyes are).
-void AddColor(void* ib, const std::vector<V3>& tris, const float* m, float lift, uint32_t argb) {
-    if (tris.empty()) return;
+void AddColor(void* ib, const std::vector<V3>& tris, const float* m, float lift, uint32_t argb,
+              const std::vector<V3>* staticTris = nullptr) {
+    if (tris.empty() && (!staticTris || staticTris->empty())) return;
     V3 eye = s_gazePos;
     if (!s_haveGaze) {
         void* cam = At<void*>((void*)kPlayerView, kViewCamera);
@@ -1990,7 +1991,12 @@ void AddColor(void* ib, const std::vector<V3>& tris, const float* m, float lift,
         xyz[i * 3 + 1] = w.y + d.y * k;
         xyz[i * 3 + 2] = w.z + d.z * k;
     }
-    D3D_AddColorTris(ib, xyz.data(), (int)tris.size() / 3, argb);
+    if (staticTris)
+        for (const V3& p : *staticTris) {
+            V3 w = ToWorld(p, m);
+            xyz.insert(xyz.end(), {w.x, w.y, w.z});
+        }
+    D3D_AddColorTris(ib, xyz.data(), (int)xyz.size() / 9, argb);
 }
 
 // The gaze against the solid's triangles (drawn with `m`): every hit is a candidate.
@@ -2266,16 +2272,72 @@ void RunEditCommand(int cmd) {
     ApplyEditsTo(s_pick.name, wheel);
 }
 
+// Small, static closures measured from the stock geometry's welded boundaries. These are not
+// editor assignments and never pass through WheelPosition: turning the wheel cannot move them.
+std::vector<V3> CockpitGapTris(const std::string& name) {
+    std::vector<V3> out;
+    auto quad = [&](V3 a, V3 b, V3 c, V3 d) {
+        out.insert(out.end(), {a, b, c, a, c, d});
+    };
+    if (name == "MURCIELAGO_KIT00_INTERIOR_A") {
+        // Join the underside of the binnacle lip to the instrument-face rim. Leave the
+        // instrument face itself uncovered (including its thin gauge/decal layers).
+        const V3 back[] = {{.8311f,.2043f,.6126f}, {.7278f,.2874f,.7008f},
+                           {.7177f,.4113f,.7098f}, {.7278f,.5351f,.7005f}, {.8320f,.6180f,.6116f}};
+        const V3 front[] = {{.8311f,.2043f,.6126f}, {.8414f,.3141f,.6869f},
+                            {.84255f,.41615f,.6869f}, {.8437f,.5182f,.6869f}, {.8320f,.6180f,.6116f}};
+        for (int i = 0; i < 4; i++) {
+            // End panels are triangles: avoid duplicate/zero-area faces at shared corners.
+            if (i == 0) out.insert(out.end(), {back[0], back[1], front[1]});
+            else if (i == 3) out.insert(out.end(), {back[3], back[4], front[3]});
+            else quad(back[i], back[i+1], front[i+1], front[i]);
+        }
+    } else if (name == "CTS_KIT00_INTERIOR_A") {
+        // Interior cowl to stock hood's rear hem; the short intermediate hood points are
+        // retained so this does not extend into the windshield or instrument binnacle.
+        const V3 inner[] = {{1.0409f,-.7184f,.7389f}, {1.0905f,-.5741f,.7363f},
+                            {1.1298f,-.4598f,.7363f}, {1.1579f,-.2341f,.7343f},
+                            {1.1731f,.0058f,.7323f}, {1.1579f,.2457f,.7343f},
+                            {1.1298f,.4713f,.7363f}, {1.0905f,.5857f,.7362f}, {1.0409f,.7299f,.7390f}};
+        const V3 outer[] = {{1.0996f,-.6885f,.7755f}, {1.1348f,-.568f,.7778f},
+                            {1.1679f,-.4648f,.7829f}, {1.1992f,-.2393f,.7909f},
+                            {1.2135f,0.f,.7955f}, {1.1992f,.2393f,.7909f},
+                            {1.1679f,.4648f,.7829f}, {1.1348f,.568f,.7778f}, {1.0995f,.6885f,.7755f}};
+        for (int i = 0; i < 8; i++) quad(inner[i], inner[i+1], outer[i+1], outer[i]);
+    } else if (name == "CORVETTEC6R_KIT00_INTERIOR_A") {
+        // The exterior cowl and interior share the outboard corners, but diverge centrally.
+        // Bridge each half separately; normal CORVETTE must never receive this patch.
+        for (int side : {-1, 1}) {
+            float s = (float)side;
+            const V3 inner[] = {{.6297f,s*.6303f,.6370f}, {.6987f,s*.4335f,.6473f},
+                                {.7425f,s*.2230f,.6528f}, {.7568f,0.f,.6561f}};
+            const V3 outer[] = {{.6297f,s*.6303f,.6370f}, {.6960f,s*.4469f,.6526f},
+                                {.6273f,s*.2020f,.7176f}, {.6158f,0.f,.7304f}};
+            out.insert(out.end(), {inner[0], inner[1], outer[1]});
+            for (int i = 1; i < 3; i++) quad(inner[i], inner[i+1], outer[i+1], outer[i]);
+        }
+    }
+    return out;
+}
+
 // For each player car solid as it is submitted (m: its matrix): its black triangles, picking and the
 // selection. Once per solid per eye.
 void NoteEditor(uint8_t* solid, SolidInfo& info, const float* m) {
     if (!s_eyeDone.insert(solid).second) return;
     void* ib = At<void*>(At<uint8_t*>(solid, kSolidPlat), kPlatIndexBuffer);
+    static const std::map<std::string, std::vector<V3>> gaps = {
+        {"MURCIELAGO_KIT00_INTERIOR_A", CockpitGapTris("MURCIELAGO_KIT00_INTERIOR_A")},
+        {"CTS_KIT00_INTERIOR_A", CockpitGapTris("CTS_KIT00_INTERIOR_A")},
+        {"CORVETTEC6R_KIT00_INTERIOR_A", CockpitGapTris("CORVETTEC6R_KIT00_INTERIOR_A")}};
+    auto gap = gaps.find(SolidName(info));
     UpdateBlack(solid, info);
     // In place of the originals (zero-area in the index buffer), 2 mm toward the eyes: clear of the
     // gauges' thin decal layers (needles, numbers) a fraction of a millimetre in front, which fought
     // with a copy just above the surface when not picked too.
-    AddColor(ib, info.black, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0));
+    // Submit once: the renderer de-duplicates by index buffer and colour. Keep the existing
+    // gauge blackout lift, while new gap geometry stays on its measured static boundaries.
+    AddColor(ib, info.black, m, 0.002f, D3DCOLOR_ARGB(255, 0, 0, 0),
+             gap == gaps.end() ? nullptr : &gap->second);
     if (!EditorLive() || !s_haveGaze) return;
     if (g_cfg.editPicking > 0.5f && s_eyeIndex == 0 && s_frameDone.insert(solid).second) PickIn(solid, info, m);
     if (solid != s_pick.solid || SolidName(info) != s_pick.name) return;

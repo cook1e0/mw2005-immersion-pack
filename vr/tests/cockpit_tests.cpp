@@ -14,7 +14,12 @@ void D3D_SetGlassCorners(void*, int, const float*) {}
 void D3D_AddMirrorGlassPart(void*, int, const float*, const uint16_t*, int) {}
 void D3D_RegisterWheelDraw(void*, int) {}
 void D3D_AddDash(void*, const float*, const float*, const float*, const float*) {}
-void D3D_AddColorTris(void*, const float*, int, uint32_t) {}
+static std::vector<float> capturedColor;
+static int capturedColorCalls;
+void D3D_AddColorTris(void*, const float* xyz, int triangles, uint32_t) {
+    capturedColor.assign(xyz, xyz + triangles * 9);
+    capturedColorCalls++;
+}
 void D3D_DrawOverlay(const float*, int, uint32_t) {}
 
 static uint8_t connData[0x500], anchorData[0xD0], moverData[16];
@@ -671,6 +676,35 @@ static void TestEditsText() {
 }
 
 int main() {
+    {
+        M4 model = Identity();
+        model.m[3][0] = 10;
+        s_haveGaze = true;
+        s_gazePos = {0, 0, 0};
+        std::vector<V3> black = {{1,0,0}, {1,1,0}, {1,0,1}};
+        auto filler = CockpitGapTris("CTS_KIT00_INTERIOR_A");
+        AddColor((void*)1, black, &model.m[0][0], .002f, 0xFF000000, &filler);
+        Check(capturedColorCalls == 1, "black edits and fillers share one renderer submission");
+        Check(capturedColor.size() == (black.size()+filler.size())*3, "existing black edits preserved");
+        Near(capturedColor[0], 10.998f, "existing black edit keeps its lift");
+        Near(capturedColor[9], filler[0].x+10, "static filler transformed without eye lift");
+        s_haveGaze = false;
+    }
+    for (const char* name : {"MURCIELAGO_KIT00_INTERIOR_A", "CTS_KIT00_INTERIOR_A", "CORVETTEC6R_KIT00_INTERIOR_A"}) {
+        auto tris = CockpitGapTris(name);
+        Check(!tris.empty() && tris.size() % 3 == 0, "gap closure is a triangle list");
+        for (size_t i = 0; i < tris.size(); i += 3) {
+            V3 a = Sub(tris[i+1], tris[i]), b = Sub(tris[i+2], tris[i]);
+            V3 cross = {a.y*b.z-a.z*b.y, a.z*b.x-a.x*b.z, a.x*b.y-a.y*b.x};
+            Check(Dot(cross, cross) > 1e-12f, "gap closure has no degenerate triangles");
+            for (int k = 0; k < 3; k++)
+                Check(tris[i+k].x > .6f && tris[i+k].x < 1.22f && tris[i+k].z > .60f && tris[i+k].z < .80f,
+                      "fillers stay within measured cowl/binnacle bounds");
+        }
+    }
+    Check(CockpitGapTris("CORVETTE_KIT00_INTERIOR_A").empty(), "normal Corvette unchanged");
+    Check(CockpitGapTris("CTS_KIT00_BODY_A").empty(), "fillers only attach to static interior");
+    Check(CockpitGapTris("CTS_KIT00_INTERIOR_B").empty(), "unmeasured LOD unchanged");
     TestHiddenMirrorGeometry();
     Check(CarreraSide("CARRERAGT_KIT00_LEFT_SIDE_MIRROR_A") == 0 && CarreraSide("CARRERAGT_KIT00_RIGHT_SIDE_MIRROR_A") == 1, "Carrera solid sides");
     Check(CarreraSide("CARRERAGT_KIT01_LEFT_SIDE_MIRROR_A") == -1 && CarreraSide("CAMARO_KIT00_BODY_A") == -1, "override scoped to stock Carrera solids");
